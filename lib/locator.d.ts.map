@@ -1,1 +1,1 @@
-{"version":3,"file":"locator.d.ts","sourceRoot":"","sources":["../src/locator.ts"],"names":[],"mappings":"AAgBA,MAAM,WAAW,YAAY;IAC3B,SAAS,EAAE,MAAM,CAAA;IACjB,YAAY,EAAE,MAAM,CAAA;CACrB;AAkBD,wBAAsB,gBAAgB,CAAC,GAAG,EAAE,MAAM,GAAG,OAAO,CAAC,YAAY,EAAE,CAAC,CAkC3E"}
+{"version":3,"file":"locator.d.ts","sourceRoot":"","sources":["../src/locator.ts"],"names":[],"mappings":"AAgBA,MAAM,WAAW,YAAY;IAC3B,SAAS,EAAE,MAAM,CAAA;IACjB,YAAY,EAAE,MAAM,CAAA;CACrB;AAUD,wBAAsB,gBAAgB,CAAC,GAAG,EAAE,MAAM,GAAG,OAAO,CAAC,YAAY,EAAE,CAAC,CAkC3E"}

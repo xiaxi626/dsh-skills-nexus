@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  quality:
+    name: typecheck · lint · test · build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify committed lib/ is up to date
+        # lib/ is committed and shipped to npm — a stale build means the
+        # published package would drift from src/. tsc is deterministic, so
+        # a fresh build must produce zero diff.
+        run: |
+          if ! git diff --exit-code --quiet -- lib/; then
+            echo "::error::lib/ is out of date — run 'npm run build' and commit the result"
+            git diff --stat -- lib/
+            exit 1
+          fi
+          echo "lib/ is up to date"

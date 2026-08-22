@@ -3,3 +3,8 @@ node_modules/
 .DS_Store
 overlay.yml
 test-provider.mjs
+
+# local dev artifacts
+test-dist/
+.npm-cache/
+

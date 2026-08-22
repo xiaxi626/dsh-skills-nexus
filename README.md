@@ -1,5 +1,7 @@
 # dsh-skills-nexus
 
+[![CI](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml)
+
 A universal DSH skill adapter. Install **once**, then register **any** GitHub
 repo that contains a `SKILL.md` as a DSH skill — one command at a time. The
 skill repo itself stays pure: no Cordis plugin code, no `package.json`, no
@@ -58,6 +60,12 @@ installed that way. `dsh-skills-nexus` fills that gap:
 |---|---|---|
 | `dsh plugin add github:owner/dsh-skills-nexus` | the nexus itself (once) | yes |
 | `dsh-skills-nexus add github:owner/any-skill` | pure SKILL.md content | **no** |
+
+> **Not sure which command fits your repo?** Read
+> **[nexus vs `dsh plugin` — when to use which](docs/nexus-vs-plugin.md)**.
+> Short version: repo has `SKILL.md` → nexus; repo is a pure plugin
+> (`cordis.patch.yml` / `dsh.bundle.patch`, no `SKILL.md`) → `dsh plugin`;
+> has both → your choice (nexus = content, plugin = code).
 
 ## Install the nexus
 
@@ -368,6 +376,38 @@ Runtime dependency is just `yaml`. `@deepseek-ai/cordis` and
 `Context` at runtime; the local structural types in `types.ts` keep the project
 typecheckable without them).
 
+## Development: testing & CI
+
+Quality gates, all runnable locally:
+
+```bash
+npm run typecheck   # tsc --noEmit (strict)
+npm run lint        # ESLint 9 + typescript-eslint (flat config)
+npm test            # unit tests — node:test + tsx, no extra framework
+npm run build       # tsc → lib/
+```
+
+The test suite lives in `test/` and targets the pure-logic modules:
+
+| module | covered by | what is verified |
+|---|---|---|
+| `src/git.ts` | `test/git.test.ts` | `parseGitSpec` (all accepted repo forms), `repoSlug`, `sanitizeName` |
+| `src/frontmatter.ts` | `test/frontmatter.test.ts` | frontmatter + body split, malformed YAML, block scalars, CRLF, `flag()` |
+| `src/locator.ts` | `test/locator.test.ts` | the 3 SKILL.md discovery layouts, skipped files, hidden dirs |
+| `src/repo-kind.ts` | `test/repo-kind.test.ts` | repo classification: plain / wrapped / plugin / unknown |
+| `src/cli/args.ts` | `test/args.test.ts` | the tiny argv parser |
+| `src/manifest.ts` | `test/manifest.test.ts` | manifest read/write round-trips against a temp `DSH_HOME` |
+| `src/resolve.ts` | `test/resolve.test.ts` | manifest → parsed skills pipeline (multi-skill, flags, name fallback) |
+
+`npm run test:build` compiles `src/` + `test/` to `test-dist/` for a
+loader-free run (`node --test test-dist/test/`), useful where tsx's loader
+is unavailable.
+
+CI (`.github/workflows/ci.yml`) runs on push/PR across Node 18/20/22:
+typecheck, lint, unit tests, build, and a check that the committed `lib/`
+still matches a fresh build (the published package ships `lib/`, so a stale
+build would drift from `src/`).
+
 ## Notes & limitations
 
 - **`add` then visibility**: whether a newly added skill appears immediately in
@@ -379,7 +419,8 @@ typecheckable without them).
   Pin a ref with `#branch`, `#tag`, or `#commit-sha` to override.
 - **Skill content repos only**: this is *not* a replacement for `dsh plugin add`
   of real Cordis plugins. If a repo already ships a `dsh.bundle.patch`, install
-  it the normal way — nexus is for repos that don't.
+  it the normal way — nexus is for repos that don't. See
+  [nexus vs `dsh plugin`](docs/nexus-vs-plugin.md) for the full decision guide.
 - **Build scripts**: because nexus clones content repos itself (not via pnpm),
   it sidesteps pnpm `allowBuilds` interception entirely.
 

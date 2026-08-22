@@ -38,6 +38,10 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/args.test.ts test/frontmatter.test.ts test/git.test.ts test/locator.test.ts test/manifest.test.ts test/repo-kind.test.ts test/resolve.test.ts",
+    "test:build": "tsc -p tsconfig.test.json",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "cli": "node --import tsx src/cli/index.ts"
   },
   "dependencies": {
@@ -48,13 +52,19 @@
     "@deepseek-ai/dsh-skill": ">=0.0.1-rc.0"
   },
   "peerDependenciesMeta": {
-    "@deepseek-ai/cordis": { "optional": true },
-    "@deepseek-ai/dsh-skill": { "optional": true }
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-skill": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "eslint": "^9.39.4",
     "tsx": "^4.19.0",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.67.0"
   },
   "engines": {
     "node": ">=18.0.0"

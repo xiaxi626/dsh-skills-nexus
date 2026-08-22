@@ -27,14 +27,6 @@ async function isFile(p: string): Promise<boolean> {
   }
 }
 
-async function isDir(p: string): Promise<boolean> {
-  try {
-    return (await stat(p)).isDirectory()
-  } catch {
-    return false
-  }
-}
-
 export async function locateSkillFiles(dir: string): Promise<LocatedSkill[]> {
   // 1. Root SKILL.md is authoritative for the whole repo.
   const rootSkill = join(dir, 'SKILL.md')

@@ -1,5 +1,7 @@
 # dsh-skills-nexus
 
+[![CI](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml)
+
 通用 DSH skill 适配器。**安装一次**，就可以把任意 GitHub 上的 `SKILL.md` 仓库注册为 DSH skill——一条命令添加一个。skill 仓库本身保持纯净：不需要 Cordis 插件代码，不需要 `package.json`，也不需要 `cordis.patch.yml`。
 
 本项目把「薄包装层」模式从「单个硬编码 skill」推广为「N 个动态发现的 skill」——同一个 provider 可以承载多个 skill，运行时扫描目录并注册。
@@ -50,6 +52,10 @@ flowchart LR
 |---|---|---|
 | `dsh plugin add github:owner/dsh-skills-nexus` | nexus 本身（仅一次） | 是 |
 | `dsh-skills-nexus add github:owner/any-skill` | 纯 SKILL.md 内容仓库 | **否** |
+
+> **不确定自己的仓库该用哪个命令？** 请看
+> **[nexus 与 `dsh plugin`——什么时候用哪个](docs/nexus-vs-plugin.zh-CN.md)**。
+> 一句话版：仓库里有 `SKILL.md` → 用 nexus；是纯插件（`cordis.patch.yml` / `dsh.bundle.patch`，无 `SKILL.md`）→ 用 `dsh plugin`；两者都有 → 自己选（nexus = 要内容，plugin = 要代码）。
 
 ## 安装 nexus
 
@@ -328,11 +334,41 @@ src/
 
 运行时依赖只有 `yaml`。`@deepseek-ai/cordis` 和 `@deepseek-ai/dsh-skill` 是可选 peer 依赖（SDK 在运行时提供真实的 `Context`；`types.ts` 中的结构类型让项目在没有它们时也能通过类型检查）。
 
+## 开发：测试与 CI
+
+质量门禁，本地全部可跑：
+
+```bash
+npm run typecheck   # tsc --noEmit（strict）
+npm run lint        # ESLint 9 + typescript-eslint（flat config）
+npm test            # 单元测试——node:test + tsx，不引入额外测试框架
+npm run build       # tsc → lib/
+```
+
+测试位于 `test/`，覆盖纯逻辑模块：
+
+| 模块 | 测试文件 | 验证内容 |
+|---|---|---|
+| `src/git.ts` | `test/git.test.ts` | `parseGitSpec`（所有接受的仓库格式）、`repoSlug`、`sanitizeName` |
+| `src/frontmatter.ts` | `test/frontmatter.test.ts` | frontmatter 与正文切分、坏 YAML、块标量、CRLF、`flag()` |
+| `src/locator.ts` | `test/locator.test.ts` | 三种 SKILL.md 发现布局、跳过文件、隐藏目录 |
+| `src/repo-kind.ts` | `test/repo-kind.test.ts` | 仓库分类：纯内容 / 包装 / 插件 / 无法识别 |
+| `src/cli/args.ts` | `test/args.test.ts` | 极简 argv 解析器 |
+| `src/manifest.ts` | `test/manifest.test.ts` | 在临时 `DSH_HOME` 上做 manifest 读写往返 |
+| `src/resolve.ts` | `test/resolve.test.ts` | manifest → 解析后 skill 的完整管线（多 skill、开关、名称回退） |
+
+`npm run test:build` 把 `src/` + `test/` 编译到 `test-dist/`，可无 loader 直接跑
+（`node --test test-dist/test/`），适合 tsx loader 不可用的环境。
+
+CI（`.github/workflows/ci.yml`）在 push/PR 时于 Node 18/20/22 上运行：
+typecheck、lint、单元测试、build，以及「已提交的 `lib/` 是否与最新源码一致」的校验
+（发布包直接带 `lib/`，编译产物过期会导致发布内容与源码漂移）。
+
 ## 注意事项与限制
 
 - **add 后是否立即可见**：新添加的 skill 是否立即出现在目录中，取决于 DSH 是否缓存了 provider 的 `list()` 结果。如果 profile 在 add 之前已启动，重载一下即可（或依赖 nexus「每次 list 都重新读」的设计，在下一次目录刷新时自动拾取）。
 - **默认分支自动探测**：不加 `#ref` 时，CLI 会通过 `git ls-remote --symref` 探测远程默认分支（探测失败回落到 `main`）。用 `#分支名`、`#tag名` 或 `#commit-hash` 可以手动指定。
-- **仅用于 skill 内容仓库**：这不是 `dsh plugin add` 的替代品。如果仓库本身就有 `dsh.bundle.patch`，请用正常方式安装——nexus 是给那些没有封装的仓库用的。
+- **仅用于 skill 内容仓库**：这不是 `dsh plugin add` 的替代品。如果仓库本身就有 `dsh.bundle.patch`，请用正常方式安装——nexus 是给那些没有封装的仓库用的。完整决策指南见 [nexus 与 `dsh plugin`——什么时候用哪个](docs/nexus-vs-plugin.zh-CN.md)。
 - **构建脚本**：由于 nexus 自己 clone 内容仓库（不走 pnpm），它完全绕开了 pnpm 的 `allowBuilds` 拦截。
 
 ## 许可证

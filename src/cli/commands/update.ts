@@ -1,4 +1,4 @@
-import { readManifest, markUpdated, findEntry } from '../../manifest.js'
+import { readManifest, markUpdated } from '../../manifest.js'
 import { skillDir } from '../../paths.js'
 import { pullRepo } from '../../git.js'
 import { positional } from '../args.js'
