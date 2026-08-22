@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+**2026-08-22 · Added · add 命令增加仓库类型识别与确认提示**
+
+- 新增 `src/repo-kind.ts`，在 `add` 注册前对克隆仓库进行分类：纯 SKILL.md 仓库、SKILL.md + DSH 薄包装层、纯 DSH 插件、无法识别仓库。
+- 对「SKILL.md + DSH 薄包装层」仓库，`add` 会询问是否忽略包装层并按 nexus 管理；输入 `y` 继续，输入 `n` 中止并提示改用 `dsh plugin add`。
+- 对「纯 DSH 插件」仓库，直接提示请按该仓库自己的 DSH 插件安装方式使用，不注册并退出。
+- 对「两者都不是」的仓库，报错退出。
+- 新增 `--yes` / `-y` / `--force` 参数，可跳过薄包装层确认提示；非交互环境下默认不继续，避免自动化挂起。
+- 同步更新 README 与编译产物 `lib/`。
+
 **2026-08-22 · Changed · 项目改名 dsh-skill-bridge → dsh-skills-nexus**
 
 - GitHub 上已有同名项目 `dsh-skills-hub`（by lcthe），且 `dsh-skills-bridge` 也已有类似项目，为避免混淆改名。

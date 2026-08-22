@@ -78,6 +78,13 @@ dsh-skills-nexus remove <name>                      # 删除克隆 + 注销
 
 支持的仓库格式：`github:owner/repo[#ref]`、完整 `https://` URL（含 `/tree/<ref>/...` 子路径）、`git+https://`、`git@`/`ssh://`、以及裸写 `owner/repo` 简写。
 
+`add` 会在注册前检查克隆下来的仓库类型：
+
+- **纯 SKILL.md 仓库**：直接注册。
+- **SKILL.md + DSH 薄包装层**：询问是否忽略包装层、按普通 SKILL.md 仓库管理。输入 `y` 继续，输入 `n` 中止并建议按 DSH 插件方式安装。使用 `--yes` 可跳过确认。
+- **纯 DSH 插件（没有 SKILL.md）**：提示请按该仓库自己的 DSH 插件安装方式安装，不建议用 nexus 管理，然后退出，不注册。
+- **两者都不是**：提示未找到 SKILL.md 或 DSH 插件标记，报错退出。
+
 ## SKILL.md 发现规则（每个克隆仓库内）
 
 1. `<repoRoot>/SKILL.md` — 优先级最高；整个仓库作为单个 skill。

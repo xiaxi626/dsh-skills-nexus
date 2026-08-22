@@ -76,6 +76,7 @@ dsh-skills-nexus add github:owner/repo
 dsh-skills-nexus add github:owner/repo#dev          # pick a branch/tag
 dsh-skills-nexus add https://github.com/owner/repo
 dsh-skills-nexus add owner/repo                     # shorthand
+dsh-skills-nexus add github:owner/repo --yes         # skip the "wrapped repo?" prompt
 
 # inspect / maintain
 dsh-skills-nexus list                               # all registered skills
@@ -88,6 +89,18 @@ dsh-skills-nexus remove <name>                      # delete clone + unregister
 Accepted repo forms: `github:owner/repo[#ref]`, full `https://` URL (incl.
 `/tree/<ref>/...` subpaths), `git+https://`, `git@`/`ssh://`, and bare
 `owner/repo` shorthand.
+
+When you `add` a repo, nexus inspects the clone before registering it:
+
+- **Plain SKILL.md repo** — registered directly.
+- **SKILL.md + DSH plugin wrapper** — nexus asks whether to ignore the wrapper
+  and manage it as a plain SKILL.md repo. Answer `y` to continue, or `n` to
+  abort and install it as a DSH plugin instead. Use `--yes` to skip the prompt
+  and always continue.
+- **Pure DSH plugin (no SKILL.md)** — nexus prints a message telling you to use
+  that repo's own DSH plugin installation flow, then exits without registering.
+- **Neither** — nexus reports that no SKILL.md or DSH plugin marker was found
+  and exits with an error.
 
 ## SKILL.md discovery (per cloned repo)
 

@@ -3,6 +3,8 @@ export interface AddOptions {
     spec: string;
     name?: string;
     ref?: string;
+    /** Automatically accept "manage this wrapped repo via nexus" prompts. */
+    yes?: boolean;
 }
 export declare function parseAddArgs(argv: string[]): AddOptions;
 /** First positional argument, or undefined. */

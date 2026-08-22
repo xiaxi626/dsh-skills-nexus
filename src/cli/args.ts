@@ -4,12 +4,15 @@ export interface AddOptions {
   spec: string
   name?: string
   ref?: string
+  /** Automatically accept "manage this wrapped repo via nexus" prompts. */
+  yes?: boolean
 }
 
 export function parseAddArgs(argv: string[]): AddOptions {
   let spec: string | undefined
   let name: string | undefined
   let ref: string | undefined
+  let yes = false
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!
@@ -17,6 +20,8 @@ export function parseAddArgs(argv: string[]): AddOptions {
       name = argv[++i]
     } else if (a === '--ref' || a === '--branch') {
       ref = argv[++i]
+    } else if (a === '--yes' || a === '-y' || a === '--force') {
+      yes = true
     } else if (!a.startsWith('--')) {
       spec = a
     }
@@ -25,7 +30,7 @@ export function parseAddArgs(argv: string[]): AddOptions {
   if (!spec) {
     throw new Error('missing repo spec, e.g. github:owner/repo')
   }
-  return { spec, name, ref }
+  return { spec, name, ref, yes }
 }
 
 /** First positional argument, or undefined. */

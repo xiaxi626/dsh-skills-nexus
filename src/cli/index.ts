@@ -2,7 +2,7 @@
 /**
  * dsh-skills-nexus CLI
  *
- *   add    github:owner/repo[#ref] [--name <name>]
+ *   add    github:owner/repo[#ref] [--name <name>] [--yes]
  *   list
  *   update [name]
  *   remove <name>
@@ -55,7 +55,7 @@ function printHelp(): void {
   process.stdout.write(`dsh-skills-nexus — register any GitHub SKILL.md repo as a DSH skill
 
 Usage:
-  dsh-skills-nexus add    <github:owner/repo[#ref]> [--name <name>]
+  dsh-skills-nexus add    <github:owner/repo[#ref]> [--name <name>] [--yes]
   dsh-skills-nexus list
   dsh-skills-nexus update [name]            # git pull (default: all enabled)
   dsh-skills-nexus remove <name>
