@@ -456,6 +456,11 @@ build would drift from `src/`).
   install with the same name overwrites. Use `--name` to distinguish entries,
   or `--subdir` to install only what you need. enable/disable work per entry
   (per installed subdir), `remove` deletes the whole entry's clone.
+- **Skill name validation**: DSH requires lowercase kebab-case skill names
+  (start with `[a-z0-9]`, then `[a-z0-9._-]`). A frontmatter `name` that
+  violates this (e.g. `CurriculumDesigner`) would make DSH reject the whole
+  provider, so nexus registers such skills under the fallback entry name and
+  warns with `⚠` at `add` time.
 - **Build scripts**: because nexus clones content repos itself (not via pnpm),
   it sidesteps pnpm `allowBuilds` interception entirely.
 

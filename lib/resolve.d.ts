@@ -26,12 +26,25 @@ export interface ParsedSkill {
     resourceBase: string;
     /** Frontmatter `name` (may be empty — callers fall back to an entry/root name). */
     name: string;
+    /**
+     * Set when the frontmatter `name` was present but violates DSH's skill-name
+     * rules — the skill is registered under the fallback name instead. Kept so
+     * `add` can warn the user about the rename.
+     */
+    invalidName?: string;
     /** Frontmatter `description` (may be empty). */
     description: string;
     body: string;
     modelInvocable: boolean;
     userInvocable: boolean;
 }
+/**
+ * DSH skill names are lowercase kebab-case: start with a lowercase letter or
+ * digit, then lowercase letters / digits / `.` / `_` / `-`. A frontmatter
+ * `name` that violates this makes DSH reject the whole provider ("invalid
+ * skill name"), so such names fall back to the entry name instead.
+ */
+export declare function isValidSkillName(name: string): boolean;
 export declare function resolveAll(): Promise<ResolvedSkill[]>;
 export declare function resolveByName(name: string): Promise<ResolvedSkill | null>;
 /**

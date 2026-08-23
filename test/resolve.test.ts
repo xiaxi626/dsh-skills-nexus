@@ -189,3 +189,27 @@ test('previewSkills applies the full skill rules to any directory', async () => 
   const root = await resolve.previewSkills(join(skillsDir, 'preview'))
   assert.deepEqual(root, [])
 })
+
+test('isValidSkillName accepts kebab-case and rejects PascalCase', () => {
+  assert.equal(resolve.isValidSkillName('curriculum-designer'), true)
+  assert.equal(resolve.isValidSkillName('curriculum_designer'), true)
+  assert.equal(resolve.isValidSkillName('skill.1'), true)
+  assert.equal(resolve.isValidSkillName('skill1'), true)
+  assert.equal(resolve.isValidSkillName('CurriculumDesigner'), false)
+  assert.equal(resolve.isValidSkillName('curriculum Designer'), false)
+  assert.equal(resolve.isValidSkillName('-skill'), false)
+  assert.equal(resolve.isValidSkillName(''), false)
+})
+
+test('invalid frontmatter names fall back to the entry name', async () => {
+  await writeManifest([entry({ name: 'demo', path: 'demo' })])
+  await writeSkill('demo/SKILL.md', '---\nname: CurriculumDesigner\n---\nbody')
+
+  const all = await resolve.resolveAll()
+  assert.equal(all.length, 1)
+  assert.equal(all[0]!.name, 'demo') // invalid name never reaches DSH
+  assert.equal(all[0]!.description, 'demo')
+
+  const preview = await resolve.previewSkills(join(skillsDir, 'demo'))
+  assert.equal(preview[0]!.invalidName, 'CurriculumDesigner') // add can warn
+})

@@ -1,1 +1,1 @@
-{"version":3,"file":"add.d.ts","sourceRoot":"","sources":["../../../src/cli/commands/add.ts"],"names":[],"mappings":"AAoBA;;;;;;;;;;;;;;;;;GAiBG;AACH,wBAAsB,GAAG,CAAC,IAAI,EAAE,MAAM,EAAE,GAAG,OAAO,CAAC,MAAM,CAAC,CAoLzD;AAED,8FAA8F;AAC9F,eAAO,MAAM,0BAA0B,KAAK,CAAA"}
+{"version":3,"file":"add.d.ts","sourceRoot":"","sources":["../../../src/cli/commands/add.ts"],"names":[],"mappings":"AAoBA;;;;;;;;;;;;;;;;;GAiBG;AACH,wBAAsB,GAAG,CAAC,IAAI,EAAE,MAAM,EAAE,GAAG,OAAO,CAAC,MAAM,CAAC,CA+LzD;AAED,8FAA8F;AAC9F,eAAO,MAAM,0BAA0B,KAAK,CAAA"}

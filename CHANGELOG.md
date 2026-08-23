@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+**2026-08-23 · Fixed · 非法 frontmatter name 回退条目名（防止 DSH 拒绝整个 provider）**
+
+- 实测 `CodeManYsf/cyysf-trae-skills` 的 `CurriculumDesigner` skill：frontmatter `name` 为大驼峰，DSH 报 `provider "dsh-skills-nexus" returned invalid skill name`，且**整个 provider 的所有 skill 都不可见**（移除后才恢复）。
+- `resolve.ts` 新增 `isValidSkillName`（小写 kebab-case：`^[a-z0-9][a-z0-9._-]*$`）：frontmatter `name` 非法时回退条目名（与无 name 同一套回退），并记录 `invalidName` 供 `add` 警告——provider 不再返回 DSH 无法接受的名字。
+- `add` 解析预览时对非法名打印 `⚠` 警告（告知实际注册名）。
+- 测试 +2（`isValidSkillName` 边界、非法名回退与 `invalidName` 标记），113 个用例全部通过；`lib/` 重新编译。
+
 **2026-08-23 · Added · 集合仓库验证文档（中英）与 README 入口**
 
 - 新增 `docs/verify-collection-support.md` 与 `docs/verify-collection-support.zh-CN.md`：集合仓库支持（P1）的端到端验证流程，Windows（Git Bash）/ Linux / macOS 各一份可整体复制的命令块，覆盖质量门禁（111 用例）、全量拒绝 + `--subdir` 提示、按子目录独立克隆安装、SUBDIR 列、按条目 enable/disable、remove 隔离、大集合防呆、平铺 md 身份规则（无 frontmatter 平铺 md ≠ skill），并收录踩过的坑（DSH_HOME 累积、交互确认、subdir 校验、平台路径、git 版本）与覆盖边界。

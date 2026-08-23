@@ -35,11 +35,27 @@ export interface ParsedSkill {
   resourceBase: string
   /** Frontmatter `name` (may be empty — callers fall back to an entry/root name). */
   name: string
+  /**
+   * Set when the frontmatter `name` was present but violates DSH's skill-name
+   * rules — the skill is registered under the fallback name instead. Kept so
+   * `add` can warn the user about the rename.
+   */
+  invalidName?: string
   /** Frontmatter `description` (may be empty). */
   description: string
   body: string
   modelInvocable: boolean
   userInvocable: boolean
+}
+
+/**
+ * DSH skill names are lowercase kebab-case: start with a lowercase letter or
+ * digit, then lowercase letters / digits / `.` / `_` / `-`. A frontmatter
+ * `name` that violates this makes DSH reject the whole provider ("invalid
+ * skill name"), so such names fall back to the entry name instead.
+ */
+export function isValidSkillName(name: string): boolean {
+  return /^[a-z0-9][a-z0-9._-]*$/.test(name)
 }
 
 /** True for flat-markdown skills (`<root>/<name>.md`, not a SKILL.md file). */
@@ -71,12 +87,23 @@ async function parseDirSkills(dir: string): Promise<ParsedSkill[]> {
     const { frontmatter, description, body } = parseFrontmatter(raw)
     const fmName = typeof frontmatter.name === 'string' ? frontmatter.name.trim() : ''
 
-    if (isFlatMd(loc.skillFile) && !fmName && !description) continue
+    // A frontmatter name that DSH would reject must not reach the provider:
+    // fall back to the entry name (like a missing name) and remember it so
+    // `add` can warn.
+    let name = fmName
+    let invalidName: string | undefined
+    if (fmName && !isValidSkillName(fmName)) {
+      invalidName = fmName
+      name = ''
+    }
+
+    if (isFlatMd(loc.skillFile) && !name && !description) continue
 
     out.push({
       skillFile: loc.skillFile,
       resourceBase: loc.resourceBase,
-      name: fmName,
+      name,
+      invalidName,
       description,
       body,
       modelInvocable: !flag(frontmatter, 'disable-model-invocation', false),

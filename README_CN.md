@@ -382,6 +382,7 @@ typecheck、lint、单元测试、build，以及「已提交的 `lib/` 是否与
 - **集合仓库与 `--subdir`**：skill 藏在子目录的集合仓库用 `--subdir <path>` 按需安装——每次安装是一个独立条目、独立克隆（独立克隆设计，P1/P2 权衡见 [docs/subdir-design.md](docs/subdir-design.md)）。不带 `--subdir` 全量安装时，根目录无可用 skill 会被拒绝；超过 20 个 skill 会弹确认提示。
 - **平铺 md 过滤**：没有 frontmatter `name` **且**没有 `description` 的平铺 `*.md` 不会被当作 skill——集合仓库的文档（`README.zh-CN.md`、`CONTRIBUTING.md`、`community-leaderboard.md` 等）永远不会被"假装安装"。发现阶段的跳过名单也按前缀模式覆盖 `readme*`、`contributing*`、`license*`、`changelog*`、`code-of-conduct*`、`security*`。
 - **同名不消歧**：DSH 按名称索引 skill，后安装的同名 skill 会覆盖前者。用 `--name` 区分条目，或用 `--subdir` 只装需要的。enable/disable 按条目（即按安装的 subdir）生效，`remove` 删除整个条目的克隆。
+- **skill 名校验**：DSH 要求 skill 名是小写 kebab-case（`[a-z0-9]` 开头，后跟 `[a-z0-9._-]`）。frontmatter `name` 不合法（如 `CurriculumDesigner`）会导致 DSH 拒绝整个 provider，因此 nexus 会把这类 skill 注册为回退名（条目名），并在 `add` 时以 `⚠` 警告。
 - **构建脚本**：由于 nexus 自己 clone 内容仓库（不走 pnpm），它完全绕开了 pnpm 的 `allowBuilds` 拦截。
 
 ## 许可证

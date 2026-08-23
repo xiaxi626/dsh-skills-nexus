@@ -179,6 +179,17 @@ export async function add(argv: string[]): Promise<number> {
     return 1
   }
 
+  // Frontmatter names that DSH would reject are registered under the fallback
+  // (entry) name — warn so the user knows the catalog name differs.
+  for (const s of preview) {
+    if (s.invalidName) {
+      process.stdout.write(
+        `  ⚠ frontmatter name "${s.invalidName}" is not a valid DSH skill name ` +
+        `(lowercase kebab-case required) — registered as "${skillName}"\n`,
+      )
+    }
+  }
+
   // Guard against accidental full installs of large collections. Explicit
   // `--subdir` installs skip this — the user already narrowed the scope.
   if (preview.length > LARGE_COLLECTION_THRESHOLD && !subdir && !yes) {
