@@ -22,6 +22,13 @@ export interface SkillEntry {
   gitUrl: string
   /** Branch / tag / commit. */
   ref: string
+  /**
+   * Resolved commit SHA of the current checkout — a lightweight lock
+   * ("lockfile-lite"). Recorded at `add` time and re-stamped by `update`, so
+   * the manifest always knows the exact installed version even when `ref` is
+   * a moving branch. Absent for entries added before this field existed.
+   */
+  commit?: string
   /** Directory name under <skills>/ holding the cloned repo. */
   path: string
   /** Whether this skill is exposed to the DSH catalog. */

@@ -75,8 +75,8 @@ dsh-skills-nexus add https://github.com/owner/repo
 dsh-skills-nexus add owner/repo                     # 简写
 
 # 查看 / 维护
-dsh-skills-nexus list                               # 列出所有已注册 skill
-dsh-skills-nexus update [name]                      # git pull（默认全部，可指定一个）
+dsh-skills-nexus list                               # 列出所有已注册 skill（含安装的 commit）
+dsh-skills-nexus update [name]                      # 刷新（分支 pin 拉取；tag/commit pin 校验）
 dsh-skills-nexus enable  <name>                     # 在目录中显示（默认开启）
 dsh-skills-nexus disable <name>                     # 隐藏但不删除
 dsh-skills-nexus remove <name>                      # 删除克隆 + 注销
@@ -336,6 +336,11 @@ src/
 
 ## 开发：测试与 CI
 
+> **想端到端验证版本锁定功能？** 见
+> [验证版本锁定功能（P0）](docs/verify-version-lock.zh-CN.md) —— 覆盖
+> Windows / Linux / macOS 的可直接复制的验证流程：测试套件、分支快进、
+> tag 固定点、漂移恢复与重复 add 保护。
+
 质量门禁，本地全部可跑：
 
 ```bash
@@ -367,7 +372,7 @@ typecheck、lint、单元测试、build，以及「已提交的 `lib/` 是否与
 ## 注意事项与限制
 
 - **add 后是否立即可见**：新添加的 skill 是否立即出现在目录中，取决于 DSH 是否缓存了 provider 的 `list()` 结果。如果 profile 在 add 之前已启动，重载一下即可（或依赖 nexus「每次 list 都重新读」的设计，在下一次目录刷新时自动拾取）。
-- **默认分支自动探测**：不加 `#ref` 时，CLI 会通过 `git ls-remote --symref` 探测远程默认分支（探测失败回落到 `main`）。用 `#分支名`、`#tag名` 或 `#commit-hash` 可以手动指定。
+- **版本固定与更新**：用 `#分支名`、`#tag名` 或 `#commit-hash` 固定 ref。安装时 manifest 会记录实际解析到的 commit（`commit` 字段）——一个轻量锁，`list` 会显示它。`update` 只对**分支** pin 的 skill 做快进拉取（并打印 commit 变化）；**tag/commit** pin 的 skill 是固定点：只校验当前 checkout 是否仍等于 pin（漂移则自动恢复），不做 pull——被固定的版本永远不会静默漂移。不加 `#ref` 时，CLI 会通过 `git ls-remote --symref` 自动探测远程默认分支（探测失败回落到 `main`）。
 - **仅用于 skill 内容仓库**：这不是 `dsh plugin add` 的替代品。如果仓库本身就有 `dsh.bundle.patch`，请用正常方式安装——nexus 是给那些没有封装的仓库用的。完整决策指南见 [nexus 与 `dsh plugin`——什么时候用哪个](docs/nexus-vs-plugin.zh-CN.md)。
 - **构建脚本**：由于 nexus 自己 clone 内容仓库（不走 pnpm），它完全绕开了 pnpm 的 `allowBuilds` 拦截。
 

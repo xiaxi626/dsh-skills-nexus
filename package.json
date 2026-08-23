@@ -38,7 +38,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test test/args.test.ts test/frontmatter.test.ts test/git.test.ts test/locator.test.ts test/manifest.test.ts test/repo-kind.test.ts test/resolve.test.ts",
+    "test": "node --import tsx --test test/add.test.ts test/args.test.ts test/frontmatter.test.ts test/git.test.ts test/locator.test.ts test/manifest.test.ts test/repo-kind.test.ts test/resolve.test.ts test/update.test.ts",
     "test:build": "tsc -p tsconfig.test.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

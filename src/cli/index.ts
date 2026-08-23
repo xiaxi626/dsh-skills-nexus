@@ -57,7 +57,7 @@ function printHelp(): void {
 Usage:
   dsh-skills-nexus add    <github:owner/repo[#ref]> [--name <name>] [--yes]
   dsh-skills-nexus list
-  dsh-skills-nexus update [name]            # git pull (default: all enabled)
+  dsh-skills-nexus update [name]            # refresh clones (default: all enabled)
   dsh-skills-nexus remove <name>
   dsh-skills-nexus enable  <name>
   dsh-skills-nexus disable <name>

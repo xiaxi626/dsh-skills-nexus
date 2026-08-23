@@ -87,8 +87,8 @@ dsh-skills-nexus add owner/repo                     # shorthand
 dsh-skills-nexus add github:owner/repo --yes         # skip the "wrapped repo?" prompt
 
 # inspect / maintain
-dsh-skills-nexus list                               # all registered skills
-dsh-skills-nexus update [name]                      # git pull (all, or one)
+dsh-skills-nexus list                               # all registered skills (+ installed commit)
+dsh-skills-nexus update [name]                      # refresh (branch pin: pull; tag/commit pin: verify)
 dsh-skills-nexus enable  <name>                     # show in catalog (default)
 dsh-skills-nexus disable <name>                     # hide without deleting
 dsh-skills-nexus remove <name>                      # delete clone + unregister
@@ -378,6 +378,11 @@ typecheckable without them).
 
 ## Development: testing & CI
 
+> **Want to verify the version-lock feature end-to-end?** See
+> [Verifying the version-lock feature (P0)](docs/verify-version-lock.md) — a
+> copy-paste walkthrough for Windows / Linux / macOS covering the test suite,
+> branch fast-forward, tag pinning, drift recovery and the re-add guard.
+
 Quality gates, all runnable locally:
 
 ```bash
@@ -414,9 +419,15 @@ build would drift from `src/`).
   the catalog depends on whether DSH caches provider `list()` results. If the
   profile was started before `add`, reload it (or rely on the nexus's read-on-
   every-`list` design, which picks up changes on the next catalog refresh).
-- **Default branch detection**: when no `#ref` is given, the CLI detects the
-  remote's default branch via `git ls-remote --symref` (falls back to `main`).
-  Pin a ref with `#branch`, `#tag`, or `#commit-sha` to override.
+- **Version pinning & updates**: pin a ref with `#branch`, `#tag`, or
+  `#commit-sha`. At install time the manifest records the exact resolved
+  commit (`commit`) — a lightweight lock that `list` shows. `update` only
+  fast-forwards **branch**-pinned skills (printing the commit change);
+  **tag/commit**-pinned skills are fixed points: it verifies the checkout
+  still matches the pin (and restores it if it drifted) instead of pulling, so
+  a pinned version never silently drifts. When no `#ref` is given, the CLI
+  detects the remote's default branch via `git ls-remote --symref` (falls back
+  to `main`).
 - **Skill content repos only**: this is *not* a replacement for `dsh plugin add`
   of real Cordis plugins. If a repo already ships a `dsh.bundle.patch`, install
   it the normal way — nexus is for repos that don't. See

@@ -132,3 +132,42 @@ export async function pullRepo(dest: string): Promise<void> {
 function isCommitLike(ref: string): boolean {
   return /^[0-9a-f]{7,40}$/i.test(ref)
 }
+
+/* ------------------------------------------------------------------ */
+/* Commit / HEAD helpers (version-lock bookkeeping)                    */
+/* ------------------------------------------------------------------ */
+
+/** Full commit SHA currently checked out in a clone. */
+export async function getHeadCommit(dest: string): Promise<string> {
+  const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: dest })
+  return stdout.trim()
+}
+
+/**
+ * True when the clone is on a detached HEAD — i.e. it was cloned at a tag or
+ * a raw commit SHA, which `git pull` cannot fast-forward. Branch clones have
+ * a symbolic HEAD and return false. Other failures (broken clone, no git)
+ * also yield true, but callers always run `getHeadCommit` first, which throws
+ * before reaching this point in those cases.
+ */
+export async function isDetachedHead(dest: string): Promise<boolean> {
+  try {
+    await execFileAsync('git', ['symbolic-ref', '-q', 'HEAD'], { cwd: dest })
+    return false
+  } catch {
+    return true
+  }
+}
+
+/** Resolve a local ref (branch / tag / commit) to its commit SHA. */
+export async function resolveRefCommit(dest: string, ref: string): Promise<string> {
+  const { stdout } = await execFileAsync(
+    'git', ['rev-parse', '--verify', `${ref}^{commit}`], { cwd: dest },
+  )
+  return stdout.trim()
+}
+
+/** Check out a local ref, leaving the clone detached (restores a pinned tag/commit). */
+export async function checkoutRef(dest: string, ref: string): Promise<void> {
+  await execFileAsync('git', ['checkout', ref], { cwd: dest })
+}

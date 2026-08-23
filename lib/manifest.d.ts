@@ -13,8 +13,12 @@ export declare function addEntry(entry: SkillEntry): Promise<void>;
 export declare function removeEntry(name: string): Promise<SkillEntry | undefined>;
 /** Toggle the `enabled` flag of an entry. Returns the updated entry, if found. */
 export declare function setEnabled(name: string, enabled: boolean): Promise<SkillEntry | undefined>;
-/** Stamp `updatedAt` on an entry after a successful git pull. */
-export declare function markUpdated(name: string): Promise<void>;
+/**
+ * Stamp `updatedAt` (and the resolved commit, if given) after a successful
+ * update. The commit is the "lockfile-lite" half of version management: the
+ * manifest always knows the exact installed version.
+ */
+export declare function markUpdated(name: string, commit?: string): Promise<void>;
 /** Best-effort recursive delete of a skill's cloned directory. */
 export declare function removeSkillDir(path: string): Promise<void>;
 //# sourceMappingURL=manifest.d.ts.map

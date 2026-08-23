@@ -2,11 +2,12 @@ import { mkdir, rm } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
-import { addEntry } from '../../manifest.js'
+import { addEntry, hasEntry, readManifest } from '../../manifest.js'
 import { SKILLS_DIR, skillDir } from '../../paths.js'
 import {
   cloneRepo,
   getDefaultBranch,
+  getHeadCommit,
   parseGitSpec,
   repoSlug,
   sanitizeName,
@@ -42,6 +43,18 @@ export async function add(argv: string[]): Promise<number> {
   const path = sanitizeName(repoSlug(gitSpec))
   const skillName = sanitizeName(name ?? repoSlug(gitSpec))
 
+  // Reject re-registration *before* touching the filesystem: cloning into an
+  // existing registered path would fail, and the failure cleanup below would
+  // delete the already-registered skill's clone.
+  const manifest = await readManifest()
+  if (hasEntry(manifest, skillName) || manifest.skills.some((s) => s.path === path)) {
+    process.stderr.write(
+      `A skill named "${skillName}" is already registered (path "${path}").\n` +
+      `Use "dsh-skills-nexus update ${skillName}" to refresh it, or "dsh-skills-nexus remove ${skillName}" first.\n`,
+    )
+    return 1
+  }
+
   const dest = skillDir(path)
   await mkdir(dirname(dest), { recursive: true })
 
@@ -52,6 +65,16 @@ export async function add(argv: string[]): Promise<number> {
     // Clean up any partially-created directory so a retry starts clean.
     await rm(dest, { recursive: true, force: true })
     throw err
+  }
+
+  // Record the exact commit we installed — the "lockfile-lite" half of version
+  // management: even when `ref` is a moving branch, the manifest knows the
+  // precise state. Non-fatal: a git hiccup here must not block registration.
+  let commit: string | undefined
+  try {
+    commit = await getHeadCommit(dest)
+  } catch {
+    commit = undefined
   }
 
   // Inspect the cloned repo before registering it. This decides whether the
@@ -100,6 +123,7 @@ export async function add(argv: string[]): Promise<number> {
     url: spec,
     gitUrl: gitSpec.url,
     ref: gitSpec.ref,
+    commit,
     path,
     enabled: true,
     addedAt: new Date().toISOString(),

@@ -80,12 +80,17 @@ export async function setEnabled(
   return entry
 }
 
-/** Stamp `updatedAt` on an entry after a successful git pull. */
-export async function markUpdated(name: string): Promise<void> {
+/**
+ * Stamp `updatedAt` (and the resolved commit, if given) after a successful
+ * update. The commit is the "lockfile-lite" half of version management: the
+ * manifest always knows the exact installed version.
+ */
+export async function markUpdated(name: string, commit?: string): Promise<void> {
   const manifest = await readManifest()
   const entry = findEntry(manifest, name)
   if (!entry) return
   entry.updatedAt = new Date().toISOString()
+  if (commit) entry.commit = commit
   await writeManifest(manifest)
 }
 

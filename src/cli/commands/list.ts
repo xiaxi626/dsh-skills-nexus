@@ -24,6 +24,7 @@ export async function list(_argv: string[]): Promise<number> {
       s.enabled ? 'on ' : 'off',
       s.name,
       s.ref,
+      s.commit ? short(s.commit) : '—',
       present,
       s.updatedAt ? relative(s.updatedAt) : '—',
     ])
@@ -31,11 +32,11 @@ export async function list(_argv: string[]): Promise<number> {
 
   const nameW = Math.max(4, ...rows.map((r) => r[1]!.length))
   process.stdout.write(
-    `    ${'NAME'.padEnd(nameW)}  REF           DIR      UPDATED\n`,
+    `    ${'NAME'.padEnd(nameW)}  REF           COMMIT    DIR      UPDATED\n`,
   )
   for (const r of rows) {
     process.stdout.write(
-      `${r[0]}  ${r[1]!.padEnd(nameW)}  ${r[2]!.padEnd(13)}${r[3]!.padEnd(9)}${r[4]}\n`,
+      `${r[0]}  ${r[1]!.padEnd(nameW)}  ${r[2]!.padEnd(13)}${r[3]!.padEnd(9)}${r[4]!.padEnd(9)}${r[5]}\n`,
     )
   }
   process.stdout.write(`\n${rows.length} skill(s) · ${SKILLS_DIR_LINE}\n`)
@@ -43,6 +44,10 @@ export async function list(_argv: string[]): Promise<number> {
 }
 
 const SKILLS_DIR_LINE = '~/.dsh/skills-nexus/skills/'
+
+function short(sha: string): string {
+  return sha.slice(0, 7)
+}
 
 function relative(iso: string): string {
   const then = Date.parse(iso)

@@ -35,4 +35,18 @@ export declare function getDefaultBranch(url: string): Promise<string>;
 export declare function cloneRepo(spec: GitSpec, dest: string): Promise<void>;
 /** Fast-forward pull an existing clone. */
 export declare function pullRepo(dest: string): Promise<void>;
+/** Full commit SHA currently checked out in a clone. */
+export declare function getHeadCommit(dest: string): Promise<string>;
+/**
+ * True when the clone is on a detached HEAD — i.e. it was cloned at a tag or
+ * a raw commit SHA, which `git pull` cannot fast-forward. Branch clones have
+ * a symbolic HEAD and return false. Other failures (broken clone, no git)
+ * also yield true, but callers always run `getHeadCommit` first, which throws
+ * before reaching this point in those cases.
+ */
+export declare function isDetachedHead(dest: string): Promise<boolean>;
+/** Resolve a local ref (branch / tag / commit) to its commit SHA. */
+export declare function resolveRefCommit(dest: string, ref: string): Promise<string>;
+/** Check out a local ref, leaving the clone detached (restores a pinned tag/commit). */
+export declare function checkoutRef(dest: string, ref: string): Promise<void>;
 //# sourceMappingURL=git.d.ts.map

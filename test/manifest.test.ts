@@ -118,6 +118,24 @@ test('markUpdated stamps an ISO updatedAt', async () => {
   assert.ok(!Number.isNaN(Date.parse(stamp!)))
 })
 
+test('markUpdated stamps updatedAt and the resolved commit', async () => {
+  await manifest.writeManifest({ version: 1, skills: [entry] })
+  await manifest.markUpdated('demo', 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678')
+  const m = await manifest.readManifest()
+  assert.equal(m.skills[0]!.commit, 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678')
+  assert.ok(!Number.isNaN(Date.parse(m.skills[0]!.updatedAt!)))
+})
+
+test('markUpdated without a commit leaves an existing commit untouched', async () => {
+  await manifest.writeManifest({
+    version: 1,
+    skills: [{ ...entry, commit: 'a1b2c3d' }],
+  })
+  await manifest.markUpdated('demo')
+  const m = await manifest.readManifest()
+  assert.equal(m.skills[0]!.commit, 'a1b2c3d')
+})
+
 test('corrupt manifest is backed up and resets to empty', async () => {
   await writeFile(manifestPath, '{ this is not json', 'utf8')
   const m = await manifest.readManifest()

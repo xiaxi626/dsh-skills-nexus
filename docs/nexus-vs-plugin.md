@@ -79,16 +79,40 @@ Ask yourself what you actually want from the repo:
 
 ## Quick flow
 
-```
-Got a GitHub repo you want in DSH
- │
- ├─ has SKILL.md?
- │    ├─ yes ── has a plugin wrapper (cordis.patch.yml / dsh.bundle.patch)?
- │    │          ├─ yes → wrapped-skill → nexus (content) or dsh plugin (code) — your choice
- │    │          └─ no  → plain-skill   → dsh-skills-nexus add <repo>
- │    └─ no ── has a plugin marker?
- │              ├─ yes → dsh-plugin → dsh plugin add <repo>
- │              └─ no  → not DSH content → stop
+```mermaid
+flowchart LR
+    START["GitHub repo<br/>you want in DSH"]
+    Q1{"has<br/>SKILL.md?"}
+    Q2{"has plugin wrapper?<br/>cordis.patch.yml / dsh.bundle.patch"}
+    Q3{"has plugin<br/>marker?"}
+    PLAIN["plain-skill"]
+    WRAP["wrapped-skill"]
+    PLUGIN["dsh-plugin"]
+    NONE["not DSH content"]
+    CHOICE{"content<br/>or code?"}
+    NEXUS["dsh-skills-nexus add &lt;repo&gt;"]
+    PLUGINCMD["dsh plugin add &lt;repo&gt;"]
+
+    START --> Q1
+    Q1 -- "yes" --> Q2
+    Q2 -- "yes" --> WRAP --> CHOICE
+    CHOICE -- "content" --> NEXUS
+    CHOICE -- "code" --> PLUGINCMD
+    Q2 -- "no" --> PLAIN --> NEXUS
+    Q1 -- "no" --> Q3
+    Q3 -- "yes" --> PLUGIN --> PLUGINCMD
+    Q3 -- "no" --> NONE
+
+    classDef sStart fill:#f1f5f9,stroke:#64748b,stroke-width:2px,color:#000
+    classDef sDecide fill:#fffbeb,stroke:#f59e0b,stroke-width:2px,color:#000
+    classDef sKind fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#000
+    classDef sAction fill:#e8f4fd,stroke:#3b82f6,stroke-width:2px,color:#000
+    classDef sStop fill:#fce7f3,stroke:#ec4899,stroke-width:2px,color:#000
+    class START sStart
+    class Q1,Q2,Q3,CHOICE sDecide
+    class PLAIN,WRAP,PLUGIN sKind
+    class NEXUS,PLUGINCMD sAction
+    class NONE sStop
 ```
 
 ---

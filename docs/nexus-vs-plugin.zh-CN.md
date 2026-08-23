@@ -58,16 +58,40 @@
 
 ## 快速流程图
 
-```
-有一个想装进 DSH 的 GitHub 仓库
- │
- ├─ 有 SKILL.md？
- │    ├─ 有 ── 有插件包装层（cordis.patch.yml / dsh.bundle.patch）？
- │    │        ├─ 有 → wrapped-skill → nexus（要内容）或 dsh plugin（要代码）——二选一
- │    │        └─ 无 → plain-skill  → dsh-skills-nexus add <repo>
- │    └─ 无 ── 有插件标记？
- │              ├─ 有 → dsh-plugin → dsh plugin add <repo>
- │              └─ 无 → 不是 DSH 内容 → 结束
+```mermaid
+flowchart LR
+    START["想装进 DSH 的<br/>GitHub 仓库"]
+    Q1{"有<br/>SKILL.md？"}
+    Q2{"有插件包装层？<br/>cordis.patch.yml / dsh.bundle.patch"}
+    Q3{"有插件<br/>标记？"}
+    PLAIN["plain-skill"]
+    WRAP["wrapped-skill"]
+    PLUGIN["dsh-plugin"]
+    NONE["不是 DSH 内容"]
+    CHOICE{"要内容<br/>还是要代码？"}
+    NEXUS["dsh-skills-nexus add &lt;repo&gt;"]
+    PLUGINCMD["dsh plugin add &lt;repo&gt;"]
+
+    START --> Q1
+    Q1 -- "有" --> Q2
+    Q2 -- "有" --> WRAP --> CHOICE
+    CHOICE -- "内容" --> NEXUS
+    CHOICE -- "代码" --> PLUGINCMD
+    Q2 -- "无" --> PLAIN --> NEXUS
+    Q1 -- "无" --> Q3
+    Q3 -- "有" --> PLUGIN --> PLUGINCMD
+    Q3 -- "无" --> NONE
+
+    classDef sStart fill:#f1f5f9,stroke:#64748b,stroke-width:2px,color:#000
+    classDef sDecide fill:#fffbeb,stroke:#f59e0b,stroke-width:2px,color:#000
+    classDef sKind fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#000
+    classDef sAction fill:#e8f4fd,stroke:#3b82f6,stroke-width:2px,color:#000
+    classDef sStop fill:#fce7f3,stroke:#ec4899,stroke-width:2px,color:#000
+    class START sStart
+    class Q1,Q2,Q3,CHOICE sDecide
+    class PLAIN,WRAP,PLUGIN sKind
+    class NEXUS,PLUGINCMD sAction
+    class NONE sStop
 ```
 
 ---
