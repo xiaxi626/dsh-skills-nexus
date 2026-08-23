@@ -3,6 +3,8 @@ export interface AddOptions {
     spec: string;
     name?: string;
     ref?: string;
+    /** Path of the skill root inside the cloned repo, e.g. `skills/foo`. */
+    subdir?: string;
     /** Automatically accept "manage this wrapped repo via nexus" prompts. */
     yes?: boolean;
 }

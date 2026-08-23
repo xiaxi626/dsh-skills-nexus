@@ -1,5 +1,6 @@
-import { mkdir, rm } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { mkdir, readdir, rm, stat } from 'node:fs/promises'
+import type { Dirent } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { addEntry, hasEntry, readManifest } from '../../manifest.js'
@@ -13,6 +14,8 @@ import {
   sanitizeName,
 } from '../../git.js'
 import { classifyRepo } from '../../repo-kind.js'
+import { locateSkillFiles } from '../../locator.js'
+import { previewSkills } from '../../resolve.js'
 import { parseAddArgs } from '../args.js'
 
 /**
@@ -23,9 +26,18 @@ import { parseAddArgs } from '../args.js'
  *
  * When the user does not specify a `#ref`, we detect the remote's default
  * branch via `git ls-remote --symref` instead of hardcoding `main`.
+ *
+ * `--subdir <path>` installs a single subdirectory of the clone (collection
+ * repos like `trae-skills`): the subdir becomes the skill root, the entry gets
+ * a `subdir` field, and the clone directory is dedicated to that entry
+ * (independent-clone design — see docs/subdir-design.md).
+ *
+ * Before registering, the clone is *previewed* with the full skill rules, so
+ * repos that yield zero installable skills (docs-only roots, nested
+ * collections without `--subdir`) are rejected instead of "fake-installed".
  */
 export async function add(argv: string[]): Promise<number> {
-  const { spec, name, ref, yes } = parseAddArgs(argv)
+  const { spec, name, ref, subdir, yes } = parseAddArgs(argv)
 
   // Parse once to get the URL; we'll refine the ref below if needed.
   let gitSpec = parseGitSpec(spec, ref ?? 'main')
@@ -40,8 +52,23 @@ export async function add(argv: string[]): Promise<number> {
     gitSpec = { ...gitSpec, ref: detected }
   }
 
-  const path = sanitizeName(repoSlug(gitSpec))
-  const skillName = sanitizeName(name ?? repoSlug(gitSpec))
+  // `--subdir` must be a repo-relative path: no absolute paths, no `..`.
+  if (
+    subdir &&
+    (/^[\\/]/.test(subdir) || subdir.split(/[\\/]/).includes('..'))
+  ) {
+    process.stderr.write(
+      `Invalid --subdir "${subdir}": must be a repo-relative path (no leading "/", no "..").\n`,
+    )
+    return 1
+  }
+
+  const repoBase = sanitizeName(repoSlug(gitSpec))
+  const subdirLeaf = subdir
+    ? sanitizeName(subdir.split(/[\\/]/).filter(Boolean).pop() ?? 'skill')
+    : undefined
+  const path = subdir ? `${repoBase}-${subdirLeaf}` : repoBase
+  const skillName = sanitizeName(name ?? subdirLeaf ?? repoBase)
 
   // Reject re-registration *before* touching the filesystem: cloning into an
   // existing registered path would fail, and the failure cleanup below would
@@ -77,10 +104,29 @@ export async function add(argv: string[]): Promise<number> {
     commit = undefined
   }
 
+  // With `--subdir`, the skill root is the subdirectory; the clone root still
+  // owns the git state (HEAD, pull) and the DSH plugin markers.
+  const skillRoot = subdir ? join(dest, subdir) : dest
+  if (subdir) {
+    let st
+    try {
+      st = await stat(skillRoot)
+    } catch {
+      st = undefined
+    }
+    if (!st?.isDirectory()) {
+      process.stderr.write(
+        `Subdirectory "${subdir}" does not exist in the cloned repository.\n`,
+      )
+      await rm(dest, { recursive: true, force: true })
+      return 1
+    }
+  }
+
   // Inspect the cloned repo before registering it. This decides whether the
   // repo is a plain SKILL.md repo, a SKILL.md repo with a thin DSH plugin
   // wrapper, a pure DSH plugin, or something nexus cannot manage.
-  const repoKind = await classifyRepo(dest)
+  const repoKind = await classifyRepo(skillRoot, { markerDir: dest })
 
   if (repoKind.kind === 'dsh-plugin') {
     process.stdout.write(
@@ -96,7 +142,8 @@ export async function add(argv: string[]): Promise<number> {
   if (repoKind.kind === 'unknown') {
     process.stderr.write(
       `\nNo SKILL.md file and no DSH plugin marker were found in this repository.\n` +
-      `dsh-skills-nexus can only manage SKILL.md repositories.\n`,
+      `dsh-skills-nexus can only manage SKILL.md repositories.\n` +
+      (await nestedHint(dest)),
     )
     await rm(dest, { recursive: true, force: true })
     return 1
@@ -118,12 +165,42 @@ export async function add(argv: string[]): Promise<number> {
     }
   }
 
+  // Preview with the full skill rules (incl. the flat-md frontmatter filter).
+  // Zero results means the root is docs-only — reject instead of
+  // "fake-installing" a repo whose skills are all nested deeper.
+  const preview = await previewSkills(skillRoot)
+  if (preview.length === 0) {
+    process.stderr.write(
+      `\nNo installable SKILL.md content was found at "${subdir ?? 'the repository root'}".\n` +
+      `dsh-skills-nexus can only install files that qualify as skills.\n` +
+      (await nestedHint(dest)),
+    )
+    await rm(dest, { recursive: true, force: true })
+    return 1
+  }
+
+  // Guard against accidental full installs of large collections. Explicit
+  // `--subdir` installs skip this — the user already narrowed the scope.
+  if (preview.length > LARGE_COLLECTION_THRESHOLD && !subdir && !yes) {
+    const proceed = await confirm(
+      `This repository yields ${preview.length} skills.\n` +
+      `Do you want to install all of them? (Use --subdir <path> to install a single subdirectory instead.)`,
+      false,
+    )
+    if (!proceed) {
+      process.stdout.write(`Aborted.\n`)
+      await rm(dest, { recursive: true, force: true })
+      return 0
+    }
+  }
+
   const entry = {
     name: skillName,
     url: spec,
     gitUrl: gitSpec.url,
     ref: gitSpec.ref,
     commit,
+    subdir,
     path,
     enabled: true,
     addedAt: new Date().toISOString(),
@@ -134,10 +211,41 @@ export async function add(argv: string[]): Promise<number> {
 
   process.stdout.write(
     `Added skill "${skillName}" from ${spec}\n` +
-    `  dir: ${dest}\n` +
-    `  Run a DSH profile (or reload) to make it appear in the catalog.\n`,
+      (subdir ? `  subdir: ${subdir}\n` : '') +
+      `  dir: ${dest}\n` +
+      `  Run a DSH profile (or reload) to make it appear in the catalog.\n`,
   )
   return 0
+}
+
+/** Repos with > this many skills trigger the "install all?" guard (unless --subdir/--yes). */
+export const LARGE_COLLECTION_THRESHOLD = 20
+
+/**
+ * Hint for nested collection repos: if any direct subdirectory of the clone
+ * root contains skill files, `--subdir` is the way to install them.
+ */
+async function nestedHint(dest: string): Promise<string> {
+  return (await hasNestedSkills(dest))
+    ? `\nIts SKILL.md files appear to live under subdirectories — install a specific one with:\n` +
+      `  dsh-skills-nexus add <repo> --subdir <path>\n`
+    : ''
+}
+
+/** True if any direct subdirectory of `dir` yields skill files (single-level). */
+async function hasNestedSkills(dir: string): Promise<boolean> {
+  let entries: Dirent[] = []
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch {
+    return false
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue
+    const located = await locateSkillFiles(join(dir, entry.name))
+    if (located.length > 0) return true
+  }
+  return false
 }
 
 /**

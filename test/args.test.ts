@@ -11,8 +11,19 @@ test('spec is the first positional', () => {
     spec: 'github:owner/repo',
     name: undefined,
     ref: undefined,
+    subdir: undefined,
     yes: false,
   })
+})
+
+test('--subdir sets the skill root inside the repo', () => {
+  const opts = parseAddArgs(['github:owner/repo', '--subdir', 'skills/foo'])
+  assert.equal(opts.subdir, 'skills/foo')
+  assert.equal(opts.spec, 'github:owner/repo')
+})
+
+test('--subdir without a value throws', () => {
+  assert.throws(() => parseAddArgs(['github:owner/repo', '--subdir']), /--subdir requires a path/)
 })
 
 test('--name sets the skill name', () => {

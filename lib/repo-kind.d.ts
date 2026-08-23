@@ -9,6 +9,10 @@
  *
  * The distinction lets `add` ask before taking over a wrapped skill repo, and
  * refuse to manage pure DSH plugins through nexus.
+ *
+ * `markerDir` overrides where DSH plugin markers are looked for — with
+ * `--subdir` installs the skill root is a subdirectory, but plugin markers
+ * still live at the clone root.
  */
 export type RepoKind = {
     kind: 'plain-skill';
@@ -33,5 +37,7 @@ export type RepoKind = {
  */
 export declare function detectDshPluginMarkers(dir: string): Promise<string[]>;
 /** Classify a cloned repo based on SKILL.md presence and DSH plugin markers. */
-export declare function classifyRepo(dir: string): Promise<RepoKind>;
+export declare function classifyRepo(dir: string, options?: {
+    markerDir?: string;
+}): Promise<RepoKind>;
 //# sourceMappingURL=repo-kind.d.ts.map

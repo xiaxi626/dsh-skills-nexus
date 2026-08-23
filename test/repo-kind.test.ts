@@ -131,3 +131,16 @@ test('non-existent dir -> unknown, no markers', async () => {
   assert.equal(kind.kind, 'unknown')
   assert.deepEqual(kind.markers, [])
 })
+
+test('markerDir overrides where plugin markers are looked for (--subdir case)', async () => {
+  // Skill root is a subdirectory; the plugin marker lives at the clone root.
+  const dir = await repo('subdir-wrapped', {
+    'skills/foo/SKILL.md': '# s',
+    'cordis.patch.yml': '- insert: []',
+  })
+  const skillRoot = join(dir, 'skills', 'foo')
+
+  const kind = await classifyRepo(skillRoot, { markerDir: dir })
+  assert.equal(kind.kind, 'wrapped-skill')
+  assert.deepEqual(kind.markers, ['cordis.patch.yml'])
+})

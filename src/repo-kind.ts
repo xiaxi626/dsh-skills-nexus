@@ -13,6 +13,10 @@ import { locateSkillFiles } from './locator.js'
  *
  * The distinction lets `add` ask before taking over a wrapped skill repo, and
  * refuse to manage pure DSH plugins through nexus.
+ *
+ * `markerDir` overrides where DSH plugin markers are looked for — with
+ * `--subdir` installs the skill root is a subdirectory, but plugin markers
+ * still live at the clone root.
  */
 
 export type RepoKind =
@@ -64,10 +68,13 @@ export async function detectDshPluginMarkers(dir: string): Promise<string[]> {
 }
 
 /** Classify a cloned repo based on SKILL.md presence and DSH plugin markers. */
-export async function classifyRepo(dir: string): Promise<RepoKind> {
+export async function classifyRepo(
+  dir: string,
+  options: { markerDir?: string } = {},
+): Promise<RepoKind> {
   const [located, markers] = await Promise.all([
     locateSkillFiles(dir),
-    detectDshPluginMarkers(dir),
+    detectDshPluginMarkers(options.markerDir ?? dir),
   ])
 
   const hasSkill = located.length > 0

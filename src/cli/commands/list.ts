@@ -1,5 +1,5 @@
 import { readManifest } from '../../manifest.js'
-import { skillDir } from '../../paths.js'
+import { SKILLS_DIR, skillDir } from '../../paths.js'
 import { stat } from 'node:fs/promises'
 
 /** `list` — show registered skills and whether their clone is present/enabled. */
@@ -23,6 +23,7 @@ export async function list(_argv: string[]): Promise<number> {
     rows.push([
       s.enabled ? 'on ' : 'off',
       s.name,
+      s.subdir ?? '—',
       s.ref,
       s.commit ? short(s.commit) : '—',
       present,
@@ -31,19 +32,18 @@ export async function list(_argv: string[]): Promise<number> {
   }
 
   const nameW = Math.max(4, ...rows.map((r) => r[1]!.length))
+  const subW = Math.max(6, ...rows.map((r) => r[2]!.length))
   process.stdout.write(
-    `    ${'NAME'.padEnd(nameW)}  REF           COMMIT    DIR      UPDATED\n`,
+    `    ${'NAME'.padEnd(nameW)}  ${'SUBDIR'.padEnd(subW)}  REF           COMMIT    DIR      UPDATED\n`,
   )
   for (const r of rows) {
     process.stdout.write(
-      `${r[0]}  ${r[1]!.padEnd(nameW)}  ${r[2]!.padEnd(13)}${r[3]!.padEnd(9)}${r[4]!.padEnd(9)}${r[5]}\n`,
+      `${r[0]}  ${r[1]!.padEnd(nameW)}  ${r[2]!.padEnd(subW)}  ${r[3]!.padEnd(13)}${r[4]!.padEnd(9)}${r[5]!.padEnd(9)}${r[6]}\n`,
     )
   }
-  process.stdout.write(`\n${rows.length} skill(s) · ${SKILLS_DIR_LINE}\n`)
+  process.stdout.write(`\n${rows.length} skill(s) · ${SKILLS_DIR}\n`)
   return 0
 }
-
-const SKILLS_DIR_LINE = '~/.dsh/skills-nexus/skills/'
 
 function short(sha: string): string {
   return sha.slice(0, 7)
