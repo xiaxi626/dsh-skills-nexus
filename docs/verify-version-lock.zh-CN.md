@@ -159,6 +159,52 @@ rm -rf "$UP" /tmp/nexus-demo
 
 ---
 
+## 第三部分 — 集合仓库（`--subdir`）
+
+集合仓库的 skill 藏在子目录里（`skills/<name>/SKILL.md`，如 `trae-community/trae-skills`）。整个仓库安装会被拒绝（根目录没有可安装的 skill）——用 `--subdir` 按需安装其中一个 skill 目录。
+
+### Linux / macOS
+
+```bash
+# 造一个"集合仓库"
+COLL=/tmp/nexus-col
+rm -rf "$COLL" /tmp/nexus-col-demo
+mkdir -p "$COLL/skills/alpha" "$COLL/skills/beta"
+printf -- '---\nname: alpha-skill\n---\nA\n' > "$COLL/skills/alpha/SKILL.md"
+printf -- '---\nname: beta-skill\n---\nB\n' > "$COLL/skills/beta/SKILL.md"
+printf '# docs\n' > "$COLL/README.zh-CN.md"          # 根目录文档绝不能变成 skill
+printf '# board\n' > "$COLL/community-leaderboard.md"
+cd "$COLL" && git init -b main
+git config user.email t@t && git config user.name t
+git add . && git commit -m init
+
+export DSH_HOME=/tmp/nexus-col-demo
+cd "$PROJECT"
+
+node lib/cli/index.js add "file://$COLL"                       # → 被拒绝，提示改用 --subdir
+node lib/cli/index.js add "file://$COLL" --subdir skills/alpha # → 成功
+node lib/cli/index.js list                                      # SUBDIR 列 = skills/alpha
+node -e "import('./lib/resolve.js').then(async m => { (await m.resolveAll()).forEach(s => console.log(s.name + '  <-  ' + s.skillFile)) })"
+# → 只有 alpha-skill；README.zh-CN.md / community-leaderboard.md 都不是 skill
+
+rm -rf "$COLL" /tmp/nexus-col-demo
+```
+
+### Windows（Git Bash）
+
+命令与上面相同，只需替换路径写法：
+
+```bash
+COLL="$(cygpath -m "$TEMP/collection")"
+rm -rf "$COLL" "$(cygpath -m "$TEMP/nexus-col-demo")"
+# ... 按上面原样创建仓库 ...
+export DSH_HOME="$(cygpath -m "$TEMP/nexus-col-demo")"
+# ... 同样的 add/list/resolve 命令，清理用：
+rm -rf "$COLL" "$(cygpath -m "$TEMP/nexus-col-demo")"
+```
+
+---
+
 ## 每一步应该输出什么
 
 | 步骤 | 期望输出 | 含义 |

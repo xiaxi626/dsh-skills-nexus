@@ -73,9 +73,11 @@ dsh-skills-nexus add github:owner/repo
 dsh-skills-nexus add github:owner/repo#dev          # 指定分支 / tag
 dsh-skills-nexus add https://github.com/owner/repo
 dsh-skills-nexus add owner/repo                     # 简写
+dsh-skills-nexus add github:owner/repo --yes         # 跳过"包装型仓库？"确认
+dsh-skills-nexus add github:owner/repo --subdir skills/foo   # 只安装集合仓库里的某个子目录
 
 # 查看 / 维护
-dsh-skills-nexus list                               # 列出所有已注册 skill（含安装的 commit）
+dsh-skills-nexus list                               # 列出所有已注册 skill（含安装的 commit、subdir）
 dsh-skills-nexus update [name]                      # 刷新（分支 pin 拉取；tag/commit pin 校验）
 dsh-skills-nexus enable  <name>                     # 在目录中显示（默认开启）
 dsh-skills-nexus disable <name>                     # 隐藏但不删除
@@ -90,6 +92,7 @@ dsh-skills-nexus remove <name>                      # 删除克隆 + 注销
 - **SKILL.md + DSH 薄包装层**：询问是否忽略包装层、按普通 SKILL.md 仓库管理。输入 `y` 继续，输入 `n` 中止并建议按 DSH 插件方式安装。使用 `--yes` 可跳过确认。
 - **纯 DSH 插件（没有 SKILL.md）**：提示请按该仓库自己的 DSH 插件安装方式安装，不建议用 nexus 管理，然后退出，不注册。
 - **两者都不是**：提示未找到 SKILL.md 或 DSH 插件标记，报错退出。
+- **集合仓库**（`skills/<name>/SKILL.md` 布局，如 `trae-community/trae-skills`）：整个仓库安装时根目录没有可安装的 skill，nexus 会拒绝并提示改用 `--subdir <path>` 指定子目录；一次安装解析出超过 20 个 skill 时会弹确认提示（`--yes` 跳过）。
 
 ## SKILL.md 发现规则（每个克隆仓库内）
 
@@ -336,10 +339,12 @@ src/
 
 ## 开发：测试与 CI
 
-> **想端到端验证版本锁定功能？** 见
-> [验证版本锁定功能（P0）](docs/verify-version-lock.zh-CN.md) —— 覆盖
-> Windows / Linux / macOS 的可直接复制的验证流程：测试套件、分支快进、
-> tag 固定点、漂移恢复与重复 add 保护。
+> **想端到端验证某个功能？**
+> - [验证版本锁定功能（P0）](docs/verify-version-lock.zh-CN.md) ——
+>   测试套件、分支快进、tag 固定点、漂移恢复、重复 add 保护。
+> - [验证集合仓库支持（P1）](docs/verify-collection-support.zh-CN.md) ——
+>   `--subdir` 按需安装、平铺 md 过滤、大集合防呆。
+> 两者均为覆盖 Windows / Linux / macOS 的可直接复制的验证流程。
 
 质量门禁，本地全部可跑：
 
@@ -374,6 +379,9 @@ typecheck、lint、单元测试、build，以及「已提交的 `lib/` 是否与
 - **add 后是否立即可见**：新添加的 skill 是否立即出现在目录中，取决于 DSH 是否缓存了 provider 的 `list()` 结果。如果 profile 在 add 之前已启动，重载一下即可（或依赖 nexus「每次 list 都重新读」的设计，在下一次目录刷新时自动拾取）。
 - **版本固定与更新**：用 `#分支名`、`#tag名` 或 `#commit-hash` 固定 ref。安装时 manifest 会记录实际解析到的 commit（`commit` 字段）——一个轻量锁，`list` 会显示它。`update` 只对**分支** pin 的 skill 做快进拉取（并打印 commit 变化）；**tag/commit** pin 的 skill 是固定点：只校验当前 checkout 是否仍等于 pin（漂移则自动恢复），不做 pull——被固定的版本永远不会静默漂移。不加 `#ref` 时，CLI 会通过 `git ls-remote --symref` 自动探测远程默认分支（探测失败回落到 `main`）。
 - **仅用于 skill 内容仓库**：这不是 `dsh plugin add` 的替代品。如果仓库本身就有 `dsh.bundle.patch`，请用正常方式安装——nexus 是给那些没有封装的仓库用的。完整决策指南见 [nexus 与 `dsh plugin`——什么时候用哪个](docs/nexus-vs-plugin.zh-CN.md)。
+- **集合仓库与 `--subdir`**：skill 藏在子目录的集合仓库用 `--subdir <path>` 按需安装——每次安装是一个独立条目、独立克隆（独立克隆设计，P1/P2 权衡见 [docs/subdir-design.md](docs/subdir-design.md)）。不带 `--subdir` 全量安装时，根目录无可用 skill 会被拒绝；超过 20 个 skill 会弹确认提示。
+- **平铺 md 过滤**：没有 frontmatter `name` **且**没有 `description` 的平铺 `*.md` 不会被当作 skill——集合仓库的文档（`README.zh-CN.md`、`CONTRIBUTING.md`、`community-leaderboard.md` 等）永远不会被"假装安装"。发现阶段的跳过名单也按前缀模式覆盖 `readme*`、`contributing*`、`license*`、`changelog*`、`code-of-conduct*`、`security*`。
+- **同名不消歧**：DSH 按名称索引 skill，后安装的同名 skill 会覆盖前者。用 `--name` 区分条目，或用 `--subdir` 只装需要的。enable/disable 按条目（即按安装的 subdir）生效，`remove` 删除整个条目的克隆。
 - **构建脚本**：由于 nexus 自己 clone 内容仓库（不走 pnpm），它完全绕开了 pnpm 的 `allowBuilds` 拦截。
 
 ## 许可证

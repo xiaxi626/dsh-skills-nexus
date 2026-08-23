@@ -85,9 +85,10 @@ dsh-skills-nexus add github:owner/repo#dev          # pick a branch/tag
 dsh-skills-nexus add https://github.com/owner/repo
 dsh-skills-nexus add owner/repo                     # shorthand
 dsh-skills-nexus add github:owner/repo --yes         # skip the "wrapped repo?" prompt
+dsh-skills-nexus add github:owner/repo --subdir skills/foo   # install one subdir of a collection repo
 
 # inspect / maintain
-dsh-skills-nexus list                               # all registered skills (+ installed commit)
+dsh-skills-nexus list                               # all registered skills (+ installed commit, subdir)
 dsh-skills-nexus update [name]                      # refresh (branch pin: pull; tag/commit pin: verify)
 dsh-skills-nexus enable  <name>                     # show in catalog (default)
 dsh-skills-nexus disable <name>                     # hide without deleting
@@ -109,6 +110,11 @@ When you `add` a repo, nexus inspects the clone before registering it:
   that repo's own DSH plugin installation flow, then exits without registering.
 - **Neither** — nexus reports that no SKILL.md or DSH plugin marker was found
   and exits with an error.
+- **Collection repos** (`skills/<name>/SKILL.md` layout, e.g.
+  `trae-community/trae-skills`) — installing the whole repo yields no
+  installable skills at the root, so nexus rejects it with a hint: use
+  `--subdir <path>` to install a specific skill directory. Installations that
+  yield more than 20 skills trigger a confirmation prompt (skip with `--yes`).
 
 ## SKILL.md discovery (per cloned repo)
 
@@ -378,10 +384,12 @@ typecheckable without them).
 
 ## Development: testing & CI
 
-> **Want to verify the version-lock feature end-to-end?** See
-> [Verifying the version-lock feature (P0)](docs/verify-version-lock.md) — a
-> copy-paste walkthrough for Windows / Linux / macOS covering the test suite,
-> branch fast-forward, tag pinning, drift recovery and the re-add guard.
+> **Want to verify a feature end-to-end?**
+> - [Verifying the version-lock feature (P0)](docs/verify-version-lock.md) —
+>   test suite, branch fast-forward, tag pinning, drift recovery, re-add guard.
+> - [Verifying collection-repo support (P1)](docs/verify-collection-support.md) —
+>   `--subdir` installs, flat-md filtering, large-collection guards.
+> Both are copy-paste walkthroughs for Windows / Linux / macOS.
 
 Quality gates, all runnable locally:
 
@@ -432,6 +440,22 @@ build would drift from `src/`).
   of real Cordis plugins. If a repo already ships a `dsh.bundle.patch`, install
   it the normal way — nexus is for repos that don't. See
   [nexus vs `dsh plugin`](docs/nexus-vs-plugin.md) for the full decision guide.
+- **Collection repos & `--subdir`**: collection repos (skills nested under
+  subdirectories, e.g. `trae-community/trae-skills`) are installed piecemeal
+  with `--subdir <path>` — each install is its own entry with its own clone
+  (independent-clone design, see [docs/subdir-design.md](docs/subdir-design.md)
+  for the P1/P2 trade-off). Installing the whole repo without `--subdir` is
+  rejected when the root yields no installable skills, and guarded by a
+  confirmation prompt above 20 skills.
+- **Flat-markdown filter**: a flat `*.md` file without frontmatter `name` AND
+  `description` is not treated as a skill — collection-repo docs like
+  `README.zh-CN.md`, `CONTRIBUTING.md` or `community-leaderboard.md` are never
+  "fake-installed". Doc-like names (`readme*`, `contributing*`, `license*`,
+  `changelog*`, `code-of-conduct*`, `security*`) are skipped at discovery.
+- **Name collisions are not resolved**: DSH indexes skills by name; a later
+  install with the same name overwrites. Use `--name` to distinguish entries,
+  or `--subdir` to install only what you need. enable/disable work per entry
+  (per installed subdir), `remove` deletes the whole entry's clone.
 - **Build scripts**: because nexus clones content repos itself (not via pnpm),
   it sidesteps pnpm `allowBuilds` interception entirely.
 

@@ -4,6 +4,37 @@
 
 ## [Unreleased]
 
+**2026-08-23 · Added · 集合仓库验证文档（中英）与 README 入口**
+
+- 新增 `docs/verify-collection-support.md` 与 `docs/verify-collection-support.zh-CN.md`：集合仓库支持（P1）的端到端验证流程，Windows（Git Bash）/ Linux / macOS 各一份可整体复制的命令块，覆盖质量门禁（111 用例）、全量拒绝 + `--subdir` 提示、按子目录独立克隆安装、SUBDIR 列、按条目 enable/disable、remove 隔离、大集合防呆、平铺 md 身份规则（无 frontmatter 平铺 md ≠ skill），并收录踩过的坑（DSH_HOME 累积、交互确认、subdir 校验、平台路径、git 版本）与覆盖边界。
+- README / README_CN「开发：测试与 CI」入口链接改为双文档（版本锁定 P0 + 集合仓库 P1）。
+
+**2026-08-23 · Added · 集合仓库支持（--subdir）与平铺扫描保守化**
+
+- **平铺扫描保守化（修"假装安装"）**：locator 跳过名单改为前缀模式（`readme*` / `contributing*` / `changelog*` / `license*` / `code-of-conduct*` / `code_of_conduct*` / `security*`），`README.zh-CN.md` 等变体不再被当作 skill 候选；平铺 `*.md` 没有 frontmatter `name` 且没有 `description` 的不再成为 skill（resolve 阶段过滤）——集合仓库根目录的文档文件（`community-leaderboard.md` 等）永远不会被"假装安装"。
+- **add 解析预览**：注册前按完整 skill 规则解析预览，结果为 0 时拒绝安装并提示嵌套子目录可用 `--subdir`；unknown 分支同样检测嵌套并提示（修掉 Observed 记录中的空条目隐患）。
+- **新增 `--subdir <path>`**：只把克隆内某个子目录当作 skill 根安装（**独立克隆设计，v1**；P1/P2 命令对比与隐藏坑见 [docs/subdir-design.md](docs/subdir-design.md)）。条目新增 `subdir` 字段（向后兼容），name 默认取子目录末段（`--name` 可覆盖），path 按 `repo-subdir` 唯一化；resolve 按 `subdir` 拼接解析根；`list` 新增 SUBDIR 列。
+- **大集合防呆**：一次安装解析出超过 20 个 skill 时弹确认提示（`--yes` 跳过，非 TTY 默认拒绝）；显式 `--subdir` 安装跳过该提示。
+- **测试**：新增集合仓库用例（`--subdir` 安装 / 缺失路径 / 非法值 / 嵌套拒绝 / 大集合确认）、locator 文档变体、resolve 平铺过滤与 subdir 拼接、repo-kind `markerDir` 用例——111 个用例全部通过。
+- 同步更新 README / README_CN、verify-version-lock 中英（新增「集合仓库」验证节）、CHANGELOG 与编译产物 `lib/`。
+
+**2026-08-23 · Observed · 嵌套集合仓库会被"假装安装"（集合仓库支持功能的动机）**
+
+- 现象：对 `skills/<name>/SKILL.md` 布局的**集合仓库**（实测 `trae-community/trae-skills`，12 个 skill）执行 `add` 会注册"成功"（exit 0），但实际装入的是仓库根目录的文档型 md：`README.zh-CN.md`、`CONTRIBUTING.md`、`CONTRIBUTING.zh-CN.md`、`community-leaderboard.md`——全部因无 frontmatter 而回退为 entry 名；`skills/` 下的 12 个真 skill 一个都没有被发现。比直接拒绝更隐蔽：用户会误以为装好了。
+- 根因：`locator.ts` 的单层子目录规则（`<root>/<name>/SKILL.md`）够不到 `skills/` 前缀的两层嵌套；平铺规则（规则 3）把根目录所有非精确 `readme.md` / `changelog.md` / `license.md` 的 `.md` 文件都当作 skill 候选，跳过名单不做模式匹配（`README.zh-CN.md` 等变体漏网）。
+- 复现命令（2026-08-23 实测）：
+  ```bash
+  git clone --depth 1 https://github.com/trae-community/trae-skills /tmp/trae-skills
+  ls /tmp/trae-skills | head -30                       # 根含 skills/ 分类目录
+  find /tmp/trae-skills -maxdepth 2 -name SKILL.md | wc -l   # → 0
+  find /tmp/trae-skills -maxdepth 3 -name SKILL.md | wc -l   # → 12（两层嵌套）
+  export DSH_HOME="$(cygpath -m "$TEMP/nexus-trae-demo")"
+  node lib/cli/index.js add "C:/Users/asswsw/AppData/Local/Temp/trae-skills"  # → exit 0
+  node -e "import('./lib/resolve.js').then(async m => { (await m.resolveAll()).forEach(s => console.log(s.name + '  <-  ' + s.skillFile)) })"
+  # → 仅 4 个文档文件被解析为 skill（name 全部回退 trae-skills）
+  ```
+- 结论：集合仓库当前不可用且不可控。作为「集合仓库支持」功能（`--subdir` 子路径选择 + 平铺扫描保守化）的动机记录，列入下一迭代计划（P1）。
+
 **2026-08-23 · Added · 版本锁定验证文档（中英）与 README 入口**
 
 - 新增 `docs/verify-version-lock.md` 与 `docs/verify-version-lock.zh-CN.md`：版本锁定（P0）的端到端验证流程，Windows（Git Bash）/ Linux / macOS 各一份可直接复制的命令块，覆盖测试套件、分支快进、tag 固定点、漂移自愈、重复 add 保护与 manifest 锁检查，并收录实践中踩过的坑（浅克隆 checkout、注册名来源、残留 DSH_HOME、路径格式、git 版本等）与覆盖边界。

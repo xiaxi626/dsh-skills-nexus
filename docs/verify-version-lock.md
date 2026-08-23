@@ -167,6 +167,55 @@ rm -rf "$UP" /tmp/nexus-demo
 
 ---
 
+## Part 3 — collection repos (`--subdir`)
+
+A collection repo keeps its skills under subdirectories
+(`skills/<name>/SKILL.md`, e.g. `trae-community/trae-skills`). Installing the
+whole repo is rejected (root yields no installable skills) — use `--subdir` to
+install one skill directory at a time.
+
+### Linux / macOS
+
+```bash
+# upstream collection repo
+COLL=/tmp/nexus-col
+rm -rf "$COLL" /tmp/nexus-col-demo
+mkdir -p "$COLL/skills/alpha" "$COLL/skills/beta"
+printf -- '---\nname: alpha-skill\n---\nA\n' > "$COLL/skills/alpha/SKILL.md"
+printf -- '---\nname: beta-skill\n---\nB\n' > "$COLL/skills/beta/SKILL.md"
+printf '# docs\n' > "$COLL/README.zh-CN.md"          # root docs must NOT install
+printf '# board\n' > "$COLL/community-leaderboard.md"
+cd "$COLL" && git init -b main
+git config user.email t@t && git config user.name t
+git add . && git commit -m init
+
+export DSH_HOME=/tmp/nexus-col-demo
+cd "$PROJECT"
+
+node lib/cli/index.js add "file://$COLL"                       # → rejected, hint suggests --subdir
+node lib/cli/index.js add "file://$COLL" --subdir skills/alpha # → OK
+node lib/cli/index.js list                                      # SUBDIR column = skills/alpha
+node -e "import('./lib/resolve.js').then(async m => { (await m.resolveAll()).forEach(s => console.log(s.name + '  <-  ' + s.skillFile)) })"
+# → only alpha-skill; README.zh-CN.md / community-leaderboard.md are not skills
+
+rm -rf "$COLL" /tmp/nexus-col-demo
+```
+
+### Windows (Git Bash)
+
+Same commands as above with these substitutions:
+
+```bash
+COLL="$(cygpath -m "$TEMP/collection")"
+rm -rf "$COLL" "$(cygpath -m "$TEMP/nexus-col-demo")"
+# ... create the repo exactly as above ...
+export DSH_HOME="$(cygpath -m "$TEMP/nexus-col-demo")"
+# ... same add/list/resolve commands, cleanup with:
+rm -rf "$COLL" "$(cygpath -m "$TEMP/nexus-col-demo")"
+```
+
+---
+
 ## What each step should print
 
 | step | expected output | meaning |
