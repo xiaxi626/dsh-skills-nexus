@@ -142,3 +142,50 @@ test('an entry whose clone is missing yields no skills', async () => {
   const all = await resolve.resolveAll()
   assert.deepEqual(all, [])
 })
+
+test('flat markdown without frontmatter name AND description is not a skill', async () => {
+  await writeManifest([entry({ name: 'docsrepo', path: 'docsrepo' })])
+  // A collection-repo root full of docs must not "fake-install".
+  await writeSkill('docsrepo/community-leaderboard.md', '# board')
+  await writeSkill('docsrepo/README.zh-CN.md', '# readme')
+  await writeSkill('docsrepo/notes.md', '# notes')
+
+  const all = await resolve.resolveAll()
+  assert.deepEqual(all, [])
+})
+
+test('flat markdown with frontmatter name qualifies as a skill', async () => {
+  await writeManifest([entry({ name: 'flatrepo', path: 'flatrepo' })])
+  await writeSkill('flatrepo/alpha.md', '---\nname: alpha\ndescription: A\n---\nbody')
+  await writeSkill('flatrepo/beta.md', '---\ndescription: only desc\n---\nbody')
+
+  const all = await resolve.resolveAll()
+  assert.deepEqual(all.map((s) => s.name).sort(), ['alpha', 'flatrepo'])
+})
+
+test('an entry with subdir resolves skills from inside that subdir', async () => {
+  await writeManifest([entry({ name: 'sub', path: 'sub', subdir: 'skills/foo' })])
+  await writeSkill('sub/skills/foo/SKILL.md', '---\nname: foo-skill\n---\nA')
+  await writeSkill('sub/skills/bar/SKILL.md', '---\nname: bar-skill\n---\nB')
+
+  const all = await resolve.resolveAll()
+  assert.equal(all.length, 1)
+  assert.equal(all[0]!.name, 'foo-skill')
+  assert.equal(all[0]!.resourceBase, join(skillsDir, 'sub', 'skills', 'foo'))
+})
+
+test('previewSkills applies the full skill rules to any directory', async () => {
+  await writeSkill('preview/skills/real/SKILL.md', '---\nname: real\n---\nR')
+  await writeSkill('preview/CONTRIBUTING.md', '# contributing')
+  await writeSkill('preview/README.zh-CN.md', '# readme')
+  await writeSkill('preview/doc.md', '# no frontmatter')
+
+  // Previewing the nested subdir finds the real skill.
+  const nested = await resolve.previewSkills(join(skillsDir, 'preview', 'skills', 'real'))
+  assert.equal(nested.length, 1)
+  assert.equal(nested[0]!.name, 'real')
+
+  // Previewing the docs-only root finds nothing.
+  const root = await resolve.previewSkills(join(skillsDir, 'preview'))
+  assert.deepEqual(root, [])
+})

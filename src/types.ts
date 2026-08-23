@@ -29,6 +29,12 @@ export interface SkillEntry {
    * a moving branch. Absent for entries added before this field existed.
    */
   commit?: string
+  /**
+   * Path of the skill root *inside* the clone, e.g. `skills/foo` — set when
+   * the repo was installed piecemeal via `--subdir`. Absent = the clone root
+   * is the skill root. Always a repo-relative path (no `..`, no leading `/`).
+   */
+  subdir?: string
   /** Directory name under <skills>/ holding the cloned repo. */
   path: string
   /** Whether this skill is exposed to the DSH catalog. */

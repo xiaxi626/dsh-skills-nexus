@@ -90,6 +90,24 @@ test('README / CHANGELOG / LICENSE markdown are skipped (case-insensitive)', asy
   assert.equal(found[0]!.skillFile, join(repo, 'real.md'))
 })
 
+test('doc variants with language/task suffixes are skipped by prefix pattern', async () => {
+  const repo = join(root, 'docvariants')
+  await mkdir(repo, { recursive: true })
+  // Collection repos (e.g. trae-skills) keep such docs at the root.
+  await writeFile(join(repo, 'README.zh-CN.md'), '# readme cn', 'utf8')
+  await writeFile(join(repo, 'CONTRIBUTING.md'), '# contributing', 'utf8')
+  await writeFile(join(repo, 'CONTRIBUTING.zh-CN.md'), '# contributing cn', 'utf8')
+  await writeFile(join(repo, 'CODE_OF_CONDUCT.md'), '# coc', 'utf8')
+  await writeFile(join(repo, 'SECURITY.md'), '# security', 'utf8')
+  // Non-doc flat markdown is still discovered at the path level (the
+  // frontmatter filter in resolve.ts decides whether it qualifies).
+  await writeFile(join(repo, 'community-leaderboard.md'), '# board', 'utf8')
+
+  const found = await locateSkillFiles(repo)
+  assert.equal(found.length, 1)
+  assert.equal(found[0]!.skillFile, join(repo, 'community-leaderboard.md'))
+})
+
 test('hidden directories (e.g. .git, .github) are skipped', async () => {
   const repo = join(root, 'hidden')
   await mkdir(join(repo, '.git'), { recursive: true })
