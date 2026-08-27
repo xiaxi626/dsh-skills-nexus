@@ -95,6 +95,7 @@ dsh-skills-nexus add https://github.com/owner/repo
 dsh-skills-nexus add owner/repo                     # shorthand
 dsh-skills-nexus add github:owner/repo --yes         # skip "wrapped repo?" prompt
 dsh-skills-nexus add github:owner/repo --subdir skills/foo   # install one subdir of a collection repo
+dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills   # custom entry name (fallback chain: --name > subdir leaf > repo name)
 
 # inspect / maintain
 dsh-skills-nexus list                               # all registered skills (+ commit, subdir, status)

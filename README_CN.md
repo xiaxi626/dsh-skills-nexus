@@ -83,6 +83,7 @@ dsh-skills-nexus add https://github.com/owner/repo
 dsh-skills-nexus add owner/repo                     # 简写
 dsh-skills-nexus add github:owner/repo --yes         # 跳过"包装型仓库？"确认
 dsh-skills-nexus add github:owner/repo --subdir skills/foo   # 只安装集合仓库里的某个子目录
+dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills   # 自定义条目名（条目名回退链：--name > subdir 末段 > 仓库名）
 
 # 查看 / 维护
 dsh-skills-nexus list                               # 列出所有已注册 skill（含安装的 commit、subdir、状态）

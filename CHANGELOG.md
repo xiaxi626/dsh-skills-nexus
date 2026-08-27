@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+**2026-08-27 · Docs · README 使用段补充 `--name` 示例与条目名回退链说明**
+
+- README / README_CN 的「使用」代码块在 `--subdir` 示例后新增一行：`dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills`，注释写明条目名回退链（`--name` > subdir 末段 > 仓库名）。背景：集合级子目录（如 `--subdir skills`）默认条目名会取到毫无区分度的末段名 `skills`，跨仓库撞名时只能靠 `--name` 消歧，但此前使用段未展示该参数。仅文档变更，无行为变化。
+
 **2026-08-26 · Fixed · 多 skill 条目的状态反查改为按链接目标（修复 list 误报 off / disable 空转 / 裸 update 跳过）**
 
 - **问题**：建链接与查状态用了两把不同的钥匙——多 skill 仓库的 symlink 按每个 skill 的 frontmatter 名创建（如 `skill-01`…`skill-21`），从不以条目名命名；而 `list` / `disable` 前置判断 / 裸 `update` 目标过滤都用 `isLinked(条目名)` 按名字查，查不到就把条目误判为未启用。后果：`list` 对已启用的多 skill 条目显示 `off`；`disable` 打印 `already disabled` 静默空转（链接一个都没删）；裸 `update` 把多 skill 条目整个跳过。单 skill 仓库因条目名＝链接名而未受影响。
