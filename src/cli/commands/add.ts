@@ -1,10 +1,10 @@
 import { mkdir, readdir, rm, stat } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { addEntry, hasEntry, readManifest } from '../../manifest.js'
-import { SKILLS_DIR, skillDir } from '../../paths.js'
+import { REPOS_DIR, repoDir } from '../../paths.js'
 import {
   cloneRepo,
   getDefaultBranch,
@@ -16,25 +16,24 @@ import {
 import { classifyRepo } from '../../repo-kind.js'
 import { locateSkillFiles } from '../../locator.js'
 import { previewSkills } from '../../resolve.js'
+import { normalizeSkillName, ensureDescription } from '../../frontmatter.js'
+import { linkSkill, hasCollision } from '../../link.js'
 import { parseAddArgs } from '../args.js'
 
 /**
- * `add` — clone a GitHub SKILL.md repo and register it in the manifest.
+ * `add` — clone a GitHub SKILL.md repo and expose it via a symlink in the
+ * official DSH skills root.
  *
- * The repo lands under <skills>/<path>/; the manifest stores how to re-fetch it
- * so `update` can fast-forward later. The skill is enabled by default.
- *
- * When the user does not specify a `#ref`, we detect the remote's default
- * branch via `git ls-remote --symref` instead of hardcoding `main`.
+ * The clone lands under <repos>/<path>/ and a symlink is created at
+ * ~/.dsh/skills/<name>/ so the official filesystem provider discovers it
+ * automatically. Multi-skill repos create one symlink per discovered skill.
  *
  * `--subdir <path>` installs a single subdirectory of the clone (collection
- * repos like `trae-skills`): the subdir becomes the skill root, the entry gets
- * a `subdir` field, and the clone directory is dedicated to that entry
- * (independent-clone design — see docs/subdir-design.md).
+ * repos): the subdir is the skill root, the entry gets a `subdir` field, and
+ * the clone directory is dedicated to that entry (independent-clone design).
  *
  * Before registering, the clone is *previewed* with the full skill rules, so
- * repos that yield zero installable skills (docs-only roots, nested
- * collections without `--subdir`) are rejected instead of "fake-installed".
+ * repos that yield zero installable skills are rejected.
  */
 export async function add(argv: string[]): Promise<number> {
   const { spec, name, ref, subdir, yes } = parseAddArgs(argv)
@@ -70,9 +69,7 @@ export async function add(argv: string[]): Promise<number> {
   const path = subdir ? `${repoBase}-${subdirLeaf}` : repoBase
   const skillName = sanitizeName(name ?? subdirLeaf ?? repoBase)
 
-  // Reject re-registration *before* touching the filesystem: cloning into an
-  // existing registered path would fail, and the failure cleanup below would
-  // delete the already-registered skill's clone.
+  // Reject re-registration *before* touching the filesystem.
   const manifest = await readManifest()
   if (hasEntry(manifest, skillName) || manifest.skills.some((s) => s.path === path)) {
     process.stderr.write(
@@ -82,8 +79,20 @@ export async function add(argv: string[]): Promise<number> {
     return 1
   }
 
-  const dest = skillDir(path)
-  await mkdir(dirname(dest), { recursive: true })
+  // Check for collisions with manually-placed skills in the official root.
+  if (await hasCollision(skillName)) {
+    process.stderr.write(
+      `A directory/file named "${skillName}" already exists in ~/.dsh/skills/.\n` +
+      `This appears to be manually placed (not a nexus symlink).\n` +
+      `Please remove it first or use --name to choose a different name.\n`,
+    )
+    return 1
+  }
+
+  const dest = repoDir(path)
+  await mkdir(dest, { recursive: true })
+  // Remove the empty dir we just created so clone can work
+  await rm(dest, { recursive: true, force: true })
 
   process.stdout.write(`Cloning ${gitSpec.url} (ref: ${gitSpec.ref}) → ${dest}\n`)
   try {
@@ -94,9 +103,7 @@ export async function add(argv: string[]): Promise<number> {
     throw err
   }
 
-  // Record the exact commit we installed — the "lockfile-lite" half of version
-  // management: even when `ref` is a moving branch, the manifest knows the
-  // precise state. Non-fatal: a git hiccup here must not block registration.
+  // Record the exact commit we installed — the "lockfile-lite".
   let commit: string | undefined
   try {
     commit = await getHeadCommit(dest)
@@ -123,9 +130,7 @@ export async function add(argv: string[]): Promise<number> {
     }
   }
 
-  // Inspect the cloned repo before registering it. This decides whether the
-  // repo is a plain SKILL.md repo, a SKILL.md repo with a thin DSH plugin
-  // wrapper, a pure DSH plugin, or something nexus cannot manage.
+  // Inspect the cloned repo before registering it.
   const repoKind = await classifyRepo(skillRoot, { markerDir: dest })
 
   if (repoKind.kind === 'dsh-plugin') {
@@ -149,15 +154,16 @@ export async function add(argv: string[]): Promise<number> {
     return 1
   }
 
-  if (repoKind.kind === 'wrapped-skill' && !yes) {
-    const useNexus = await confirm(
-      `This repository has both SKILL.md and a DSH plugin wrapper (${repoKind.markers.join(', ')}).\n` +
-      `Do you want dsh-skills-nexus to ignore the wrapper and manage it as a plain SKILL.md repo?`,
+  // SKILL.md + DSH 薄包装层：询问是否忽略包装层、按普通 SKILL.md 仓库管理。
+  if (repoKind.kind === 'wrapped-skill') {
+    const proceed = yes || await confirm(
+      `This repo has both SKILL.md and a DSH plugin wrapper (${repoKind.markers.join(', ')}).\n` +
+      `Install as a plain SKILL.md repo via nexus? (y = ignore wrapper, n = abort and use dsh plugin add)`,
       false,
     )
-    if (!useNexus) {
+    if (!proceed) {
       process.stdout.write(
-        `Aborted. If you want to install it as a DSH plugin, follow that repository's instructions, e.g.\n` +
+        `Aborted. This repo has a DSH plugin wrapper — consider installing it as a plugin instead:\n` +
         `  dsh plugin --profile <name> add "${spec}"\n`,
       )
       await rm(dest, { recursive: true, force: true })
@@ -165,9 +171,7 @@ export async function add(argv: string[]): Promise<number> {
     }
   }
 
-  // Preview with the full skill rules (incl. the flat-md frontmatter filter).
-  // Zero results means the root is docs-only — reject instead of
-  // "fake-installing" a repo whose skills are all nested deeper.
+  // Preview with the full skill rules.
   const preview = await previewSkills(skillRoot)
   if (preview.length === 0) {
     process.stderr.write(
@@ -179,19 +183,7 @@ export async function add(argv: string[]): Promise<number> {
     return 1
   }
 
-  // Frontmatter names that DSH would reject are registered under the fallback
-  // (entry) name — warn so the user knows the catalog name differs.
-  for (const s of preview) {
-    if (s.invalidName) {
-      process.stdout.write(
-        `  ⚠ frontmatter name "${s.invalidName}" is not a valid DSH skill name ` +
-        `(lowercase kebab-case required) — registered as "${skillName}"\n`,
-      )
-    }
-  }
-
-  // Guard against accidental full installs of large collections. Explicit
-  // `--subdir` installs skip this — the user already narrowed the scope.
+  // Guard against accidental full installs of large collections.
   if (preview.length > LARGE_COLLECTION_THRESHOLD && !subdir && !yes) {
     const proceed = await confirm(
       `This repository yields ${preview.length} skills.\n` +
@@ -205,6 +197,32 @@ export async function add(argv: string[]): Promise<number> {
     }
   }
 
+  // --- Normalize frontmatter for every discovered skill ---
+  //
+  // The official filesystem provider silently skips skills with invalid names
+  // or missing descriptions, so we fix both at install time.
+  let normalizedCount = 0
+  for (const s of preview) {
+    const validName = s.invalidName ? sanitizeName(s.invalidName) : (s.name || skillName)
+
+    if (s.invalidName) {
+      await normalizeSkillName(s.skillFile, validName)
+      process.stdout.write(
+        `  ⚠ frontmatter name "${s.invalidName}" is not valid kebab-case ` +
+        `— normalized to "${validName}"\n`,
+      )
+      normalizedCount++
+    }
+
+    if (!s.description || s.description.trim().length === 0) {
+      await ensureDescription(s.skillFile, validName)
+      process.stdout.write(
+        `  ⚠ frontmatter description was missing — added fallback: "${validName}"\n`,
+      )
+      normalizedCount++
+    }
+  }
+
   const entry = {
     name: skillName,
     url: spec,
@@ -213,18 +231,37 @@ export async function add(argv: string[]): Promise<number> {
     commit,
     subdir,
     path,
-    enabled: true,
     addedAt: new Date().toISOString(),
   }
 
   await addEntry(entry)
-  await mkdir(SKILLS_DIR, { recursive: true })
+  await mkdir(REPOS_DIR, { recursive: true })
+
+  // Create symlinks in the official skills root for every discovered skill.
+  // For single-skill repos: one symlink named after the entry.
+  // For multi-skill repos: one symlink per discovered skill, named by frontmatter.
+  let linkedCount = 0
+  for (const s of preview) {
+    const fmName = s.invalidName ? sanitizeName(s.invalidName) : s.name
+    const linkName = preview.length === 1 ? skillName : (fmName || skillName)
+    try {
+      await linkSkill(linkName, s.resourceBase)
+      linkedCount++
+    } catch (err) {
+      process.stderr.write(
+        `  ⚠ failed to create symlink for "${linkName}": ` +
+        `${err instanceof Error ? err.message : String(err)}\n`,
+      )
+    }
+  }
 
   process.stdout.write(
     `Added skill "${skillName}" from ${spec}\n` +
       (subdir ? `  subdir: ${subdir}\n` : '') +
-      `  dir: ${dest}\n` +
-      `  Run a DSH profile (or reload) to make it appear in the catalog.\n`,
+      `  repo dir: ${dest}\n` +
+      `  symlinks: ${linkedCount} skill(s) linked to ~/.dsh/skills/\n` +
+      (normalizedCount > 0 ? `  normalized: ${normalizedCount} frontmatter field(s)\n` : '') +
+      `  The skill(s) will appear in the DSH catalog on next reload.\n`,
   )
   return 0
 }
@@ -262,8 +299,7 @@ async function hasNestedSkills(dir: string): Promise<boolean> {
 /**
  * Ask a yes/no question on the terminal.
  *
- * If stdin is not a TTY, default to `defaultValue` instead of hanging. This
- * keeps automation from blocking forever while still allowing interactive use.
+ * If stdin is not a TTY, default to `defaultValue` instead of hanging.
  */
 async function confirm(question: string, defaultValue: boolean): Promise<boolean> {
   if (!input.isTTY) return defaultValue

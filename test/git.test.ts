@@ -1,15 +1,17 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import {
   checkoutRef,
   cloneRepo,
+  discardLocalChanges,
   getHeadCommit,
   isDetachedHead,
+  isDirtyWorktree,
   parseGitSpec,
   repoSlug,
   resolveRefCommit,
@@ -137,8 +139,8 @@ test('sanitizeName collapses separator runs', () => {
   assert.equal(sanitizeName('a!!b'), 'a-b')
 })
 
-test('sanitizeName keeps dots, underscores and dashes', () => {
-  assert.equal(sanitizeName('a.b_c-d'), 'a.b_c-d')
+test('sanitizeName replaces dots and underscores with dashes', () => {
+  assert.equal(sanitizeName('a.b_c-d'), 'a-b-c-d')
 })
 
 test('sanitizeName trims leading/trailing dashes', () => {
@@ -240,5 +242,27 @@ test('cloneRepo at a branch keeps a symbolic HEAD (updatable)', async () => {
     assert.equal(await isDetachedHead(dest), false)
   } finally {
     await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('isDirtyWorktree detects changes; discardLocalChanges resets them', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'nexus-git-'))
+  try {
+    await makeRepo(dir)
+    assert.equal(await isDirtyWorktree(dir), false)
+
+    // Normalization-like edit to a tracked file plus a stray untracked file.
+    await writeFile(join(dir, 'SKILL.md'), '# test skill\ndescription: x\n', 'utf8')
+    await writeFile(join(dir, 'stray.md'), 'untracked\n', 'utf8')
+    assert.equal(await isDirtyWorktree(dir), true)
+
+    await discardLocalChanges(dir)
+    assert.equal(await isDirtyWorktree(dir), false)
+    // Tracked file restored to its committed content; untracked file gone.
+    // (normalize line endings — git checks out with CRLF on some platforms)
+    assert.equal((await readFile(join(dir, 'SKILL.md'), 'utf8')).replace(/\r\n/g, '\n'), '# test skill\n')
+    await assert.rejects(readFile(join(dir, 'stray.md'), 'utf8'))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
   }
 })

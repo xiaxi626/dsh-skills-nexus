@@ -1,20 +1,17 @@
 /**
- * `add` — clone a GitHub SKILL.md repo and register it in the manifest.
+ * `add` — clone a GitHub SKILL.md repo and expose it via a symlink in the
+ * official DSH skills root.
  *
- * The repo lands under <skills>/<path>/; the manifest stores how to re-fetch it
- * so `update` can fast-forward later. The skill is enabled by default.
- *
- * When the user does not specify a `#ref`, we detect the remote's default
- * branch via `git ls-remote --symref` instead of hardcoding `main`.
+ * The clone lands under <repos>/<path>/ and a symlink is created at
+ * ~/.dsh/skills/<name>/ so the official filesystem provider discovers it
+ * automatically. Multi-skill repos create one symlink per discovered skill.
  *
  * `--subdir <path>` installs a single subdirectory of the clone (collection
- * repos like `trae-skills`): the subdir becomes the skill root, the entry gets
- * a `subdir` field, and the clone directory is dedicated to that entry
- * (independent-clone design — see docs/subdir-design.md).
+ * repos): the subdir is the skill root, the entry gets a `subdir` field, and
+ * the clone directory is dedicated to that entry (independent-clone design).
  *
  * Before registering, the clone is *previewed* with the full skill rules, so
- * repos that yield zero installable skills (docs-only roots, nested
- * collections without `--subdir`) are rejected instead of "fake-installed".
+ * repos that yield zero installable skills are rejected.
  */
 export declare function add(argv: string[]): Promise<number>;
 /** Repos with > this many skills trigger the "install all?" guard (unless --subdir/--yes). */

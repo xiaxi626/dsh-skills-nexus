@@ -1,6 +1,6 @@
 {
   "name": "dsh-skills-nexus",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Universal DSH skill adapter — register any GitHub SKILL.md repo as a DSH skill via one command.",
   "license": "MIT",
   "repository": {
@@ -12,16 +12,16 @@
     "url": "https://github.com/xiaxi626/dsh-skills-nexus/issues"
   },
   "type": "module",
-  "main": "lib/index.js",
-  "types": "lib/types/index.d.ts",
+  "dsh": {
+    "bundle": {
+      "patch": "cordis.patch.yml"
+    }
+  },
   "bin": {
     "dsh-skills-nexus": "lib/cli/index.js"
   },
   "exports": {
-    ".": {
-      "types": "./lib/types/index.d.ts",
-      "default": "./lib/index.js"
-    },
+    "./resolve": "./lib/resolve.js",
     "./package.json": "./package.json"
   },
   "files": [
@@ -29,16 +29,11 @@
     "cordis.patch.yml",
     "README.md"
   ],
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    }
-  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test test/add.test.ts test/args.test.ts test/frontmatter.test.ts test/git.test.ts test/locator.test.ts test/manifest.test.ts test/repo-kind.test.ts test/resolve.test.ts test/update.test.ts",
+    "test": "node --import tsx --test test/add.test.ts test/args.test.ts test/frontmatter.test.ts test/git.test.ts test/locator.test.ts test/manifest.test.ts test/repo-kind.test.ts test/resolve.test.ts test/toggle.test.ts test/update.test.ts",
     "test:build": "tsc -p tsconfig.test.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -46,18 +41,6 @@
   },
   "dependencies": {
     "yaml": "^2.5.1"
-  },
-  "peerDependencies": {
-    "@deepseek-ai/cordis": ">=0.0.1-rc.0",
-    "@deepseek-ai/dsh-skill": ">=0.0.1-rc.0"
-  },
-  "peerDependenciesMeta": {
-    "@deepseek-ai/cordis": {
-      "optional": true
-    },
-    "@deepseek-ai/dsh-skill": {
-      "optional": true
-    }
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

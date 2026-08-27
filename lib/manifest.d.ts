@@ -11,8 +11,6 @@ export declare function hasEntry(manifest: Manifest, name: string): boolean;
 export declare function addEntry(entry: SkillEntry): Promise<void>;
 /** Remove an entry by name and persist. Returns the removed entry, if any. */
 export declare function removeEntry(name: string): Promise<SkillEntry | undefined>;
-/** Toggle the `enabled` flag of an entry. Returns the updated entry, if found. */
-export declare function setEnabled(name: string, enabled: boolean): Promise<SkillEntry | undefined>;
 /**
  * Stamp `updatedAt` (and the resolved commit, if given) after a successful
  * update. The commit is the "lockfile-lite" half of version management: the

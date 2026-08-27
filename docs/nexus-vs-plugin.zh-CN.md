@@ -13,9 +13,9 @@
 
 | | `dsh plugin add` | `dsh-skills-nexus add` |
 |---|---|---|
-| 做了什么 | pnpm 把包安装进 profile 的 `node_modules` | `git clone --depth 1` 到 `~/.dsh/skills-nexus/skills/<name>/` |
+| 做了什么 | pnpm 把包安装进 profile 的 `node_modules` | `git clone --depth 1` 到 `~/.dsh/skills-nexus/repos/<name>/` |
 | 仓库需要什么 | `package.json` 里声明 `dsh.bundle.patch`（和/或 `cordis.patch.yml`） | 什么都不用——只要有 `SKILL.md` 内容 |
-| 会在 DSH 里跑代码吗？ | **会**——是真正的 Cordis 插件（可注册 provider、钩子、layer） | **不会**——只读 provider 扫描克隆目录、提供 `SKILL.md` 正文 |
+| 会在 DSH 里跑代码吗？ | **会**——是真正的 Cordis 插件（可注册 provider、钩子、layer） | **不会**——是 CLI 工具，克隆仓库并创建 symlink；官方 filesystem provider 提供 SKILL.md 正文 |
 | 怎么更新 | `dsh plugin update`（pnpm） | `dsh-skills-nexus update`（git pull） |
 | 仓库的构建脚本 | 安装时可能执行（pnpm `allowBuilds`） | 永不执行——nexus 只克隆内容，不运行任何东西 |
 | 一个仓库能出几个 skill | 一个包 = 一个插件 | 一个克隆 → **N 个 skill**（子目录 bundle、平铺 `.md`） |

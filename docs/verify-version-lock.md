@@ -28,7 +28,7 @@ All temporary state lives under dedicated temp dirs you delete at the end.
 ```bash
 npm run typecheck   # tsc --noEmit (strict)
 npm run lint        # ESLint 9 + typescript-eslint
-npm test            # node:test + tsx — expected: 98 tests, all passing
+npm test            # node:test + tsx — expected: all tests pass
 npm run build       # tsc → lib/
 npm run test:build  # optional: compile src+test to test-dist/ for loader-free runs
 ```
@@ -39,7 +39,7 @@ The suite never touches your real environment: every test file uses a temp
 | test file | what it verifies |
 |---|---|
 | `test/add.test.ts` | `add` records the resolved commit; re-adding is refused and the clone stays intact |
-| `test/update.test.ts` | branch pin fast-forwards and re-stamps the commit; tag pin is a fixed point; a drifted checkout is restored |
+| `test/update.test.ts` | branch pin fast-forwards and re-stamps the commit; tag pin is a fixed point; a drifted checkout is restored; a dirty worktree (normalization artifacts) never blocks fast-forward or restoration |
 | `test/git.test.ts` | `getHeadCommit` / `isDetachedHead` / `resolveRefCommit` / `checkoutRef`; clone at a tag → detached HEAD, at a branch → symbolic HEAD |
 | `test/manifest.test.ts` | `markUpdated` stamps `updatedAt` + `commit` |
 
@@ -57,7 +57,7 @@ UP="$(cygpath -m "$TEMP/up")"
 rm -rf "$UP" "$(cygpath -m "$TEMP/nexus-demo")"      # clean slate
 mkdir -p "$UP" && cd "$UP" && git init -b main        # git ≥2.28
 git config user.email t@t && git config user.name t
-printf '# demo\n---\nname: demo\ndescription: demo skill\n' > SKILL.md
+printf -- '---\nname: demo\ndescription: demo skill\n---\n# demo\n' > SKILL.md   # frontmatter complete and at the top: the clone stays clean (otherwise step C's manual checkout is blocked by a dirty worktree — see pitfall #11)
 git add . && git commit -m init && git tag v1.0.0
 
 # ---- isolated DSH_HOME + the CLI ----
@@ -86,10 +86,20 @@ cd "$PROJECT"
 node lib/cli/index.js update      # → ✓ xxxxxxx → yyyyyyy
 node lib/cli/index.js list        # COMMIT + UPDATED both refreshed
 
+# ---- B2) A dirty clone must not block update (normalization edits SKILL.md in place) ----
+cd "$DSH_HOME/skills-nexus/repos/up"
+printf 'local edit\n' >> SKILL.md            # simulate a locally modified tracked file
+cd "$PROJECT"
+cd "$UP" && printf '# demo v4\n---\nname: demo\ndescription: v4\n' > SKILL.md
+git add . && git commit -m fourth            # upstream touches the same file
+cd "$PROJECT"
+node lib/cli/index.js update      # → ⚠ discarding local changes… then ✓ xxxxxxx → yyyyyyy
+node lib/cli/index.js list        # COMMIT advanced to v4
+
 # ---- C) drift recovery ----
 node lib/cli/index.js remove up
 node lib/cli/index.js add "file:///$UP#v1.0.0"
-cd "$DSH_HOME/skills-nexus/skills/up"
+cd "$DSH_HOME/skills-nexus/repos/up"
 git fetch --depth 1 origin main   # pull the newer commit into the shallow clone
 git checkout FETCH_HEAD           # deliberately drift away from the pin
 cd "$PROJECT"
@@ -97,7 +107,7 @@ node lib/cli/index.js update      # → ✓ restored to pinned xxxxxxx
 node lib/cli/index.js list        # COMMIT back to the pinned SHA
 
 # ---- D) re-add guard ----
-node lib/cli/index.js add "file:///$UP#v1.0.0"        # → refused, exit code 1
+node lib/cli/index.js add "file:///$UP#v1.0.0"; echo "exit=$?"   # → refused, expect exit=1
 node lib/cli/index.js list        # clone still present and healthy
 
 # ---- inspect the lock ----
@@ -105,6 +115,7 @@ cat "$DSH_HOME/skills-nexus/manifest.json"            # each entry has "commit"
 
 # ---- cleanup ----
 rm -rf "$UP" "$(cygpath -m "$TEMP/nexus-demo")"
+unset DSH_HOME
 ```
 
 ### Linux / macOS
@@ -115,7 +126,7 @@ UP=/tmp/nexus-up
 rm -rf "$UP" /tmp/nexus-demo                            # clean slate
 mkdir -p "$UP" && cd "$UP" && git init -b main          # git ≥2.28; older: `git init && git symbolic-ref HEAD refs/heads/main`
 git config user.email t@t && git config user.name t
-printf '# demo\n---\nname: demo\ndescription: demo skill\n' > SKILL.md
+printf -- '---\nname: demo\ndescription: demo skill\n---\n# demo\n' > SKILL.md   # frontmatter complete and at the top: the clone stays clean (otherwise step C's manual checkout is blocked by a dirty worktree — see pitfall #11)
 git add . && git commit -m init && git tag v1.0.0
 
 # ---- isolated DSH_HOME + the CLI ----
@@ -144,10 +155,20 @@ cd "$PROJECT"
 node lib/cli/index.js update      # → ✓ xxxxxxx → yyyyyyy
 node lib/cli/index.js list        # COMMIT + UPDATED both refreshed
 
+# ---- B2) A dirty clone must not block update (normalization edits SKILL.md in place) ----
+cd "$DSH_HOME/skills-nexus/repos/up"
+printf 'local edit\n' >> SKILL.md            # simulate a locally modified tracked file
+cd "$PROJECT"
+cd "$UP" && printf '# demo v4\n---\nname: demo\ndescription: v4\n' > SKILL.md
+git add . && git commit -m fourth            # upstream touches the same file
+cd "$PROJECT"
+node lib/cli/index.js update      # → ⚠ discarding local changes… then ✓ xxxxxxx → yyyyyyy
+node lib/cli/index.js list        # COMMIT advanced to v4
+
 # ---- C) drift recovery ----
 node lib/cli/index.js remove up
 node lib/cli/index.js add "file://$UP#v1.0.0"
-cd "$DSH_HOME/skills-nexus/skills/up"
+cd "$DSH_HOME/skills-nexus/repos/up"
 git fetch --depth 1 origin main   # pull the newer commit into the shallow clone
 git checkout FETCH_HEAD           # deliberately drift away from the pin
 cd "$PROJECT"
@@ -155,7 +176,7 @@ node lib/cli/index.js update      # → ✓ restored to pinned xxxxxxx
 node lib/cli/index.js list        # COMMIT back to the pinned SHA
 
 # ---- D) re-add guard ----
-node lib/cli/index.js add "file://$UP#v1.0.0"          # → refused, exit code 1
+node lib/cli/index.js add "file://$UP#v1.0.0"; echo "exit=$?"    # → refused, expect exit=1
 node lib/cli/index.js list        # clone still present and healthy
 
 # ---- inspect the lock ----
@@ -163,6 +184,7 @@ cat "$DSH_HOME/skills-nexus/manifest.json"             # each entry has "commit"
 
 # ---- cleanup ----
 rm -rf "$UP" /tmp/nexus-demo
+unset DSH_HOME
 ```
 
 ---
@@ -195,10 +217,13 @@ cd "$PROJECT"
 node lib/cli/index.js add "file://$COLL"                       # → rejected, hint suggests --subdir
 node lib/cli/index.js add "file://$COLL" --subdir skills/alpha # → OK
 node lib/cli/index.js list                                      # SUBDIR column = skills/alpha
-node -e "import('./lib/resolve.js').then(async m => { (await m.resolveAll()).forEach(s => console.log(s.name + '  <-  ' + s.skillFile)) })"
+dsh-skills-nexus list
+# check that symlinks were created
+ls -la "$DSH_HOME/skills/"
 # → only alpha-skill; README.zh-CN.md / community-leaderboard.md are not skills
 
 rm -rf "$COLL" /tmp/nexus-col-demo
+unset DSH_HOME
 ```
 
 ### Windows (Git Bash)
@@ -210,8 +235,9 @@ COLL="$(cygpath -m "$TEMP/collection")"
 rm -rf "$COLL" "$(cygpath -m "$TEMP/nexus-col-demo")"
 # ... create the repo exactly as above ...
 export DSH_HOME="$(cygpath -m "$TEMP/nexus-col-demo")"
-# ... same add/list/resolve commands, cleanup with:
+# ... same add/list commands, cleanup with:
 rm -rf "$COLL" "$(cygpath -m "$TEMP/nexus-col-demo")"
+unset DSH_HOME
 ```
 
 ---
@@ -222,6 +248,7 @@ rm -rf "$COLL" "$(cygpath -m "$TEMP/nexus-col-demo")"
 |---|---|---|
 | A: `update` on a tag pin | `✓ pinned at xxxxxxx — nothing to update` | fixed point: upstream moved, the clone did not |
 | B: `update` on a branch pin | `✓ xxxxxxx → yyyyyyy` (or `up to date`) | fast-forwarded and the lock re-stamped |
+| B2: `update` on a dirty clone | `⚠ discarding local changes…` + `✓ xxxxxxx → yyyyyyy` | local edits discarded (warned); fast-forward unaffected |
 | C: `update` after drift | `✓ restored to pinned xxxxxxx` | drifted checkout detected and checked back out |
 | D: re-`add` | refusal message, exit code 1 | guard works; existing clone untouched |
 | `manifest.json` | `"commit": "<40-char SHA>"` per entry | the lock itself |
@@ -253,6 +280,21 @@ rm -rf "$COLL" "$(cygpath -m "$TEMP/nexus-col-demo")"
    git symbolic-ref HEAD refs/heads/main`.
 9. **Run the compiled CLI** — the walkthrough uses `lib/`; after changing
    `src/`, rebuild with `npm run build` first.
+10. **Install-time normalization edits SKILL.md inside the clone in place**
+    (adds a missing `description` / fixes invalid names), which leaves the
+    clone's worktree dirty. In older versions this made
+    `git pull --ff-only` (branch pin) and drift recovery (tag/commit pin)
+    fail with `Your local changes would be overwritten`. `update` now prints
+    `⚠ discarding local changes in nexus-managed clone` and discards them
+    before pulling — normalization is re-applied after the pull, so the end
+    state is unchanged. Clones are nexus-managed; do not edit them by hand.
+11. **A dirty clone also blocks git commands you run by hand.** Step C's
+    `git checkout FETCH_HEAD` is refused by git on a dirty worktree
+    (`Your local changes would be overwritten by checkout`). That is why
+    this guide's initial `SKILL.md` has complete frontmatter — repos that
+    need no normalization clone clean, so manually simulating drift works.
+    Nexus only guarantees its own `update` is unaffected by dirty worktrees;
+    it does not make arbitrary manual git commands inside clones safe.
 
 ---
 
@@ -262,8 +304,7 @@ What this guide does *not* cover (by design):
 
 - **Real GitHub network** — local `file://` remotes simulate the same git
   semantics without network flakiness.
-- **DSH runtime integration** — the provider's `list()` / `get()` are unchanged;
-  the new manifest field is backward compatible (old manifests without
+- **DSH runtime integration** — Skills are now exposed via symlinks in ~/.dsh/skills/ and discovered by the official filesystem provider. No custom provider registration is needed. The new manifest field is backward compatible (old manifests without
   `commit` still load, showing `—` until the next `update`).
 - **Node 18 / 20 / 22 matrix** — CI (`.github/workflows/ci.yml`) runs the full
   quality gate set on push/PR.

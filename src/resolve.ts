@@ -1,35 +1,20 @@
 import { readFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
-import { readManifest } from './manifest.js'
-import { skillDir } from './paths.js'
+import { basename } from 'node:path'
 import { locateSkillFiles } from './locator.js'
 import { parseFrontmatter, flag } from './frontmatter.js'
-import type { SkillEntry } from './types.js'
 
 /**
- * Resolve manifest entries into concrete, parsed skills.
+ * Parse cloned repos into concrete, parsed skills.
  *
- * One manifest entry (a cloned repo) may yield multiple skills — e.g. a repo
- * that bundles `<name>/SKILL.md` per subdirectory. The skill name is taken from
- * each file's frontmatter `name` (falling back to the entry name) so multi-skill
- * repos surface correctly in the catalog.
+ * One cloned repo may yield multiple skills — e.g. a repo that bundles
+ * `<name>/SKILL.md` per subdirectory. Used by `add` for preview and by
+ * `update` for re-normalization.
  *
- * When an entry has a `subdir`, the skill root is that subdirectory inside the
- * clone — this is how collection repos are installed piecemeal (`--subdir`).
+ * When an entry has a `subdir`, the skill root is that subdirectory inside
+ * the clone — this is how collection repos are installed piecemeal (`--subdir`).
  */
 
-export interface ResolvedSkill {
-  entry: SkillEntry
-  skillFile: string
-  resourceBase: string
-  name: string
-  description: string
-  body: string
-  modelInvocable: boolean
-  userInvocable: boolean
-}
-
-/** A parsed skill without the manifest entry — used by resolveAll and add-time preview. */
+/** A parsed skill without the manifest entry — used for add-time preview. */
 export interface ParsedSkill {
   skillFile: string
   resourceBase: string
@@ -37,8 +22,8 @@ export interface ParsedSkill {
   name: string
   /**
    * Set when the frontmatter `name` was present but violates DSH's skill-name
-   * rules — the skill is registered under the fallback name instead. Kept so
-   * `add` can warn the user about the rename.
+   * rules — the skill would be silently skipped by the official provider.
+   * Kept so `add` can warn and normalize.
    */
   invalidName?: string
   /** Frontmatter `description` (may be empty). */
@@ -49,13 +34,16 @@ export interface ParsedSkill {
 }
 
 /**
- * DSH skill names are lowercase kebab-case: start with a lowercase letter or
- * digit, then lowercase letters / digits / `.` / `_` / `-`. A frontmatter
- * `name` that violates this makes DSH reject the whole provider ("invalid
- * skill name"), so such names fall back to the entry name instead.
+ * DSH skill name validation — matches the official `SKILL_NAME` regex:
+ *   `/^[a-z0-9]+(?:-[a-z0-9]+)*$/`
+ *
+ * Lowercase letters and digits only, separated by single dashes.
+ * No dots, underscores, or consecutive dashes. An invalid frontmatter name
+ * causes the official filesystem provider to silently skip that skill, so
+ * nexus normalizes such names at install time and warns the user.
  */
 export function isValidSkillName(name: string): boolean {
-  return /^[a-z0-9][a-z0-9._-]*$/.test(name)
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)
 }
 
 /** True for flat-markdown skills (`<root>/<name>.md`, not a SKILL.md file). */
@@ -87,9 +75,8 @@ async function parseDirSkills(dir: string): Promise<ParsedSkill[]> {
     const { frontmatter, description, body } = parseFrontmatter(raw)
     const fmName = typeof frontmatter.name === 'string' ? frontmatter.name.trim() : ''
 
-    // A frontmatter name that DSH would reject must not reach the provider:
-    // fall back to the entry name (like a missing name) and remember it so
-    // `add` can warn.
+    // A frontmatter name that the official provider would reject must not
+    // reach the filesystem. Normalize it at install time.
     let name = fmName
     let invalidName: string | undefined
     if (fmName && !isValidSkillName(fmName)) {
@@ -112,35 +99,6 @@ async function parseDirSkills(dir: string): Promise<ParsedSkill[]> {
   }
 
   return out
-}
-
-export async function resolveAll(): Promise<ResolvedSkill[]> {
-  const manifest = await readManifest()
-  const out: ResolvedSkill[] = []
-
-  for (const entry of manifest.skills) {
-    if (!entry.enabled) continue
-    const dir = entry.subdir
-      ? join(skillDir(entry.path), entry.subdir)
-      : skillDir(entry.path)
-
-    for (const s of await parseDirSkills(dir)) {
-      const name = s.name || entry.name
-      out.push({
-        entry,
-        ...s,
-        name,
-        description: s.description || name,
-      })
-    }
-  }
-
-  return out
-}
-
-export async function resolveByName(name: string): Promise<ResolvedSkill | null> {
-  const all = await resolveAll()
-  return all.find((s) => s.name === name) ?? null
 }
 
 /**

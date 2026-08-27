@@ -21,7 +21,7 @@
 ```bash
 npm run typecheck   # tsc --noEmit（strict）
 npm run lint        # ESLint 9 + typescript-eslint
-npm test            # node:test + tsx——期望：111 个用例全部通过
+npm test            # node:test + tsx——期望：全部用例通过
 npm run build       # tsc → lib/
 npm run test:build  # 可选：把 src+test 编译到 test-dist/，无 loader 环境可跑
 ```
@@ -35,6 +35,7 @@ npm run test:build  # 可选：把 src+test 编译到 test-dist/，无 loader �
 | `test/resolve.test.ts` | 无 frontmatter 的平铺 md 不是 skill；条目 `subdir` 解析；`previewSkills` |
 | `test/args.test.ts` | `--subdir` 解析 + 缺值报错 |
 | `test/repo-kind.test.ts` | `markerDir` 覆盖（插件标记在克隆根、skill 在子目录） |
+| `test/toggle.test.ts` | 多 skill 条目的 disable/enable、`list` 状态与裸 `update` 目标过滤（状态按链接目标反查，不按条目名） |
 
 ---
 
@@ -73,8 +74,10 @@ node lib/cli/index.js add "file:///$COLL" --subdir skills/beta --name beta
 echo "--- [c] list：SUBDIR 列 ---"
 node lib/cli/index.js list
 
-echo "--- [d] resolveAll：只有 alpha-skill 和 beta-skill ---"
-node -e "import('./lib/resolve.js').then(async m => { (await m.resolveAll()).forEach(s => console.log(s.name + '  <-  ' + s.skillFile)) })"
+echo "--- [d] dsh-skills-nexus list + ls symlinks：只有 alpha-skill 和 beta-skill ---"
+dsh-skills-nexus list
+# 检查 symlink 是否创建
+ls -la "$DSH_HOME/skills/"
 
 echo "--- [e] enable/disable 按条目（=按 subdir）独立生效 ---"
 node lib/cli/index.js disable beta && node lib/cli/index.js list
@@ -90,8 +93,18 @@ for i in $(seq -w 1 21); do printf -- "---\nname: skill-$i\n---\nS\n" > "$LARGE/
 cd "$LARGE" && git init -b main >/dev/null && git config user.email t@t && git config user.name t
 git add . && git commit -qm large
 cd "$PROJECT"
-node lib/cli/index.js add "file:///$LARGE" --yes    # --yes 直接安装全部 21 个
-node lib/cli/index.js list | grep nexus-large
+node lib/cli/index.js add "file:///$LARGE" --yes    # --yes 直接安装全部 21 个；⚠ description fallback 警告是预期（见「坑」8）
+# node lib/cli/index.js list | grep nexus-large     # 原写法：Git Bash 下 node 接管道可能报 stdout is not a tty（见「坑」9）
+node lib/cli/index.js list                          # 直接看全量输出：nexus-large 行首应为 on（状态按链接目标反查）
+
+echo "--- [g2] 多 skill 条目的状态反查（disable/enable 对全部链接生效）---"
+node lib/cli/index.js disable nexus-large
+# node lib/cli/index.js list | grep nexus-large     # 原写法：同上，可能报 stdout is not a tty
+node lib/cli/index.js list                          # → nexus-large 行首应为 off（多 skill 条目全部链接按目标反查）
+ls -la "$DSH_HOME/skills/" | grep -c "skill-" || true   # → 0：21 个链接全部被删（旧版 disable 会误报 already disabled 而空转）
+node lib/cli/index.js enable nexus-large
+# node lib/cli/index.js list | grep nexus-large     # 原写法：同上，可能报 stdout is not a tty
+node lib/cli/index.js list                          # → nexus-large 行首应为 on，21 个链接全部恢复
 
 echo "--- [h] 平铺 md 的身份规则（文档 vs 真 skill）---"
 MIX="$(cygpath -m "$TEMP/nexus-mix")"
@@ -103,11 +116,14 @@ cd "$MIX" && git init -b main >/dev/null && git config user.email t@t && git con
 git add . && git commit -qm mix
 cd "$PROJECT"
 node lib/cli/index.js add "file:///$MIX"
-node -e "import('./lib/resolve.js').then(async m => { (await m.resolveAll()).forEach(s => console.log(s.name + '  <-  ' + s.skillFile)) })"
+dsh-skills-nexus list
+# 检查 symlink 是否创建
+ls -la "$DSH_HOME/skills/"
 # 期望：with-name 和 sub-skill 出现，plain.md 不出现
 
 # ---- 清理 ----
 rm -rf "$COLL" "$DEMO" "$LARGE" "$MIX"
+unset DSH_HOME
 ```
 
 > `[g]` 不带 `--yes` 是交互式的：会打印
@@ -146,8 +162,10 @@ node lib/cli/index.js add "file://$COLL" --subdir skills/beta --name beta
 echo "--- [c] list：SUBDIR 列 ---"
 node lib/cli/index.js list
 
-echo "--- [d] resolveAll：只有 alpha-skill 和 beta-skill ---"
-node -e "import('./lib/resolve.js').then(async m => { (await m.resolveAll()).forEach(s => console.log(s.name + '  <-  ' + s.skillFile)) })"
+echo "--- [d] dsh-skills-nexus list + ls symlinks：只有 alpha-skill 和 beta-skill ---"
+dsh-skills-nexus list
+# 检查 symlink 是否创建
+ls -la "$DSH_HOME/skills/"
 
 echo "--- [e] enable/disable 按条目（=按 subdir）独立生效 ---"
 node lib/cli/index.js disable beta && node lib/cli/index.js list
@@ -163,8 +181,13 @@ for i in $(seq -w 1 21); do printf -- "---\nname: skill-$i\n---\nS\n" > "$LARGE/
 cd "$LARGE" && git init -b main >/dev/null && git config user.email t@t && git config user.name t
 git add . && git commit -qm large
 cd "$PROJECT"
-node lib/cli/index.js add "file://$LARGE" --yes      # --yes 直接安装全部 21 个
-node lib/cli/index.js list | grep nexus-large
+node lib/cli/index.js add "file://$LARGE" --yes      # --yes 直接安装全部 21 个；⚠ description fallback 警告是预期（见「坑」8）
+node lib/cli/index.js list | grep nexus-large        # 期望行首是 on（状态按链接目标反查）
+
+echo "--- [g2] 多 skill 条目的状态反查（disable/enable 对全部链接生效）---"
+node lib/cli/index.js disable nexus-large && node lib/cli/index.js list | grep nexus-large   # → off
+ls -la "$DSH_HOME/skills/" | grep -c "skill-" || true   # → 0：21 个链接全部被删（旧版 disable 会误报 already disabled 而空转）
+node lib/cli/index.js enable nexus-large && node lib/cli/index.js list | grep nexus-large    # → on，21 个链接全部恢复
 
 echo "--- [h] 平铺 md 的身份规则（文档 vs 真 skill）---"
 MIX=/tmp/nexus-mix
@@ -176,11 +199,14 @@ cd "$MIX" && git init -b main >/dev/null && git config user.email t@t && git con
 git add . && git commit -qm mix
 cd "$PROJECT"
 node lib/cli/index.js add "file://$MIX"
-node -e "import('./lib/resolve.js').then(async m => { (await m.resolveAll()).forEach(s => console.log(s.name + '  <-  ' + s.skillFile)) })"
+dsh-skills-nexus list
+# 检查 symlink 是否创建
+ls -la "$DSH_HOME/skills/"
 # 期望：with-name 和 sub-skill 出现，plain.md 不出现
 
 # ---- 清理 ----
 rm -rf "$COLL" "$DEMO" "$LARGE" "$MIX"
+unset DSH_HOME
 ```
 
 ---
@@ -192,20 +218,21 @@ rm -rf "$COLL" "$DEMO" "$LARGE" "$MIX"
 | `[a]` 全量 add | `No installable SKILL.md content…` + `--subdir <path>` 提示，exit 1 | 嵌套集合被拒绝，而不是"假装安装" |
 | `[b]` subdir add | `Added skill "alpha"` 且 `subdir: skills/alpha`，克隆在 `…-alpha` | 每个 subdir 独立克隆；name 取末段 |
 | `[c]` list | SUBDIR 列显示 `skills/alpha` / `skills/beta` | 条目记录了 subdir |
-| `[d]` resolveAll | 只有 `alpha-skill` + `beta-skill` | 根目录文档（README.zh-CN.md 等）不是 skill |
+| `[d]` dsh-skills-nexus list + ls symlinks | 只有 `alpha-skill` + `beta-skill` | 根目录文档（README.zh-CN.md 等）不是 skill |
 | `[e]` disable/enable | `beta` 单独 off/on，`alpha` 不受影响 | 按条目（=按 subdir）可见性 |
 | `[f]` remove | `Removed "alpha" and deleted …-alpha/`，beta 保留 | 独立克隆，零连坐 |
-| `[g]` 大集合防呆 | 不带 `--yes`：提示后中止；带 `--yes`：21 个 skill 注册 | 双向都正确 |
+| `[g]` 大集合防呆 | 不带 `--yes`：提示后中止；带 `--yes`：21 个 skill 注册，`list` 行首为 `on` | 双向都正确；多 skill 条目状态按链接目标反查 |
+| `[g2]` 多 skill 条目开关 | disable 后 `off nexus-large` 且 21 个链接全部删除；enable 后恢复 `on` | 状态反查与开关对多 skill 条目生效 |
 | `[h]` 平铺 md 规则 | `with-name` + `sub-skill` 出现，`plain.md` 不出现 | 无 frontmatter 的平铺 md ≠ skill；SKILL.md 永远算 |
 
-注意：`resolveAll` 会列出当前 `$DSH_HOME` 里**所有**已注册条目，所以 `[g]` 之后会看到 21 个 `skill-*`——这是预期行为。
+注意：`dsh-skills-nexus list` 会列出当前 `$DSH_HOME` 里**所有**已注册条目，所以 `[g]` 之后会看到 21 个 `skill-*`——这是预期行为。
 
 ---
 
 ## 实践中踩过的坑
 
 1. **同一个 `$DSH_HOME` 会累积条目** —— `[b]`–`[h]` 共用同一个演示
-   `DSH_HOME`，后面的 `resolveAll`/`list` 输出会包含前面步骤注册的条目。
+   `DSH_HOME`，后面的 `list` 输出会包含前面步骤注册的条目。
    这是预期；断言时按名字过滤，不要按总数。
 2. **`[g]` 不带 `--yes` 是交互式的** —— TTY 下询问 `[y/N]`；非 TTY 默认
    拒绝并打印 `Aborted.`（不注册）。脚本化运行请用 `--yes`。
@@ -220,6 +247,16 @@ rm -rf "$COLL" "$DEMO" "$LARGE" "$MIX"
    `git init && git symbolic-ref HEAD refs/heads/main`。
 7. **跑的是编译产物** —— 流程使用 `lib/`；改过 `src/` 后先
    `npm run build` 再验证。
+8. **安装时的 `⚠ frontmatter description was missing` 警告是预期** ——
+   演示 fixture 只有 `name` 没有 `description`，安装时归一化会补
+   fallback（输出里的 `normalized: N frontmatter field(s)` 与之对应），
+   不是错误。
+9. **Git Bash 管道可能报 `stdout is not a tty`** —— 在 Windows Git
+   Bash 交互终端里，Windows 原生 `node.exe` 的输出接管道时可能报这句，
+   属于 mintty 的已知 tty 兼容问题，不是工具故障（数据已写入）。绕过：
+   直接跑不带管道的 `node lib/cli/index.js list` 看全量输出，或先重定向到文件再过滤：
+   `node lib/cli/index.js list > /tmp/l.txt && grep nexus-large /tmp/l.txt`。
+   MSYS 原生程序（如 `ls | grep`）不受影响。
 
 ---
 
@@ -230,6 +267,5 @@ rm -rf "$COLL" "$DEMO" "$LARGE" "$MIX"
   下，根目录文档被过滤）。
 - **P2 共享克隆设计** —— 未实现（v1 是独立克隆）；权衡与两个隐藏坑
   （共享判定键、锁的归属）见 [docs/subdir-design.md](docs/subdir-design.md)。
-- **DSH 运行时集成** —— provider 的 `list()` / `get()` 未改动；`subdir` 是
-  新增的可选 manifest 字段（旧 manifest 正常加载）。
+- **DSH 运行时集成** —— Skills 通过 ~/.dsh/skills/ 中的 symlink 暴露，由官方 filesystem provider 发现。不再需要自定义 provider。`subdir` 是新增的可选 manifest 字段（旧 manifest 正常加载）。
 - **Node 18 / 20 / 22 矩阵** —— CI 在 push/PR 时跑完整质量门禁。

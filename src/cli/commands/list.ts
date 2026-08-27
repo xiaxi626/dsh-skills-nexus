@@ -1,8 +1,9 @@
 import { readManifest } from '../../manifest.js'
-import { SKILLS_DIR, skillDir } from '../../paths.js'
+import { REPOS_DIR, OFFICIAL_SKILLS_DIR, repoDir } from '../../paths.js'
 import { stat } from 'node:fs/promises'
+import { isEntryEnabled } from '../../link.js'
 
-/** `list` — show registered skills and whether their clone is present/enabled. */
+/** `list` — show registered skills and their status. */
 export async function list(_argv: string[]): Promise<number> {
   const manifest = await readManifest()
   if (manifest.skills.length === 0) {
@@ -12,7 +13,7 @@ export async function list(_argv: string[]): Promise<number> {
 
   const rows: string[][] = []
   for (const s of manifest.skills) {
-    const dir = skillDir(s.path)
+    const dir = repoDir(s.path)
     let present = 'missing'
     try {
       await stat(dir)
@@ -20,8 +21,12 @@ export async function list(_argv: string[]): Promise<number> {
     } catch {
       present = 'missing'
     }
+
+    const linked = await isEntryEnabled(s)
+    const state = linked ? 'on ' : 'off'
+
     rows.push([
-      s.enabled ? 'on ' : 'off',
+      state,
       s.name,
       s.subdir ?? '—',
       s.ref,
@@ -41,7 +46,10 @@ export async function list(_argv: string[]): Promise<number> {
       `${r[0]}  ${r[1]!.padEnd(nameW)}  ${r[2]!.padEnd(subW)}  ${r[3]!.padEnd(13)}${r[4]!.padEnd(9)}${r[5]!.padEnd(9)}${r[6]}\n`,
     )
   }
-  process.stdout.write(`\n${rows.length} skill(s) · ${SKILLS_DIR}\n`)
+  process.stdout.write(
+    `\n${rows.length} skill(s) · repos: ${REPOS_DIR}\n` +
+    `  Symlinks in: ${OFFICIAL_SKILLS_DIR} (on = linked to catalog)\n`,
+  )
   return 0
 }
 

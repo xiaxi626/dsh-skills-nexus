@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { MANIFEST_PATH } from './paths.js'
+import { MANIFEST_PATH, repoDir } from './paths.js'
 import type { Manifest, SkillEntry } from './types.js'
 
 const EMPTY: Manifest = { version: 1, skills: [] }
@@ -67,19 +67,6 @@ export async function removeEntry(name: string): Promise<SkillEntry | undefined>
   return removed
 }
 
-/** Toggle the `enabled` flag of an entry. Returns the updated entry, if found. */
-export async function setEnabled(
-  name: string,
-  enabled: boolean,
-): Promise<SkillEntry | undefined> {
-  const manifest = await readManifest()
-  const entry = findEntry(manifest, name)
-  if (!entry) return undefined
-  entry.enabled = enabled
-  await writeManifest(manifest)
-  return entry
-}
-
 /**
  * Stamp `updatedAt` (and the resolved commit, if given) after a successful
  * update. The commit is the "lockfile-lite" half of version management: the
@@ -96,6 +83,5 @@ export async function markUpdated(name: string, commit?: string): Promise<void> 
 
 /** Best-effort recursive delete of a skill's cloned directory. */
 export async function removeSkillDir(path: string): Promise<void> {
-  const { skillDir } = await import('./paths.js')
-  await rm(skillDir(path), { recursive: true, force: true })
+  await rm(repoDir(path), { recursive: true, force: true })
 }

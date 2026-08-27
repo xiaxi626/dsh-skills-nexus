@@ -14,9 +14,9 @@ Everything else follows from that.
 
 | | `dsh plugin add` | `dsh-skills-nexus add` |
 |---|---|---|
-| What happens | pnpm installs the package into the profile's `node_modules` | `git clone --depth 1` into `~/.dsh/skills-nexus/skills/<name>/` |
+| What happens | pnpm installs the package into the profile's `node_modules` | `git clone --depth 1` into `~/.dsh/skills-nexus/repos/<name>/` |
 | Repo must contain | `package.json` declaring `dsh.bundle.patch` (and/or `cordis.patch.yml`) | nothing special — just `SKILL.md` content |
-| Runs code in DSH? | **Yes** — it's a real Cordis plugin (can register providers, hooks, layers) | **No** — a read-only provider scans clones and serves `SKILL.md` bodies |
+| Runs code in DSH? | **Yes** — it's a real Cordis plugin (can register providers, hooks, layers) | **No** — a CLI tool that clones repos and creates symlinks; the official filesystem provider serves the skill bodies |
 | How updates work | `dsh plugin update` (pnpm) | `dsh-skills-nexus update` (git pull) |
 | Repo's build scripts | may run during install (pnpm `allowBuilds`) | never run — nexus clones content and executes nothing |
 | Skills per repo | one package = one plugin | one clone → **N skills** (subdir bundles, flat `.md`) |

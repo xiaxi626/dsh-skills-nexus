@@ -1,48 +1,56 @@
 # dsh-skills-nexus
 
 [![CI](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml)
+![GitHub License](https://img.shields.io/github/license/xiaxi626/dsh-skills-nexus)
+
+[English](README.md) | **中文**
+
+⭐ **如果项目对你有帮助，欢迎 Star 支持！**
 
 通用 DSH skill 适配器。**安装一次**，就可以把任意 GitHub 上的 `SKILL.md` 仓库注册为 DSH skill——一条命令添加一个。skill 仓库本身保持纯净：不需要 Cordis 插件代码，不需要 `package.json`，也不需要 `cordis.patch.yml`。
 
-本项目把「薄包装层」模式从「单个硬编码 skill」推广为「N 个动态发现的 skill」——同一个 provider 可以承载多个 skill，运行时扫描目录并注册。
+本项目通过 CLI 将 SKILL.md 仓库克隆到本地 `~/.dsh/skills-nexus/repos/` 目录，然后在 DSH 官方 skills 根目录（`~/.dsh/skills/`）中创建符号链接（symlink）。官方 filesystem provider 会自动发现、监听并加载这些 skill——不再需要自定义 provider，也不再需要在运行时扫描目录。
 
 ## 架构概览
 
 ```mermaid
-flowchart LR
-    subgraph 用户命令行
-        A["<b>dsh-skills-nexus CLI</b><br/>add · update · remove"]
+flowchart TD
+    subgraph SRC["GitHub"]
+        G[("SKILL.md<br/>仓库")]
     end
 
-    subgraph 本地存储
-        M["<b>manifest.json</b><br/>状态后端"]
-        S["<b>~/.dsh/skills-nexus/skills/</b><br/>repo-a/ SKILL.md<br/>repo-b/ SKILL.md"]
+    subgraph NEXUS["dsh-skills-nexus（~/.dsh/skills-nexus/）"]
+        A["CLI<br/><i>add · update · remove</i>"]
+        M["manifest.json<br/><i>状态后端</i>"]
+        R["repos/<br/><i>完整 git 克隆</i>"]
     end
 
-    subgraph DSH 运行时
-        P["<b>nexusProvider</b><br/>list() · get(name)"]
-        C["ctx.skills<br/>（DSH skill 目录）"]
+    subgraph DSH["DSH 官方根目录（~/.dsh/skills/）"]
+        L["symlinks<br/><i>自动发现</i>"]
+        P["官方 filesystem provider"]
+        C["ctx.skills<br/><i>skill 目录</i>"]
     end
 
-    G[("GitHub<br/>SKILL.md 仓库")]
-
-    A -- "git clone" --> G
-    A -- "读写" --> M
-    M -- "启动时读取" --> P
-    S -- "读取 SKILL.md" --> P
-    P -- "注册" --> C
+    G -->|"1  git clone"| A
+    A -->|"2  读 / 写"| M
+    A -->|"3  存储克隆"| R
+    A -->|"4  创建 symlink"| L
+    L -.->|"symlink 指向 repos/"| R
+    L -->|"5  被扫描"| P
+    P -->|"6  注册"| C
 
     style A fill:#e8f4fd,stroke:#3b82f6,stroke-width:2px,color:#000
     style P fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#000
     style M fill:#fffbeb,stroke:#f59e0b,stroke-width:2px,color:#000
-    style S fill:#f5f3ff,stroke:#8b5cf6,stroke-width:2px,color:#000
+    style R fill:#f5f3ff,stroke:#8b5cf6,stroke-width:2px,color:#000
+    style L fill:#dcfce7,stroke:#22c55e,stroke-width:2px,color:#000
     style C fill:#fce7f3,stroke:#ec4899,stroke-width:2px,color:#000
     style G fill:#f1f5f9,stroke:#64748b,stroke-width:2px,color:#000
 ```
 
-- **CLI 管写入**：`add` / `update` / `remove` 等命令操作 git 并写 `manifest.json`
-- **Provider 管读取**：DSH 启动时 `list()` 扫描所有克隆目录、`get()` 返回 skill 正文
-- **两边解耦**：CLI 和 provider 通过 manifest.json 通信，互不依赖
+- **CLI 管写入**：`add` / `update` / `remove` 等命令操作 git、写 `manifest.json`，并在 `~/.dsh/skills/` 中创建/删除 symlink
+- **官方 provider 管读取**：DSH 内置的 filesystem provider 自动扫描 `~/.dsh/skills/`，发现 symlink 指向的 skill
+- **两边解耦**：CLI 只管克隆和 symlink；发现和加载完全交给官方 provider
 
 ## 为什么需要它
 
@@ -63,12 +71,12 @@ flowchart LR
 dsh plugin --profile web add "github:xiaxi626/dsh-skills-nexus"
 ```
 
-重启一次 profile。之后 nexus provider 就会在 `ctx.skills` 中持续生效。`lib/` 编译产物已随仓库提交，安装即用。
+重启一次 profile。之后 `dsh-skills-nexus` CLI 命令就可用了。`lib/` 编译产物已随仓库提交，安装即用。
 
 ## 使用
 
 ```bash
-# 注册一个 skill 仓库（克隆到 ~/.dsh/skills-nexus/skills/<name>/ 下）
+# 注册一个 skill 仓库（克隆到 ~/.dsh/skills-nexus/repos/<name>/ 下）
 dsh-skills-nexus add github:owner/repo
 dsh-skills-nexus add github:owner/repo#dev          # 指定分支 / tag
 dsh-skills-nexus add https://github.com/owner/repo
@@ -77,11 +85,11 @@ dsh-skills-nexus add github:owner/repo --yes         # 跳过"包装型仓库？
 dsh-skills-nexus add github:owner/repo --subdir skills/foo   # 只安装集合仓库里的某个子目录
 
 # 查看 / 维护
-dsh-skills-nexus list                               # 列出所有已注册 skill（含安装的 commit、subdir）
+dsh-skills-nexus list                               # 列出所有已注册 skill（含安装的 commit、subdir、状态）
 dsh-skills-nexus update [name]                      # 刷新（分支 pin 拉取；tag/commit pin 校验）
-dsh-skills-nexus enable  <name>                     # 在目录中显示（默认开启）
-dsh-skills-nexus disable <name>                     # 隐藏但不删除
-dsh-skills-nexus remove <name>                      # 删除克隆 + 注销
+dsh-skills-nexus enable  <name>                     # 创建 symlink（默认开启）
+dsh-skills-nexus disable <name>                     # 删除 symlink 但不删克隆
+dsh-skills-nexus remove <name>                      # 删除克隆 + symlink + 注销
 ```
 
 支持的仓库格式：`github:owner/repo[#ref]`、完整 `https://` URL（含 `/tree/<ref>/...` 子路径）、`git+https://`、`git@`/`ssh://`、以及裸写 `owner/repo` 简写。
@@ -108,17 +116,34 @@ dsh-skills-nexus remove <name>                      # 删除克隆 + 注销
 `disable-model-invocation`（布尔）、`user-invocable`（布尔）。其余字段
 （`whenToUse`、`metadata` 等）会被解析并保留，但 nexus 不做进一步解释。
 
+> **注意**：nexus 在安装时会归一化不合法的 frontmatter 名称（修正为 kebab-case），并补全缺失的 description，确保官方 provider 不会因为 frontmatter 有问题而静默跳过 skill。
+
 ## 文件系统布局
 
 ```
-~/.dsh/skills-nexus/
-├── manifest.json          # 状态后端：CLI 写，provider 读
-└── skills/
-    ├── repo-a/            # 完整 git 克隆，不做任何改动
-    │   ├── SKILL.md
-    │   └── references/…
-    └── repo-b/
+~/.dsh/
+├── skills/                          # DSH 官方 skills 根目录（官方 provider 扫描这里）
+│   ├── skill-a/        → symlink →  ~/.dsh/skills-nexus/repos/repo-a/
+│   └── skill-b/        → symlink →  ~/.dsh/skills-nexus/repos/repo-b/skills/foo/
+│
+└── skills-nexus/
+    ├── manifest.json                 # 状态后端：CLI 写
+    └── repos/                        # 完整 git 克隆存放处
+        ├── repo-a/                  # 完整 git 克隆（nexus 管理）
+        │   ├── SKILL.md
+        │   └── references/…
+        └── repo-b/
+            └── skills/
+                └── foo/
+                    └── SKILL.md
 ```
+
+**为什么有两层目录？**
+
+- `repos/` 是 nexus 的私有存储——所有 git 克隆都放在这里，保持原始结构不变。CLI 通过 git 对这些目录做 clone / pull / checkout 等操作。克隆由 nexus 管理：`add` / `update` 可能原地归一化 frontmatter（修正非法名称、补全缺失的 `description`），`update` 在拉取前会丢弃本地改动（有警告）——请勿手动编辑克隆。
+- `~/.dsh/skills/` 是 DSH 官方的 skills 根目录——官方 filesystem provider 只扫描这一层。nexus 在这里为每个 skill 创建一个 symlink，指向 `repos/` 中的实际目录。这样官方 provider 就能自动发现所有 skill，无需自定义 provider。
+
+`enable` / `disable` 就是创建/删除 symlink——轻量且原子化，克隆数据始终保留在 `repos/` 中。`remove` 则同时删除 symlink 和克隆目录。
 
 可用 `DSH_HOME`（默认 `~/.dsh`）或 `DSH_SKILLS_NEXUS_HOME`（默认 `<DSH_HOME>/skills-nexus`）覆盖根目录。
 
@@ -132,7 +157,7 @@ dsh-skills-nexus remove <name>                      # 删除克隆 + 注销
 # 查看已注册的 skill
 dsh-skills-nexus list
 
-# 删除一个（删除克隆目录并注销）
+# 删除一个（删除 symlink、克隆目录并注销）
 dsh-skills-nexus remove <skill-name>
 ```
 
@@ -154,9 +179,13 @@ dsh plugin --profile web remove dsh-skills-nexus
 rm -rf ~/.dsh/skills-nexus
 #    Windows PowerShell:
 # Remove-Item -Recurse -Force ~/.dsh/skills-nexus
+
+# 4. （可选）删除本地测试目录
+#    Windows PowerShell:
+# Remove-Item -Recurse -Force dsh-skills-nexus
 ```
 
-重启 DSH profile。`dsh-skills-nexus` provider 及其所有 skill 都会被移除。
+重启 DSH profile。`dsh-skills-nexus` CLI 及其所有 skill 都会被移除。
 
 ## 本地测试步骤
 
@@ -225,7 +254,7 @@ EOF
 npx @deepseek-ai/dsh web --patch overlay.yml
 ```
 
-这会把 nexus 作为临时 layer 挂载进当前 profile，provider 就注册上了。**每次改了代码重新 `npm run build` 后，重启 DSH 生效。**
+这会把 nexus 作为临时 layer 挂载进当前 profile，CLI 命令 `dsh-skills-nexus` 随之可用。**每次改了代码重新 `npm run build` 后，重启 DSH 生效。**
 
 ### 第四步：用 CLI 加一个 skill 测试
 
@@ -243,30 +272,48 @@ dsh-skills-nexus add github:xiaxi626/theme-port-skill
 
 # 查看是否注册成功
 dsh-skills-nexus list
+
+# 检查官方根目录中是否创建了 symlink
+ls -la ~/.dsh/skills/
 ```
 
 **如果移动过文件夹，`npm link` 报 EEXIST 的处理方法：**
 
-```bash
-# 删除旧的全局链接（Git Bash / macOS / Linux）
-rm -f ~/AppData/Roaming/npm/dsh-skills-nexus
-rm -f ~/AppData/Roaming/npm/dsh-skills-nexus.cmd
+方案 A — 用 `--force` 直接覆盖（最简单，全平台通用）：
 
-# 然后重新链接
+```bash
+npm link --force
+```
+
+方案 B — 手动删除旧的全局链接，再重新链接：
+
+**Git Bash：**
+
+```bash
+rm -f "$(npm prefix -g)/dsh-skills-nexus"
+rm -f "$(npm prefix -g)/dsh-skills-nexus.cmd"
+rm -f "$(npm prefix -g)/dsh-skills-nexus.ps1"
 npm link
 ```
 
-> 上面路径适用于 Windows + Git Bash。如果你用的是 macOS 或 Linux，全局链接通常在 `/usr/local/bin/` 下。
+**Windows PowerShell：**
+
+```powershell
+Remove-Item -Force "$(npm prefix -g)\dsh-skills-nexus*"
+npm link
+```
+
+> 用 `$(npm prefix -g)` 而不是 `~` 或硬编码路径，可以确保无论 Git Bash 中 `HOME` 环境变量是否正确配置，都能解析到正确的 npm 全局目录。
 
 ### 第五步：在 DSH 里验证
 
-> **注意**：第三步用 `--patch` 启动的 DSH 进程，是在第四步加 skill **之前**就跑起来的，因此直接在原来的 DSH 界面里问「你有哪些 skill」是看不到新 skill 的——provider 还没加载它。
+> **注意**：第三步用 `--patch` 启动的 DSH 进程，是在第四步加 skill **之前**就跑起来的，因此直接在原来的 DSH 界面里问「你有哪些 skill」是看不到新 skill 的——provider 还没扫描到它。
 >
 > **必须先停掉再重启**：回到第三步启动 DSH 的那个终端，按 `Ctrl+C` 停掉进程，然后重新执行一遍：
 > ```bash
 > npx @deepseek-ai/dsh web --patch overlay.yml
 > ```
-> 重启后 DSH 会重新加载 provider，此时 `list()` 才会扫描到刚通过 CLI 添加的 skill。
+> 重启后 DSH 会重新加载 filesystem provider，此时它会扫描 `~/.dsh/skills/` 中的 symlink，发现刚通过 CLI 添加的 skill。
 
 重启完成后，在 DSH 会话里问一句「你有哪些 skill」或类似触发目录查询的话，看 `theme-port-skill` 是否出现在 skill 列表里。
 
@@ -274,25 +321,20 @@ npm link
 
 ## 更轻的验证（不启动 DSH 也能测核心逻辑）
 
-如果只想验证「clone + 解析 + provider list/get」这条链路是否正常，不需要启动整个 DSH，可以写一个几行的 Node 脚本直接调 provider：
-
-```js
-// test-provider.mjs
-import { nexusProvider } from './lib/provider.js'
-
-const list = await nexusProvider.list()
-console.log('list:', list.map(s => s.name))
-
-const skill = await nexusProvider.get('theme-port-skill')
-console.log('get:', skill.description.slice(0, 60))
-console.log('content length:', skill.content.length)
-```
+如果只想验证「clone + symlink 创建 + list」这条链路是否正常，不需要启动整个 DSH，直接用 CLI 即可：
 
 ```bash
-node test-provider.mjs
+# 加一个 skill
+dsh-skills-nexus add github:xiaxi626/theme-port-skill
+
+# 查看注册结果
+dsh-skills-nexus list
+
+# 检查 symlink 是否创建成功
+ls -la ~/.dsh/skills/
 ```
 
-> 前提：已经用 `dsh-skills-nexus add` 加过至少一个 skill。如果 `list()` 返回了预期的 skill、`get()` 返回了正文内容，说明整个薄包装层接缝都正常。
+> 如果 `list` 显示了预期的 skill、`ls -la` 显示了指向 `repos/` 目录的 symlink，说明整个 clone + symlink 链路正常。
 
 ---
 
@@ -300,42 +342,45 @@ node test-provider.mjs
 
 ```
 dsh-skills-nexus add github:owner/repo
-   └─ git clone --depth 1 →  ~/.dsh/skills-nexus/skills/<name>/
-   └─ 写入一条 entry        →  ~/.dsh/skills-nexus/manifest.json
+   └─ git clone --depth 1 →  ~/.dsh/skills-nexus/repos/<name>/
+   └─ 归一化 frontmatter     （修正不合法名称为 kebab-case，补全缺失的 description）
+   └─ 创建 symlink        →  ~/.dsh/skills/<skill-name>/  →  指向 repos/<name>/
+   └─ 追加条目              →  ~/.dsh/skills-nexus/manifest.json
 
-DSH 启动 / 重载
-   └─ apply(ctx) → ctx.skills.registerProvider(() => nexusProvider)
-        └─ list()   读 manifest、扫描每个 clone、返回 SkillCandidate[]
-        └─ get(name) 读 SKILL.md，返回 { content: body, resourceBase }
+DSH filesystem provider（官方内置）
+   └─ 扫描 ~/.dsh/skills/ → 自动发现所有 symlink 指向的 skill
+   └─ 读取每个 SKILL.md 的 frontmatter + body
 ```
 
-provider 实现了标准的薄包装层接缝：
+关键设计点：
 
-- `list()` 返回 `SkillCandidate` **数组**——一个 provider 承载多个 skill。
-- `parseFrontmatter()` 在运行时读取 `SKILL.md`（代码里不重复维护 description）；用 `yaml` 包解析，与官方 `dsh-skill-filesystem` 一致。
-- `resourceBase` **按 skill 构造**，指向该 skill 自己的 clone 目录，因此正文里的相对路径（`references/`、`scripts/`、`assets/`）能正确解析。
-- skill 名称取自每个 `SKILL.md` frontmatter 的 `name` 字段（回落到 manifest 中的 key），因此多 skill 仓库也能正确呈现。
+- **用 symlink 替代自定义 provider**：官方 filesystem provider 负责发现、文件监听和错误容错——不用维护自定义 provider 代码。
+- **每个 skill 独立的 `resourceBase`**：每个 symlink 指向该 skill 自己的克隆目录，因此相对路径（`references/`、`scripts/`、`assets/`）能正确解析。
+- **多 skill 仓库支持**：集合仓库为每个发现的 skill 创建一个 symlink——都展平在 `~/.dsh/skills/` 顶层，官方 provider 单层扫描即可发现。
+- **安装时归一化**：修正不合法的 frontmatter 名称，补全缺失的 description，确保官方 provider 不会静默跳过 skill。
+- **enable/disable 轻量**：只是创建/删除 symlink，克隆数据始终保留在 `repos/` 中。
 
 ## 项目结构
 
 ```
 src/
-├── index.ts          # Cordis 插件入口：apply(ctx) → registerProvider
-├── provider.ts       # nexusProvider：list() / get(name)
-├── resolve.ts        # 将 manifest entries 解析为具体 skill
-├── manifest.ts       # manifest.json 的读写/查找/增删/切换
+├── index.ts          # Cordis 插件入口（apply 空实现，仅用于 dsh plugin add 安装）
+├── link.ts           # symlink 管理（link/unlink/碰撞检测）
+├── resolve.ts        # 解析克隆仓库中的 skill（previewSkills + isValidSkillName）
+├── manifest.ts       # manifest.json 的读写/查找/增删
 ├── locator.ts        # 在克隆目录中定位 SKILL.md（3 种发现布局）
-├── frontmatter.ts    # 基于 yaml 的 frontmatter + body 解析
+├── frontmatter.ts    # 基于 yaml 的 frontmatter 解析 + 归一化（normalizeSkillName / ensureDescription）
 ├── git.ts            # parseGitSpec / cloneRepo / pullRepo（execFile，无 shell）
-├── paths.ts          # 根目录/skills/manifest 路径常量
-├── types.ts          # Manifest / SkillCandidate / SkillDefinition / Context
+├── paths.ts          # 官方 skills 根 / repos / manifest 路径常量
+├── types.ts          # Manifest / SkillEntry 类型
+├── repo-kind.ts      # 克隆仓库分类（纯内容 / 包装 / 插件 / 无法识别）
 └── cli/
     ├── index.ts      # 命令分发
     ├── args.ts       # 轻量 argv 解析
     └── commands/     # add · list · update · remove · toggle
 ```
 
-运行时依赖只有 `yaml`。`@deepseek-ai/cordis` 和 `@deepseek-ai/dsh-skill` 是可选 peer 依赖（SDK 在运行时提供真实的 `Context`；`types.ts` 中的结构类型让项目在没有它们时也能通过类型检查）。
+运行时依赖只有 `yaml`。`index.ts` 的 `apply()` 是空实现——不再注册自定义 provider，所有 skill 发现通过 symlink 交给官方 filesystem provider。
 
 ## 开发：测试与 CI
 
@@ -365,7 +410,7 @@ npm run build       # tsc → lib/
 | `src/repo-kind.ts` | `test/repo-kind.test.ts` | 仓库分类：纯内容 / 包装 / 插件 / 无法识别 |
 | `src/cli/args.ts` | `test/args.test.ts` | 极简 argv 解析器 |
 | `src/manifest.ts` | `test/manifest.test.ts` | 在临时 `DSH_HOME` 上做 manifest 读写往返 |
-| `src/resolve.ts` | `test/resolve.test.ts` | manifest → 解析后 skill 的完整管线（多 skill、开关、名称回退） |
+| `src/resolve.ts` | `test/resolve.test.ts` | `previewSkills`（预览 skill）、`isValidSkillName` 校验 |
 
 `npm run test:build` 把 `src/` + `test/` 编译到 `test-dist/`，可无 loader 直接跑
 （`node --test test-dist/test/`），适合 tsx loader 不可用的环境。
@@ -376,14 +421,15 @@ typecheck、lint、单元测试、build，以及「已提交的 `lib/` 是否与
 
 ## 注意事项与限制
 
-- **add 后是否立即可见**：新添加的 skill 是否立即出现在目录中，取决于 DSH 是否缓存了 provider 的 `list()` 结果。如果 profile 在 add 之前已启动，重载一下即可（或依赖 nexus「每次 list 都重新读」的设计，在下一次目录刷新时自动拾取）。
+- **add 后是否立即可见**：新添加的 skill 是否立即出现在目录中，取决于 DSH 是否重新扫描了 `~/.dsh/skills/`。如果 profile 在 add 之前已启动，重载一下即可——官方 filesystem provider 会重新扫描 skills 根目录，拾取新创建的 symlink。
 - **版本固定与更新**：用 `#分支名`、`#tag名` 或 `#commit-hash` 固定 ref。安装时 manifest 会记录实际解析到的 commit（`commit` 字段）——一个轻量锁，`list` 会显示它。`update` 只对**分支** pin 的 skill 做快进拉取（并打印 commit 变化）；**tag/commit** pin 的 skill 是固定点：只校验当前 checkout 是否仍等于 pin（漂移则自动恢复），不做 pull——被固定的版本永远不会静默漂移。不加 `#ref` 时，CLI 会通过 `git ls-remote --symref` 自动探测远程默认分支（探测失败回落到 `main`）。
 - **仅用于 skill 内容仓库**：这不是 `dsh plugin add` 的替代品。如果仓库本身就有 `dsh.bundle.patch`，请用正常方式安装——nexus 是给那些没有封装的仓库用的。完整决策指南见 [nexus 与 `dsh plugin`——什么时候用哪个](docs/nexus-vs-plugin.zh-CN.md)。
 - **集合仓库与 `--subdir`**：skill 藏在子目录的集合仓库用 `--subdir <path>` 按需安装——每次安装是一个独立条目、独立克隆（独立克隆设计，P1/P2 权衡见 [docs/subdir-design.md](docs/subdir-design.md)）。不带 `--subdir` 全量安装时，根目录无可用 skill 会被拒绝；超过 20 个 skill 会弹确认提示。
 - **平铺 md 过滤**：没有 frontmatter `name` **且**没有 `description` 的平铺 `*.md` 不会被当作 skill——集合仓库的文档（`README.zh-CN.md`、`CONTRIBUTING.md`、`community-leaderboard.md` 等）永远不会被"假装安装"。发现阶段的跳过名单也按前缀模式覆盖 `readme*`、`contributing*`、`license*`、`changelog*`、`code-of-conduct*`、`security*`。
-- **同名不消歧**：DSH 按名称索引 skill，后安装的同名 skill 会覆盖前者。用 `--name` 区分条目，或用 `--subdir` 只装需要的。enable/disable 按条目（即按安装的 subdir）生效，`remove` 删除整个条目的克隆。
-- **skill 名校验**：DSH 要求 skill 名是小写 kebab-case（`[a-z0-9]` 开头，后跟 `[a-z0-9._-]`）。frontmatter `name` 不合法（如 `CurriculumDesigner`）会导致 DSH 拒绝整个 provider，因此 nexus 会把这类 skill 注册为回退名（条目名），并在 `add` 时以 `⚠` 警告。
+- **同名不消歧**：DSH 按名称索引 skill，后安装的同名 skill 会覆盖前者。用 `--name` 区分条目，或用 `--subdir` 只装需要的。enable/disable 按条目（即按安装的 subdir）生效，`remove` 删除整个条目的克隆及其所有 symlink。
+- **skill 名校验**：DSH 要求 skill 名是小写 kebab-case（`[a-z0-9]+` 段，用单个 `-` 分隔）。frontmatter `name` 不合法（如 `CurriculumDesigner`）会导致 DSH 拒绝该 skill，因此 nexus 会在安装时归一化这类名称（转为 kebab-case），并在 `add` 时以 `⚠` 警告。
 - **构建脚本**：由于 nexus 自己 clone 内容仓库（不走 pnpm），它完全绕开了 pnpm 的 `allowBuilds` 拦截。
+- **Windows 符号链接**：在 Windows 上创建 symlink 需要开发者模式或管理员权限。如果 symlink 创建失败，skill 不会出现在目录中——请在 Windows 设置中启用开发者模式，或以管理员身份运行。
 
 ## 许可证
 

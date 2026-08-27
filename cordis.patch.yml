@@ -1,5 +1,3 @@
-# Cordis bundle patch layer — registers this package as an active DSH profile layer.
-# Installed once via:  dsh plugin --profile <name> add "github:owner/dsh-skills-nexus"
 - insert:
     - id: dsh-skills-nexus
-      name: 'dsh-skills-nexus'
+      name: './lib/index.js'

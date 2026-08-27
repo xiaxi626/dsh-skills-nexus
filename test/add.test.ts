@@ -39,6 +39,7 @@ before(async () => {
 
 after(async () => {
   await rm(home, { recursive: true, force: true })
+  delete process.env.DSH_HOME
 })
 
 test('add registers a repo and records the resolved commit', async () => {

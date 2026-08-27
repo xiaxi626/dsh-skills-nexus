@@ -25,7 +25,6 @@ const entry: SkillEntry = {
   gitUrl: 'https://github.com/owner/demo.git',
   ref: 'main',
   path: 'demo',
-  enabled: true,
   addedAt: '2026-01-01T00:00:00.000Z',
 }
 
@@ -40,6 +39,7 @@ before(async () => {
 
 after(async () => {
   await rm(home, { recursive: true, force: true })
+  delete process.env.DSH_HOME
 })
 
 test('readManifest returns an empty manifest when missing', async () => {
@@ -95,18 +95,6 @@ test('removeEntry deletes and returns the entry', async () => {
 test('removeEntry on an unknown name returns undefined', async () => {
   await manifest.writeManifest({ version: 1, skills: [] })
   assert.equal(await manifest.removeEntry('nope'), undefined)
-})
-
-test('setEnabled toggles and persists', async () => {
-  await manifest.writeManifest({ version: 1, skills: [entry] })
-  const updated = await manifest.setEnabled('demo', false)
-  assert.equal(updated?.enabled, false)
-  const m = await manifest.readManifest()
-  assert.equal(m.skills[0]!.enabled, false)
-})
-
-test('setEnabled on an unknown name returns undefined', async () => {
-  assert.equal(await manifest.setEnabled('nope', true), undefined)
 })
 
 test('markUpdated stamps an ISO updatedAt', async () => {

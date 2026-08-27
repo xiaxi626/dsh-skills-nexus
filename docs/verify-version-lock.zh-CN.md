@@ -21,7 +21,7 @@
 ```bash
 npm run typecheck   # tsc --noEmit（strict）
 npm run lint        # ESLint 9 + typescript-eslint
-npm test            # node:test + tsx——期望：98 个用例全部通过
+npm test            # node:test + tsx——期望：全部用例通过
 npm run build       # tsc → lib/
 npm run test:build  # 可选：把 src+test 编译到 test-dist/，无 loader 环境可跑
 ```
@@ -31,7 +31,7 @@ npm run test:build  # 可选：把 src+test 编译到 test-dist/，无 loader �
 | 测试文件 | 验证内容 |
 |---|---|
 | `test/add.test.ts` | `add` 记录解析到的 commit；重复添加被拒绝且克隆完好 |
-| `test/update.test.ts` | 分支 pin 快进并重新盖章 commit；tag pin 是固定点；漂移的 checkout 被恢复 |
+| `test/update.test.ts` | 分支 pin 快进并重新盖章 commit；tag pin 是固定点；漂移的 checkout 被恢复；脏工作区（归一化产物）不阻塞快进与漂移恢复 |
 | `test/git.test.ts` | `getHeadCommit` / `isDetachedHead` / `resolveRefCommit` / `checkoutRef`；按 tag 克隆 → detached HEAD，按分支克隆 → symbolic HEAD |
 | `test/manifest.test.ts` | `markUpdated` 盖章 `updatedAt` + `commit` |
 
@@ -49,7 +49,7 @@ UP="$(cygpath -m "$TEMP/up")"
 rm -rf "$UP" "$(cygpath -m "$TEMP/nexus-demo")"      # 清掉上次残留
 mkdir -p "$UP" && cd "$UP" && git init -b main        # git ≥2.28
 git config user.email t@t && git config user.name t
-printf '# demo\n---\nname: demo\ndescription: demo skill\n' > SKILL.md
+printf -- '---\nname: demo\ndescription: demo skill\n---\n# demo\n' > SKILL.md   # frontmatter 完整且置于文件开头：克隆不会被归一化弄脏（否则 C 步的手动 checkout 会被脏工作区阻塞，见坑 #11）
 git add . && git commit -m init && git tag v1.0.0
 
 # ---- 隔离的 DSH_HOME + CLI ----
@@ -78,10 +78,20 @@ cd "$PROJECT"
 node lib/cli/index.js update      # → ✓ xxxxxxx → yyyyyyy
 node lib/cli/index.js list        # COMMIT 和 UPDATED 都刷新了
 
+# ---- B2) 脏克隆不阻塞 update（归一化会原地改 SKILL.md）----
+cd "$DSH_HOME/skills-nexus/repos/up"
+printf 'local edit\n' >> SKILL.md            # 模拟被本地改动的已跟踪文件
+cd "$PROJECT"
+cd "$UP" && printf '# demo v4\n---\nname: demo\ndescription: v4\n' > SKILL.md
+git add . && git commit -m fourth            # 上游动了同一个文件
+cd "$PROJECT"
+node lib/cli/index.js update      # → ⚠ discarding local changes… 然后 ✓ xxxxxxx → yyyyyyy
+node lib/cli/index.js list        # COMMIT 前进到 v4
+
 # ---- C) 漂移自愈 ----
 node lib/cli/index.js remove up
 node lib/cli/index.js add "file:///$UP#v1.0.0"
-cd "$DSH_HOME/skills-nexus/skills/up"
+cd "$DSH_HOME/skills-nexus/repos/up"
 git fetch --depth 1 origin main   # 把较新的提交拉进浅克隆
 git checkout FETCH_HEAD           # 故意漂移离开 pin
 cd "$PROJECT"
@@ -89,7 +99,7 @@ node lib/cli/index.js update      # → ✓ restored to pinned xxxxxxx
 node lib/cli/index.js list        # COMMIT 回到 pin 的 SHA
 
 # ---- D) 重复 add 保护 ----
-node lib/cli/index.js add "file:///$UP#v1.0.0"        # → 被拒绝，exit code 1
+node lib/cli/index.js add "file:///$UP#v1.0.0"; echo "exit=$?"   # → 被拒绝，期望 exit=1
 node lib/cli/index.js list        # 克隆仍在且完好
 
 # ---- 查看锁 ----
@@ -97,6 +107,7 @@ cat "$DSH_HOME/skills-nexus/manifest.json"            # 每条都有 "commit"
 
 # ---- 清理 ----
 rm -rf "$UP" "$(cygpath -m "$TEMP/nexus-demo")"
+unset DSH_HOME
 ```
 
 ### Linux / macOS
@@ -107,7 +118,7 @@ UP=/tmp/nexus-up
 rm -rf "$UP" /tmp/nexus-demo                            # 清掉上次残留
 mkdir -p "$UP" && cd "$UP" && git init -b main          # git ≥2.28；旧版用：`git init && git symbolic-ref HEAD refs/heads/main`
 git config user.email t@t && git config user.name t
-printf '# demo\n---\nname: demo\ndescription: demo skill\n' > SKILL.md
+printf -- '---\nname: demo\ndescription: demo skill\n---\n# demo\n' > SKILL.md   # frontmatter 完整且置于文件开头：克隆不会被归一化弄脏（否则 C 步的手动 checkout 会被脏工作区阻塞，见坑 #11）
 git add . && git commit -m init && git tag v1.0.0
 
 # ---- 隔离的 DSH_HOME + CLI ----
@@ -136,10 +147,20 @@ cd "$PROJECT"
 node lib/cli/index.js update      # → ✓ xxxxxxx → yyyyyyy
 node lib/cli/index.js list        # COMMIT 和 UPDATED 都刷新了
 
+# ---- B2) 脏克隆不阻塞 update（归一化会原地改 SKILL.md）----
+cd "$DSH_HOME/skills-nexus/repos/up"
+printf 'local edit\n' >> SKILL.md            # 模拟被本地改动的已跟踪文件
+cd "$PROJECT"
+cd "$UP" && printf '# demo v4\n---\nname: demo\ndescription: v4\n' > SKILL.md
+git add . && git commit -m fourth            # 上游动了同一个文件
+cd "$PROJECT"
+node lib/cli/index.js update      # → ⚠ discarding local changes… 然后 ✓ xxxxxxx → yyyyyyy
+node lib/cli/index.js list        # COMMIT 前进到 v4
+
 # ---- C) 漂移自愈 ----
 node lib/cli/index.js remove up
 node lib/cli/index.js add "file://$UP#v1.0.0"
-cd "$DSH_HOME/skills-nexus/skills/up"
+cd "$DSH_HOME/skills-nexus/repos/up"
 git fetch --depth 1 origin main   # 把较新的提交拉进浅克隆
 git checkout FETCH_HEAD           # 故意漂移离开 pin
 cd "$PROJECT"
@@ -147,7 +168,7 @@ node lib/cli/index.js update      # → ✓ restored to pinned xxxxxxx
 node lib/cli/index.js list        # COMMIT 回到 pin 的 SHA
 
 # ---- D) 重复 add 保护 ----
-node lib/cli/index.js add "file://$UP#v1.0.0"          # → 被拒绝，exit code 1
+node lib/cli/index.js add "file://$UP#v1.0.0"; echo "exit=$?"    # → 被拒绝，期望 exit=1
 node lib/cli/index.js list        # 克隆仍在且完好
 
 # ---- 查看锁 ----
@@ -155,6 +176,7 @@ cat "$DSH_HOME/skills-nexus/manifest.json"             # 每条都有 "commit"
 
 # ---- 清理 ----
 rm -rf "$UP" /tmp/nexus-demo
+unset DSH_HOME
 ```
 
 ---
@@ -184,10 +206,13 @@ cd "$PROJECT"
 node lib/cli/index.js add "file://$COLL"                       # → 被拒绝，提示改用 --subdir
 node lib/cli/index.js add "file://$COLL" --subdir skills/alpha # → 成功
 node lib/cli/index.js list                                      # SUBDIR 列 = skills/alpha
-node -e "import('./lib/resolve.js').then(async m => { (await m.resolveAll()).forEach(s => console.log(s.name + '  <-  ' + s.skillFile)) })"
+dsh-skills-nexus list
+# 检查 symlink 是否创建
+ls -la "$DSH_HOME/skills/"
 # → 只有 alpha-skill；README.zh-CN.md / community-leaderboard.md 都不是 skill
 
 rm -rf "$COLL" /tmp/nexus-col-demo
+unset DSH_HOME
 ```
 
 ### Windows（Git Bash）
@@ -199,8 +224,9 @@ COLL="$(cygpath -m "$TEMP/collection")"
 rm -rf "$COLL" "$(cygpath -m "$TEMP/nexus-col-demo")"
 # ... 按上面原样创建仓库 ...
 export DSH_HOME="$(cygpath -m "$TEMP/nexus-col-demo")"
-# ... 同样的 add/list/resolve 命令，清理用：
+# ... 同样的 add/list 命令，清理用：
 rm -rf "$COLL" "$(cygpath -m "$TEMP/nexus-col-demo")"
+unset DSH_HOME
 ```
 
 ---
@@ -211,6 +237,7 @@ rm -rf "$COLL" "$(cygpath -m "$TEMP/nexus-col-demo")"
 |---|---|---|
 | A：tag pin 执行 `update` | `✓ pinned at xxxxxxx — nothing to update` | 固定点：上游动了，克隆没动 |
 | B：分支 pin 执行 `update` | `✓ xxxxxxx → yyyyyyy`（或 `up to date`） | 已快进，锁已重新盖章 |
+| B2：脏克隆执行 `update` | `⚠ discarding local changes…` + `✓ xxxxxxx → yyyyyyy` | 本地改动被丢弃（有警告），快进不受影响 |
 | C：漂移后执行 `update` | `✓ restored to pinned xxxxxxx` | 检测到漂移并自动 checkout 回 pin |
 | D：重复 `add` | 拒绝提示，exit code 1 | 保护生效；已有克隆不受影响 |
 | `manifest.json` | 每条含 `"commit": "<40位SHA>"` | 锁本身 |
@@ -239,6 +266,19 @@ rm -rf "$COLL" "$(cygpath -m "$TEMP/nexus-col-demo")"
    `git init && git symbolic-ref HEAD refs/heads/main`。
 9. **跑的是编译产物** —— 流程使用 `lib/`；改过 `src/` 后先
    `npm run build` 再验证。
+10. **安装时归一化会原地修改克隆里的 SKILL.md**（补 description / 修
+    非法 name），克隆工作区因此是"脏"的。旧版本中这会让
+    `git pull --ff-only`（分支 pin）和漂移恢复（tag/commit pin）报
+    `Your local changes would be overwritten` 而失败。现在 `update` 会先
+    打印 `⚠ discarding local changes in nexus-managed clone` 丢弃本地
+    改动再继续——归一化产物在 pull 后会重新生成，终态不变。克隆是
+    nexus 管理的，请勿手动编辑。
+11. **脏克隆也会阻塞你手动执行的 git 命令。** C 步的
+    `git checkout FETCH_HEAD` 在脏工作区上会被 git 拒绝（`Your local
+    changes would be overwritten by checkout`）。正因如此，本文档的初始
+    `SKILL.md` 带完整 frontmatter——不需要归一化的仓库克隆是干净的，
+    手动模拟漂移才走得通。nexus 只保证自己的 `update` 不受脏工作区
+    影响，不代你在克隆里执行任意 git 命令。
 
 ---
 
@@ -247,5 +287,5 @@ rm -rf "$COLL" "$(cygpath -m "$TEMP/nexus-col-demo")"
 本指南刻意不覆盖的内容：
 
 - **真实 GitHub 网络** —— 本地 `file://` 远端与真实远端走同一套 git 语义，且不受网络波动影响。
-- **DSH 运行时集成** —— provider 的 `list()` / `get()` 未改动；新增 manifest 字段向后兼容（旧 manifest 没有 `commit` 也能加载，显示 `—`，下次 `update` 后自动补齐）。
+- **DSH 运行时集成** —— Skills 通过 ~/.dsh/skills/ 中的 symlink 暴露，由官方 filesystem provider 发现。不再需要自定义 provider。新增 manifest 字段向后兼容（旧 manifest 没有 `commit` 也能加载，显示 `—`，下次 `update` 后自动补齐）。
 - **Node 18 / 20 / 22 矩阵** —— CI（`.github/workflows/ci.yml`）在 push/PR 时跑完整质量门禁。
