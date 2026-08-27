@@ -1,6 +1,8 @@
 # dsh-skills-nexus
 
 [![CI](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml)
+[![dsh.so risk](https://www.dsh.so/badge/dsh-skills-nexus.svg)](https://www.dsh.so/artifact/dsh-skills-nexus/)
+[![dsh.so install](https://www.dsh.so/badge/install/dsh-skills-nexus.svg)](https://www.dsh.so/artifact/dsh-skills-nexus/)
 ![GitHub License](https://img.shields.io/github/license/xiaxi626/dsh-skills-nexus)
 
 **English** | [中文](README_CN.md)
@@ -16,47 +18,6 @@ Nexus works by cloning SKILL.md repos to a local `~/.dsh/skills-nexus/repos/`
 directory and creating symlinks in the official DSH skills root
 (`~/.dsh/skills/`). The official filesystem provider automatically discovers,
 watches, and serves them — no custom provider or runtime scanning needed.
-
-## Architecture overview
-
-```mermaid
-flowchart TD
-    subgraph SRC["GitHub"]
-        G[("SKILL.md<br/>repos")]
-    end
-
-    subgraph NEXUS["dsh-skills-nexus  (~/.dsh/skills-nexus/)"]
-        A["CLI<br/><i>add · update · remove</i>"]
-        M["manifest.json<br/><i>state backend</i>"]
-        R["repos/<br/><i>full git clones</i>"]
-    end
-
-    subgraph DSH["Official DSH root  (~/.dsh/skills/)"]
-        L["symlinks<br/><i>auto-discovered</i>"]
-        P["filesystem provider"]
-        C["ctx.skills<br/><i>skill catalog</i>"]
-    end
-
-    G -->|"1  git clone"| A
-    A -->|"2  reads / writes"| M
-    A -->|"3  stores clones"| R
-    A -->|"4  creates symlinks"| L
-    L -.->|"symlink targets repos/"| R
-    L -->|"5  scanned by"| P
-    P -->|"6  registers"| C
-
-    style A fill:#e8f4fd,stroke:#3b82f6,stroke-width:2px,color:#000
-    style P fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#000
-    style M fill:#fffbeb,stroke:#f59e0b,stroke-width:2px,color:#000
-    style R fill:#f5f3ff,stroke:#8b5cf6,stroke-width:2px,color:#000
-    style L fill:#dcfce7,stroke:#22c55e,stroke-width:2px,color:#000
-    style C fill:#fce7f3,stroke:#ec4899,stroke-width:2px,color:#000
-    style G fill:#f1f5f9,stroke:#64748b,stroke-width:2px,color:#000
-```
-
-- **CLI writes**: `add` / `update` / `remove` commands operate git, update `manifest.json`, and create/remove symlinks in `~/.dsh/skills/`
-- **Official provider reads**: the built-in filesystem provider scans `~/.dsh/skills/` and discovers skills through symlinks
-- **Decoupled**: CLI only manages clones and symlinks; discovery and serving are entirely handled by the official provider
 
 ## Why
 
@@ -116,54 +77,6 @@ When you `add` a repo, nexus inspects the clone before registering it:
 - **Pure DSH plugin (no SKILL.md)** — prints a message telling you to use that repo's own DSH plugin installation flow, then exits without registering.
 - **Neither** — reports that no SKILL.md or DSH plugin marker was found and exits with an error.
 - **Collection repos** (`skills/<name>/SKILL.md` layout, e.g. `trae-community/trae-skills`) — installing the whole repo yields no installable skill at the root; nexus rejects it and suggests `--subdir <path>`. Installations that yield more than 20 skills trigger a confirmation prompt (skip with `--yes`).
-
-## SKILL.md discovery (per cloned repo)
-
-1. `<repoRoot>/SKILL.md` — authoritative; repo treated as a single skill.
-2. `<repoRoot>/<name>/SKILL.md` — repo bundles one skill per subdirectory (single-level only, matching the official filesystem provider; nested `**/SKILL.md` is excluded).
-3. `<repoRoot>/<name>.md` — flat markdown (no bundled resources).
-
-`README.md` / `CHANGELOG.md` / `LICENSE.md` are skipped in the flat scan.
-
-### Frontmatter fields honored
-
-Required: `name`, `description`. Optional, respected by the provider:
-`disable-model-invocation` (bool), `user-invocable` (bool). Any other fields
-(`whenToUse`, `metadata`, …) are parsed and preserved.
-
-> **Note**: nexus normalizes invalid frontmatter names at install time (converted
-> to kebab-case) and fills in missing descriptions, so the official provider
-> never silently skips a skill due to bad frontmatter.
-
-## Filesystem layout
-
-```
-~/.dsh/
-├── skills/                          # official DSH skills root (provider scans here)
-│   ├── skill-a/        → symlink →  ~/.dsh/skills-nexus/repos/repo-a/
-│   └── skill-b/        → symlink →  ~/.dsh/skills-nexus/repos/repo-b/skills/foo/
-│
-└── skills-nexus/
-    ├── manifest.json                 # state backend: CLI writes
-    └── repos/                        # full git clones live here
-        ├── repo-a/                  # full git clone (nexus-managed)
-        │   ├── SKILL.md
-        │   └── references/…
-        └── repo-b/
-            └── skills/
-                └── foo/
-                    └── SKILL.md
-```
-
-**Why two directory layers?**
-
-- `repos/` is nexus's private storage — all git clones live here, keeping their original structure intact. The CLI uses git to clone / pull / checkout these directories. Clones are nexus-managed: `add` / `update` may normalize frontmatter in place (fix invalid names, add missing `description`), and `update` discards local changes before pulling (with a warning) — do not edit clones by hand.
-- `~/.dsh/skills/` is the official DSH skills root — the official filesystem provider only scans this level. Nexus creates one symlink per skill here, pointing to the actual directory in `repos/`. This way the official provider discovers all skills automatically, with no custom provider needed.
-
-`enable` / `disable` simply create/remove symlinks — lightweight and atomic, clone data always stays in `repos/`. `remove` deletes both the symlink and the clone directory.
-
-Override the root with `DSH_HOME` (defaults to `~/.dsh`) or
-`DSH_SKILLS_NEXUS_HOME` (defaults to `<DSH_HOME>/skills-nexus`).
 
 ## Uninstall
 
@@ -380,99 +293,6 @@ ls -la ~/.dsh/skills/
 
 ---
 
-## How it works
-
-```
-dsh-skills-nexus add github:owner/repo
-   └─ git clone --depth 1 →  ~/.dsh/skills-nexus/repos/<name>/
-   └─ normalize frontmatter  (fix invalid names to kebab-case, add missing description)
-   └─ create symlink     →  ~/.dsh/skills/<skill-name>/  →  points to repos/<name>/
-   └─ append entry       →  ~/.dsh/skills-nexus/manifest.json
-
-DSH filesystem provider (official, built-in)
-   └─ scans ~/.dsh/skills/ → discovers all symlinked skills automatically
-   └─ reads each SKILL.md's frontmatter + body
-```
-
-Key design points:
-
-- **Symlinks instead of a custom provider**: the official filesystem provider
-  handles discovery, file watching, and error tolerance — no custom provider
-  code to maintain.
-- **Per-skill `resourceBase`**: each symlink points at that skill's own clone
-  directory, so relative paths (`references/`, `scripts/`, `assets/`) resolve
-  correctly.
-- **Multi-skill repos work**: collection repos create one symlink per
-  discovered skill — all visible at the top level of `~/.dsh/skills/`, matching
-  the official provider's single-level scan.
-- **Install-time normalization**: invalid frontmatter names are fixed and
-  missing descriptions are filled in, so the official provider never silently
-  skips a skill.
-- **Lightweight enable/disable**: just create/remove symlinks — clone data
-  always stays in `repos/`.
-
-## Project layout
-
-```
-src/
-├── index.ts          # Cordis plugin entry (empty apply(), exists for dsh plugin add)
-├── link.ts           # symlink management (link/unlink/collision check)
-├── resolve.ts        # parse cloned repos into discovered skills (previewSkills + isValidSkillName)
-├── manifest.ts       # manifest.json read/write/find/add/remove
-├── locator.ts        # locate SKILL.md inside a clone (3 discovery layouts)
-├── frontmatter.ts    # yaml-based frontmatter parser + normalizer (normalizeSkillName / ensureDescription)
-├── git.ts            # parseGitSpec / cloneRepo / pullRepo (execFile, no shell)
-├── paths.ts          # official skills root / repos / manifest path constants
-├── types.ts          # Manifest / SkillEntry types
-├── repo-kind.ts      # classify cloned repos (plain / wrapped / plugin / unknown)
-└── cli/
-    ├── index.ts      # dispatcher
-    ├── args.ts       # tiny argv parser
-    └── commands/     # add · list · update · remove · toggle
-```
-
-Runtime dependency is just `yaml`. `index.ts`'s `apply()` is a no-op — no
-custom provider is registered; all skill discovery goes through symlinks to
-the official filesystem provider.
-
-## Development: testing & CI
-
-> **Want to verify a feature end-to-end?**
-> - [Verifying the version-lock feature (P0)](docs/verify-version-lock.md) —
->   test suite, branch fast-forward, tag pinning, drift recovery, re-add guard.
-> - [Verifying collection-repo support (P1)](docs/verify-collection-support.md) —
->   `--subdir` installs, flat-md filtering, large-collection guards.
-> Both are copy-paste walkthroughs for Windows / Linux / macOS.
-
-Quality gates, all runnable locally:
-
-```bash
-npm run typecheck   # tsc --noEmit (strict)
-npm run lint        # ESLint 9 + typescript-eslint (flat config)
-npm test            # unit tests — node:test + tsx, no extra framework
-npm run build       # tsc → lib/
-```
-
-The test suite lives in `test/` and targets the pure-logic modules:
-
-| module | covered by | what is verified |
-|---|---|---|
-| `src/git.ts` | `test/git.test.ts` | `parseGitSpec` (all accepted repo forms), `repoSlug`, `sanitizeName` |
-| `src/frontmatter.ts` | `test/frontmatter.test.ts` | frontmatter + body split, malformed YAML, block scalars, CRLF, `flag()` |
-| `src/locator.ts` | `test/locator.test.ts` | the 3 SKILL.md discovery layouts, skipped files, hidden dirs |
-| `src/repo-kind.ts` | `test/repo-kind.test.ts` | repo classification: plain / wrapped / plugin / unknown |
-| `src/cli/args.ts` | `test/args.test.ts` | the tiny argv parser |
-| `src/manifest.ts` | `test/manifest.test.ts` | manifest read/write round-trips against a temp `DSH_HOME` |
-| `src/resolve.ts` | `test/resolve.test.ts` | `previewSkills` (preview skills), `isValidSkillName` validation |
-
-`npm run test:build` compiles `src/` + `test/` to `test-dist/` for a
-loader-free run (`node --test test-dist/test/`), useful where tsx's loader
-is unavailable.
-
-CI (`.github/workflows/ci.yml`) runs on push/PR across Node 18/20/22:
-typecheck, lint, unit tests, build, and a check that the committed `lib/`
-still matches a fresh build.
-
 ## Notes & limitations
 
 - **`add` then visibility**: newly added skills appear after DSH rescans
@@ -515,6 +335,16 @@ still matches a fresh build.
 - **Windows symlinks**: creating symlinks on Windows requires Developer Mode or
   admin privileges. If symlink creation fails, the skill won't appear in the
   catalog — enable Developer Mode in Windows Settings or run as Administrator.
+
+## Documentation
+
+- [Architecture — data flow, directory layout, SKILL.md discovery](docs/ARCHITECTURE.md)
+- [nexus vs `dsh plugin` — when to use which](docs/nexus-vs-plugin.md)
+- [Subdir design — P1/P2 trade-off for collection repos](docs/subdir-design.md)
+- [Verifying the version-lock feature (P0)](docs/verify-version-lock.md)
+- [Verifying collection-repo support (P1)](docs/verify-collection-support.md)
+- [Contributing — project layout, testing & CI](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
 
 ## License
 

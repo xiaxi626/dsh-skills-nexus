@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+**2026-08-27 · Docs · README 分层重构：精简根 README，架构与贡献指南外移至 docs/ 和 CONTRIBUTING**
+
+- README 从 521 行精简至 266 行（-49%），README_CN 从 437 行精简至 196 行（-55%）。安装、使用、卸载、本地测试、轻量验证、注意事项等用户操作链完整保留在根 README 中，未拆散。
+- 新增 `docs/ARCHITECTURE.md` / `.zh-CN.md`：架构概览（Mermaid 数据流图）、工作原理（pipeline + 设计要点）、SKILL.md 发现规则（3 种布局 + frontmatter 字段）、文件系统布局（两层目录设计 + 环境变量覆盖）从 README 外移至此。
+- 新增 `CONTRIBUTING.md` / `.zh-CN.md`：项目结构（`src/` 源码树 + 逐文件说明）、测试与 CI（质量门禁命令 + 测试覆盖表 + CI 矩阵）从 README 外移至此；含本地测试步骤的回链。
+- 两个 README 底部新增 Documentation / 文档索引章节，汇总所有 docs/ 链接及 CONTRIBUTING、CHANGELOG 入口。
+- 纯文档变更，无代码或行为变化；`npm run typecheck` 通过。
+
 **2026-08-27 · Docs · README 使用段补充 `--name` 示例与条目名回退链说明**
 
 - README / README_CN 的「使用」代码块在 `--subdir` 示例后新增一行：`dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills`，注释写明条目名回退链（`--name` > subdir 末段 > 仓库名）。背景：集合级子目录（如 `--subdir skills`）默认条目名会取到毫无区分度的末段名 `skills`，跨仓库撞名时只能靠 `--name` 消歧，但此前使用段未展示该参数。仅文档变更，无行为变化。
