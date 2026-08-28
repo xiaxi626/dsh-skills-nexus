@@ -65,5 +65,5 @@ npm run build       # tsc → lib/
 `npm run test:build` 把 `src/` + `test/` 编译到 `test-dist/`，可无 loader 直接跑
 （`node --test test-dist/test/`），适合 tsx loader 不可用的环境。
 
-CI（`.github/workflows/ci.yml`）在 push/PR 时于 Node 18/20/22 上运行：
+CI（`.github/workflows/ci.yml`）在 push/PR 时于 Node 20/22/24 上运行：
 typecheck、lint、单元测试、build，以及「已提交的 `lib/` 是否与最新源码一致」的校验。

@@ -70,6 +70,6 @@ The test suite lives in `test/` and targets the pure-logic modules:
 loader-free run (`node --test test-dist/test/`), useful where tsx's loader
 is unavailable.
 
-CI (`.github/workflows/ci.yml`) runs on push/PR across Node 18/20/22:
+CI (`.github/workflows/ci.yml`) runs on push/PR across Node 20/22/24:
 typecheck, lint, unit tests, build, and a check that the committed `lib/`
 still matches a fresh build.

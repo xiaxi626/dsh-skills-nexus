@@ -288,4 +288,4 @@ unset DSH_HOME
 
 - **真实 GitHub 网络** —— 本地 `file://` 远端与真实远端走同一套 git 语义，且不受网络波动影响。
 - **DSH 运行时集成** —— Skills 通过 ~/.dsh/skills/ 中的 symlink 暴露，由官方 filesystem provider 发现。不再需要自定义 provider。新增 manifest 字段向后兼容（旧 manifest 没有 `commit` 也能加载，显示 `—`，下次 `update` 后自动补齐）。
-- **Node 18 / 20 / 22 矩阵** —— CI（`.github/workflows/ci.yml`）在 push/PR 时跑完整质量门禁。
+- **Node 20 / 22 / 24 矩阵** —— CI（`.github/workflows/ci.yml`）在 push/PR 时跑完整质量门禁。

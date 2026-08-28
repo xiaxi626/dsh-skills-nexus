@@ -306,5 +306,5 @@ What this guide does *not* cover (by design):
   semantics without network flakiness.
 - **DSH runtime integration** — Skills are now exposed via symlinks in ~/.dsh/skills/ and discovered by the official filesystem provider. No custom provider registration is needed. The new manifest field is backward compatible (old manifests without
   `commit` still load, showing `—` until the next `update`).
-- **Node 18 / 20 / 22 matrix** — CI (`.github/workflows/ci.yml`) runs the full
+- **Node 20 / 22 / 24 matrix** — CI (`.github/workflows/ci.yml`) runs the full
   quality gate set on push/PR.

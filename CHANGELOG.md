@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+**2026-08-28 · Changed · CI actions 升级 v5（Node 24 运行时），测试矩阵改为 Node 20/22/24**
+
+- **背景**：Node.js 20 于 2026-04 EOL，GitHub Actions runner 自 2026-06 起将仍声明 node20 运行时的 JS Action 强制跑在 Node.js 24 上，并在运行日志中打印弃用警告。根因是 `actions/checkout@v4` / `actions/setup-node@v4` 两个 action 自身以 node20 为目标运行时，与 `package.json` 的 `engines` 字段无关（`engines` 不参与 Action 运行时选择，矩阵里的 `node-version` 也只影响作业步骤、不影响 action 本体）；本地无警告是因为该提示由 GitHub 平台注入，非 npm / tsc 输出。
+- `.github/workflows/ci.yml`：`actions/checkout@v4` → `v5`、`actions/setup-node@v4` → `v5`（两者均以 node24 为目标运行时，v5 要求 runner ≥ v2.327.1，`ubuntu-latest` 满足）；矩阵 `[18, 20, 22]` → `[20, 22, 24]`（Node 18 已于 2025-04 EOL，24 为当前 LTS）。显式 `cache: npm` 保持不变；本项目无 `packageManager` 字段，不受 v5 自动包管理器缓存探测的 breaking change 影响。
+- `package.json`：`engines.node` 从 `>=18.0.0` 提升至 `>=20.0.0`，与 CI 矩阵下限一致。`@types/node` 保持 `^20.14.0`——类型包应对齐最低支持版本，防止误用更高版本 API（CI 在 Node 20 上实跑测试已兜底运行时兼容性）。
+- `tsconfig.json` 无需调整：`target: ES2022` / `lib: ES2023` 的输出在 Node 20/22/24 上均完整支持。
+- 联动同步 6 处旧矩阵引用：`CONTRIBUTING.md` / `.zh-CN.md`、`docs/verify-version-lock.md` / `.zh-CN.md`、`docs/verify-collection-support.md` / `.zh-CN.md`。
+- 无源码与行为变化；本地四步门禁（typecheck → lint → test → build）全部通过，104 用例全绿，`lib/` 构建零漂移。
+
 **2026-08-27 · Docs · README 分层重构：精简根 README，架构与贡献指南外移至 docs/ 和 CONTRIBUTING**
 
 - README 从 521 行精简至 266 行（-49%），README_CN 从 437 行精简至 196 行（-55%）。安装、使用、卸载、本地测试、轻量验证、注意事项等用户操作链完整保留在根 README 中，未拆散。

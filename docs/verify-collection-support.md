@@ -286,4 +286,4 @@ so after `[g]` you will also see the 21 `skill-*` entries — that is expected.
   see [docs/subdir-design.md](docs/subdir-design.md) for the trade-off and the
   two hidden pitfalls (shared-ref identity, lock ownership).
 - **DSH runtime integration** — Skills are now exposed via symlinks in ~/.dsh/skills/ and discovered by the official filesystem provider. No custom provider registration is needed. `subdir` is a new optional manifest field (old manifests load fine).
-- **Node 18 / 20 / 22 matrix** — CI runs the full gate set on push/PR.
+- **Node 20 / 22 / 24 matrix** — CI runs the full gate set on push/PR.

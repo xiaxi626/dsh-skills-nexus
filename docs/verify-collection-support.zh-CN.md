@@ -268,4 +268,4 @@ unset DSH_HOME
 - **P2 共享克隆设计** —— 未实现（v1 是独立克隆）；权衡与两个隐藏坑
   （共享判定键、锁的归属）见 [docs/subdir-design.md](docs/subdir-design.md)。
 - **DSH 运行时集成** —— Skills 通过 ~/.dsh/skills/ 中的 symlink 暴露，由官方 filesystem provider 发现。不再需要自定义 provider。`subdir` 是新增的可选 manifest 字段（旧 manifest 正常加载）。
-- **Node 18 / 20 / 22 矩阵** —— CI 在 push/PR 时跑完整质量门禁。
+- **Node 20 / 22 / 24 矩阵** —— CI 在 push/PR 时跑完整质量门禁。
