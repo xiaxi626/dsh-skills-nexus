@@ -332,9 +332,9 @@ ls -la ~/.dsh/skills/
   frontmatter names at `add` time (converted to kebab-case) and warns with `⚠`.
 - **Build scripts**: because nexus clones content repos itself (not via pnpm),
   it sidesteps pnpm `allowBuilds` interception entirely.
-- **Windows symlinks**: creating symlinks on Windows requires Developer Mode or
-  admin privileges. If symlink creation fails, the skill won't appear in the
-  catalog — enable Developer Mode in Windows Settings or run as Administrator.
+- **Windows links**: nexus creates directory junctions on Windows
+  (`symlink(..., 'junction')`) and plain directory symlinks elsewhere — neither
+  needs Developer Mode or admin privileges.
 
 ## Documentation
 
@@ -343,6 +343,7 @@ ls -la ~/.dsh/skills/
 - [Subdir design — P1/P2 trade-off for collection repos](docs/subdir-design.md)
 - [Verifying the version-lock feature (P0)](docs/verify-version-lock.md)
 - [Verifying collection-repo support (P1)](docs/verify-collection-support.md)
+- [Verifying the plugin-load contract (plugin add → dsh web cold boot)](docs/verify-plugin-install.md)
 - [Contributing — project layout, testing & CI](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
 

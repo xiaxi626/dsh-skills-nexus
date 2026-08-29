@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+**2026-08-29 · Fixed · 恢复插件装载契约：`plugin add` 后 `dsh web` 启动必崩（0.2.0 重构回归）**
+
+- **问题**：`dsh plugin --profile <name> add "github:owner/dsh-skills-nexus"` 安装成功后，`dsh web` 冷启动必崩：`failed to import loader entry dsh-skills-nexus (./lib/index.js): Cannot find module '<profile>\lib\index.js'`，整个插件树加载失败。相对路径 entry 一律以 profile 目录为 `baseUrl` 锚点解析（cordis-plugin-loader 的 `new URL(name, baseUrl)`），而包文件在 `node_modules/dsh-skills-nexus/` 下——`<profile>\lib\index.js` 结构性不存在，安装再完整也必崩。卸载插件（从 `dsh.profile.bundles` 层移除）后启动即恢复正常，重装则复发。
+- **根因**：0.2.0 架构重构（移除自定义 provider，改 symlink + 官方 Provider）顺手破坏了插件装载契约两处：`cordis.patch.yml` 的 entry 从裸包名 `'dsh-skills-nexus'` 改为相对路径 `'./lib/index.js'`；`package.json` 删除了 `main` 与 `exports["."]`（即使改回裸包名，Node ESM 导入也会因无主入口失败）。重构期间本地验证走的是被 `.gitignore` 忽略、从未入库的 `overlay.yml`（硬编码本机绝对路径），绕过了 node_modules 解析；且入口 `apply()` 为 no-op，插件未被加载不产生任何功能症状，回归一直潜伏到真实用户 `plugin add` 后冷启动才暴露。0.1.0（`6486287`）裸包名 + `main` 契约经 dsh 源码验证可正常解析（`internal.import(name, baseUrl)` → profile 目录 node_modules → 包主入口）。
+- **修复**：最小恢复旧装载契约，不回滚重构——`cordis.patch.yml` entry 改回 `name: 'dsh-skills-nexus'`；`package.json` 恢复 `"main": "lib/index.js"` 与 `exports["."]`（按当前 `lib/` 布局，非旧版 `lib/types/` 路径）。`apply()` 保持 no-op，symlink + 官方 Provider 的发现机制、`peerDependencies` 删除等重构成果全部保留；包加载与否对 skill 功能零影响，此修复只是让官方安装渠道重新可用。
+- **测试**：本地四步门禁全部通过（104 用例全绿，`lib/` 零漂移）；端到端实测：`dsh plugin --profile web add <本地包>` 后 `dsh web` 冷启动成功（无 loader 报错），随后 `plugin remove` 清理复原。
+- **文档**：新增 `docs/verify-plugin-install.md` / `.zh-CN.md`——插件装载契约验证指南（指导向，事故经过仅存于本 CHANGELOG）：开篇声明验证对象（安装注册 + 冷启动加载）与契约两要素（裸包名 entry + `main`/`exports["."]`）、质量门禁 + 三项契约静态检查、按平台（Windows Git Bash / macOS / Linux）的端到端命令块（本地 `file:` 源代替未推送的 `github:`，安装 → bundles 注册确认 → 冷启动 → 探活 → 卸载清理）、判定标准表、推送后真实 `github:` 复验步骤；明确本流程会写入真实 `~/.dsh/profiles/web/` 且不涉及符号链接权限。两份 README 文档索引补链接。
+
 **2026-08-28 · Changed · CI actions 升级 v5（Node 24 运行时），测试矩阵改为 Node 20/22/24**
 
 - **背景**：Node.js 20 于 2026-04 EOL，GitHub Actions runner 自 2026-06 起将仍声明 node20 运行时的 JS Action 强制跑在 Node.js 24 上，并在运行日志中打印弃用警告。根因是 `actions/checkout@v4` / `actions/setup-node@v4` 两个 action 自身以 node20 为目标运行时，与 `package.json` 的 `engines` 字段无关（`engines` 不参与 Action 运行时选择，矩阵里的 `node-version` 也只影响作业步骤、不影响 action 本体）；本地无警告是因为该提示由 GitHub 平台注入，非 npm / tsc 输出。

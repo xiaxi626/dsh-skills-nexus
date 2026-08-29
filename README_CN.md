@@ -265,7 +265,7 @@ ls -la ~/.dsh/skills/
 - **同名不消歧**：DSH 按名称索引 skill，后安装的同名 skill 会覆盖前者。用 `--name` 区分条目，或用 `--subdir` 只装需要的。enable/disable 按条目（即按安装的 subdir）生效，`remove` 删除整个条目的克隆及其所有 symlink。
 - **skill 名校验**：DSH 要求 skill 名是小写 kebab-case（`[a-z0-9]+` 段，用单个 `-` 分隔）。frontmatter `name` 不合法（如 `CurriculumDesigner`）会导致 DSH 拒绝该 skill，因此 nexus 会在安装时归一化这类名称（转为 kebab-case），并在 `add` 时以 `⚠` 警告。
 - **构建脚本**：由于 nexus 自己 clone 内容仓库（不走 pnpm），它完全绕开了 pnpm 的 `allowBuilds` 拦截。
-- **Windows 符号链接**：在 Windows 上创建 symlink 需要开发者模式或管理员权限。如果 symlink 创建失败，skill 不会出现在目录中——请在 Windows 设置中启用开发者模式，或以管理员身份运行。
+- **Windows 链接**：nexus 在 Windows 上创建目录联接（junction，`symlink(..., 'junction')`）、在其他平台上创建普通目录软链——均不需要开发者模式或管理员权限。
 
 ## 文档
 
@@ -274,6 +274,7 @@ ls -la ~/.dsh/skills/
 - [Subdir 设计——集合仓库的 P1/P2 权衡](docs/subdir-design.md)
 - [验证版本锁定功能（P0）](docs/verify-version-lock.zh-CN.md)
 - [验证集合仓库支持（P1）](docs/verify-collection-support.zh-CN.md)
+- [验证插件装载契约（plugin add → dsh web 冷启动）](docs/verify-plugin-install.zh-CN.md)
 - [贡献指南——项目结构、测试与 CI](CONTRIBUTING.zh-CN.md)
 - [更新日志](CHANGELOG.md)
 

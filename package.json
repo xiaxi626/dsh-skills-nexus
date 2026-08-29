@@ -12,6 +12,7 @@
     "url": "https://github.com/xiaxi626/dsh-skills-nexus/issues"
   },
   "type": "module",
+  "main": "lib/index.js",
   "dsh": {
     "bundle": {
       "patch": "cordis.patch.yml"
@@ -21,6 +22,7 @@
     "dsh-skills-nexus": "lib/cli/index.js"
   },
   "exports": {
+    ".": "./lib/index.js",
     "./resolve": "./lib/resolve.js",
     "./package.json": "./package.json"
   },
