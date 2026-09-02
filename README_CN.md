@@ -278,6 +278,12 @@ ls -la ~/.dsh/skills/
 - [贡献指南——项目结构、测试与 CI](CONTRIBUTING.zh-CN.md)
 - [更新日志](CHANGELOG.md)
 
+## 参与贡献
+
+欢迎各种形式的贡献。想参与的话，先看看 [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)，里面有项目布局、本地开发和质量检查的完整说明。
+
+发现 bug 或有想法？直接 [提交 issue](https://github.com/xiaxi626/dsh-skills-nexus/issues/new/choose)，我们有 issue 模板。
+
 ## 许可证
 
 MIT

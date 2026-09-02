@@ -347,6 +347,16 @@ ls -la ~/.dsh/skills/
 - [Contributing — project layout, testing & CI](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
 
+## Contributing
+
+Contributions of all kinds are welcome — bug fixes, new commands, docs.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for project layout, local setup, and
+quality gates.
+
+Found a bug or have an idea?
+[Open an issue](https://github.com/xiaxi626/dsh-skills-nexus/issues/new/choose)
+— we use issue templates to make it easy.
+
 ## License
 
 MIT
