@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+**2026-09-02 · Docs · README 增加贡献入口，新增 Issue 模板（社区优化）**
+
+- README / README_CN：在「文档」索引与「许可证」之间新增独立的「Contributing / 参与贡献」章节，链接 CONTRIBUTING.md / CONTRIBUTING.zh-CN.md 与 issue 提交入口（`issues/new/choose`），降低潜在贡献者找到入口的成本。
+- 新增 `.github/ISSUE_TEMPLATE/`：`bug-report.md`（Bug 报告，`labels: bug`）、`feature-request.md`（功能请求，`labels: enhancement`）、`config.yml`（`blank_issues_enabled: false` 禁用空白 issue，附指向 Discussions 的 contact link），引导贡献者结构化提交 issue。
+- 纯文档 / 仓库元数据变更，无源码或行为变化；三个模板的 YAML（frontmatter 与 `config.yml`）经项目自带的 `yaml` 依赖解析校验通过。
+
 **2026-08-29 · Fixed · 恢复插件装载契约：`plugin add` 后 `dsh web` 启动必崩（0.2.0 重构回归）**
 
 - **问题**：`dsh plugin --profile <name> add "github:owner/dsh-skills-nexus"` 安装成功后，`dsh web` 冷启动必崩：`failed to import loader entry dsh-skills-nexus (./lib/index.js): Cannot find module '<profile>\lib\index.js'`，整个插件树加载失败。相对路径 entry 一律以 profile 目录为 `baseUrl` 锚点解析（cordis-plugin-loader 的 `new URL(name, baseUrl)`），而包文件在 `node_modules/dsh-skills-nexus/` 下——`<profile>\lib\index.js` 结构性不存在，安装再完整也必崩。卸载插件（从 `dsh.profile.bundles` 层移除）后启动即恢复正常，重装则复发。
