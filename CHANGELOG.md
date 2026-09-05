@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+**2026-09-05 · Changed · CI 测试矩阵扩展至 ubuntu/windows/macos，新增 link 集成测试覆盖 junction/symlink**
+
+- **背景**：CI 此前仅在 `ubuntu-latest` 上运行（Node 20/22/24），无法验证 `src/link.ts` 中 `symlink(target, path, 'junction')` 的 Windows junction 行为与 macOS/Linux symlink 分支——这是 0.2.0 架构重构（symlink + 官方 Provider）后唯一的平台相关代码路径，且此前无任何测试直接覆盖 `linkSkill`。
+- `.github/workflows/ci.yml`：矩阵从单一 `ubuntu-latest` 扩展为 `os: [ubuntu-latest, windows-latest, macos-latest]` × `node: [20, 22, 24]`（9 个 job），`runs-on: ${{ matrix.os }}`，`fail-fast: false` 保持；typecheck / lint / test / build 在三平台全跑。「已提交 `lib/` 与最新构建一致」的校验步骤加 `shell: bash` 并用 `if: matrix.os == 'ubuntu-latest'` 限定只在 ubuntu 执行——`tsc` 产物确定性且与 OS 无关，限定 Linux 可规避 Windows CRLF / `core.autocrlf` 导致的 `git diff` 误报。公开仓库的额外 OS runner 不产生费用，代价仅为排队时间变长。
+- **新增 `test/link.test.ts`（7 用例）**：在临时 `DSH_HOME` 上真实调用 `linkSkill → isEntryEnabled → readLinkTarget → unlinkSkill → hasCollision`（不 mock），覆盖链接直指 repo 根（junction 精确匹配分支）、指向 subdir（`startsWith` 分支）、原子重指向、删除后状态翻转、真实目录 vs 托管 symlink 的碰撞判定。`package.json` 的 test 脚本按字母序登记该文件。实测 Windows 上 `readlink` 返回干净绝对路径（无 `\\?\` 前缀），`isEntryEnabled` 的 `resolved === base.slice(0,-1)` 分支命中，junction 行为正确。
+- **文档**：CONTRIBUTING 中英新增 actionlint 本地校验小节（安装 `go install github.com/rhysd/actionlint/cmd/actionlint@latest`、仓库根运行 `actionlint`），并说明其故意不接入 CI（GitHub 解析阶段已拒绝非法 workflow，CI 内再跑属冗余，仅作推送前本地检查）；测试覆盖表补 `src/link.ts` 行，CI 段落改写为 OS 矩阵说明。
+- 无 `src/` 源码变更，`lib/` 零漂移；本地门禁全绿：`npm test` 111 用例通过、typecheck / lint 退出码 0、`actionlint .github/workflows/ci.yml` 0 errors。
+
 **2026-09-02 · Docs · README 增加贡献入口，新增 Issue 模板（社区优化）**
 
 - README / README_CN：在「文档」索引与「许可证」之间新增独立的「Contributing / 参与贡献」章节，链接 CONTRIBUTING.md / CONTRIBUTING.zh-CN.md 与 issue 提交入口（`issues/new/choose`），降低潜在贡献者找到入口的成本。

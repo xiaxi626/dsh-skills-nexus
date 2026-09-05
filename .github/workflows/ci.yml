@@ -7,11 +7,12 @@ on:
 
 jobs:
   quality:
-    name: typecheck · lint · test · build
-    runs-on: ubuntu-latest
+    name: typecheck · lint · test · build (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
         node: [20, 22, 24]
     steps:
       - uses: actions/checkout@v5
@@ -38,8 +39,13 @@ jobs:
 
       - name: Verify committed lib/ is up to date
         # lib/ is committed and shipped to npm — a stale build means the
-        # published package would drift from src/. tsc is deterministic, so
-        # a fresh build must produce zero diff.
+        # published package would drift from src/. tsc is deterministic and
+        # OS-independent, so a fresh build must produce zero diff. This check
+        # runs only on ubuntu to avoid Windows CRLF / core.autocrlf false
+        # positives in `git diff`; typecheck/lint/test/build still run on all
+        # three OS so the Windows junction / macOS symlink paths are covered.
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
         run: |
           if ! git diff --exit-code --quiet -- lib/; then
             echo "::error::lib/ is out of date — run 'npm run build' and commit the result"
