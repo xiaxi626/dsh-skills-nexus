@@ -37,9 +37,11 @@ src/
 > **想端到端验证某个功能？**
 > - [验证版本锁定功能（P0）](docs/verify-version-lock.zh-CN.md) ——
 >   测试套件、分支快进、tag 固定点、漂移恢复、重复 add 保护。
+> - [验证克隆重试功能（P0）](docs/verify-clone-retry.zh-CN.md) ——
+>   测试套件、指数退避观测、分支/标签/commit-SHA 克隆回归。
 > - [验证集合仓库支持（P1）](docs/verify-collection-support.zh-CN.md) ——
 >   `--subdir` 按需安装、平铺 md 过滤、大集合防呆。
-> 两者均为覆盖 Windows / Linux / macOS 的可直接复制的验证流程。
+> 每篇均为覆盖 Windows / Linux / macOS 的可直接复制的验证流程。
 
 质量门禁，本地全部可跑：
 
@@ -54,7 +56,7 @@ npm run build       # tsc → lib/
 
 | 模块 | 测试文件 | 验证内容 |
 |---|---|---|
-| `src/git.ts` | `test/git.test.ts` | `parseGitSpec`（所有接受的仓库格式）、`repoSlug`、`sanitizeName` |
+| `src/git.ts` | `test/git.test.ts` | `parseGitSpec`（所有接受的仓库格式）、`repoSlug`、`sanitizeName`、`retry`（指数退避）、`cloneRepo`（分支/标签/commit-SHA） |
 | `src/frontmatter.ts` | `test/frontmatter.test.ts` | frontmatter 与正文切分、坏 YAML、块标量、CRLF、`flag()` |
 | `src/locator.ts` | `test/locator.test.ts` | 三种 SKILL.md 发现布局、跳过文件、隐藏目录 |
 | `src/repo-kind.ts` | `test/repo-kind.test.ts` | 仓库分类：纯内容 / 包装 / 插件 / 无法识别 |

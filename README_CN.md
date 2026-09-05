@@ -273,6 +273,7 @@ ls -la ~/.dsh/skills/
 - [nexus 与 `dsh plugin`——什么时候用哪个](docs/nexus-vs-plugin.zh-CN.md)
 - [Subdir 设计——集合仓库的 P1/P2 权衡](docs/subdir-design.md)
 - [验证版本锁定功能（P0）](docs/verify-version-lock.zh-CN.md)
+- [验证克隆重试功能（P0）](docs/verify-clone-retry.zh-CN.md)
 - [验证集合仓库支持（P1）](docs/verify-collection-support.zh-CN.md)
 - [验证插件装载契约（plugin add → dsh web 冷启动）](docs/verify-plugin-install.zh-CN.md)
 - [贡献指南——项目结构、测试与 CI](CONTRIBUTING.zh-CN.md)

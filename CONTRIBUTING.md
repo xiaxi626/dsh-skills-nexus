@@ -41,9 +41,11 @@ rules), see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 > **Want to verify a feature end-to-end?**
 > - [Verifying the version-lock feature (P0)](docs/verify-version-lock.md) —
 >   test suite, branch fast-forward, tag pinning, drift recovery, re-add guard.
+> - [Verifying the clone-retry feature (P0)](docs/verify-clone-retry.md) —
+>   test suite, exponential-backoff observation, branch/tag/commit-SHA clone regression.
 > - [Verifying collection-repo support (P1)](docs/verify-collection-support.md) —
 >   `--subdir` installs, flat-md filtering, large-collection guards.
-> Both are copy-paste walkthroughs for Windows / Linux / macOS.
+> Each is a copy-paste walkthrough for Windows / Linux / macOS.
 
 Quality gates, all runnable locally:
 
@@ -58,7 +60,7 @@ The test suite lives in `test/` and targets the pure-logic modules:
 
 | module | covered by | what is verified |
 |---|---|---|
-| `src/git.ts` | `test/git.test.ts` | `parseGitSpec` (all accepted repo forms), `repoSlug`, `sanitizeName` |
+| `src/git.ts` | `test/git.test.ts` | `parseGitSpec` (all accepted repo forms), `repoSlug`, `sanitizeName`, `retry` (exponential backoff), `cloneRepo` (branch/tag/commit-SHA) |
 | `src/frontmatter.ts` | `test/frontmatter.test.ts` | frontmatter + body split, malformed YAML, block scalars, CRLF, `flag()` |
 | `src/locator.ts` | `test/locator.test.ts` | the 3 SKILL.md discovery layouts, skipped files, hidden dirs |
 | `src/repo-kind.ts` | `test/repo-kind.test.ts` | repo classification: plain / wrapped / plugin / unknown |

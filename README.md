@@ -342,6 +342,7 @@ ls -la ~/.dsh/skills/
 - [nexus vs `dsh plugin` — when to use which](docs/nexus-vs-plugin.md)
 - [Subdir design — P1/P2 trade-off for collection repos](docs/subdir-design.md)
 - [Verifying the version-lock feature (P0)](docs/verify-version-lock.md)
+- [Verifying the clone-retry feature (P0)](docs/verify-clone-retry.md)
 - [Verifying collection-repo support (P1)](docs/verify-collection-support.md)
 - [Verifying the plugin-load contract (plugin add → dsh web cold boot)](docs/verify-plugin-install.md)
 - [Contributing — project layout, testing & CI](CONTRIBUTING.md)
