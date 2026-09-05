@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, isAbsolute } from 'node:path'
+import { join, isAbsolute, resolve } from 'node:path'
 import type { SkillEntry } from '../src/types.js'
 
 /**
@@ -61,6 +61,21 @@ function makeEntry(repoPath: string, name = repoPath): SkillEntry {
   }
 }
 
+/**
+ * Assert a link resolves to `expected`, comparing normalized paths.
+ *
+ * Do NOT compare `readLinkTarget` output with strict string equality: on
+ * Windows + Node 20, `readlink` of a junction returns the target WITH a
+ * trailing separator (`...\repo-c1\`), while Node 22+ strips it. `resolve`
+ * normalizes the trailing separator away on every platform/Node version, so
+ * the comparison stays stable. Production code is unaffected by this quirk —
+ * `isEntryEnabled` already resolves targets via `path.resolve`.
+ */
+function assertLinkTarget(actual: string | undefined, expected: string): void {
+  assert.ok(actual, 'link target is defined')
+  assert.equal(resolve(actual), resolve(expected))
+}
+
 test('linkSkill creates a symlink/junction that isLinked and readLinkTarget see', async () => {
   const targetDir = await makeRepoDir('repo-a')
 
@@ -104,10 +119,10 @@ test('linkSkill atomically repoints an existing link', async () => {
   const second = await makeRepoDir('repo-c2')
 
   await link.linkSkill('skill-c', first)
-  assert.equal(await link.readLinkTarget('skill-c'), first)
+  assertLinkTarget(await link.readLinkTarget('skill-c'), first)
 
   await link.linkSkill('skill-c', second)
-  assert.equal(await link.readLinkTarget('skill-c'), second)
+  assertLinkTarget(await link.readLinkTarget('skill-c'), second)
   assert.equal(await link.isEntryEnabled(makeEntry('repo-c2')), true)
   assert.equal(await link.isEntryEnabled(makeEntry('repo-c1')), false)
 })

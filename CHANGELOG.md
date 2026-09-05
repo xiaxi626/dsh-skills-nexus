@@ -11,6 +11,7 @@
 - **新增 `test/link.test.ts`（7 用例）**：在临时 `DSH_HOME` 上真实调用 `linkSkill → isEntryEnabled → readLinkTarget → unlinkSkill → hasCollision`（不 mock），覆盖链接直指 repo 根（junction 精确匹配分支）、指向 subdir（`startsWith` 分支）、原子重指向、删除后状态翻转、真实目录 vs 托管 symlink 的碰撞判定。`package.json` 的 test 脚本按字母序登记该文件。实测 Windows 上 `readlink` 返回干净绝对路径（无 `\\?\` 前缀），`isEntryEnabled` 的 `resolved === base.slice(0,-1)` 分支命中，junction 行为正确。
 - **文档**：CONTRIBUTING 中英新增 actionlint 本地校验小节（安装 `go install github.com/rhysd/actionlint/cmd/actionlint@latest`、仓库根运行 `actionlint`），并说明其故意不接入 CI（GitHub 解析阶段已拒绝非法 workflow，CI 内再跑属冗余，仅作推送前本地检查）；测试覆盖表补 `src/link.ts` 行，CI 段落改写为 OS 矩阵说明。
 - 无 `src/` 源码变更，`lib/` 零漂移；本地门禁全绿：`npm test` 111 用例通过、typecheck / lint 退出码 0、`actionlint .github/workflows/ci.yml` 0 errors。
+- **CI 实测修正（windows × Node 20，提交后补）**：首次三平台矩阵暴露 1 例失败（9 job 中 8 绿，仅 `windows-latest × Node 20` 挂）——`test/link.test.ts` 的 `linkSkill atomically repoints an existing link` 用 `assert.equal` 裸比较 `readLinkTarget` 原始输出，而 Windows + Node 20 的 `fs.readlink` 读取 junction 会返回**带尾部分隔符**的目标（`...\repo-c1\`），Node 22+ 则去掉。**此为测试断言过严，非产品缺陷**：`readLinkTarget` 在生产代码里只被 `isEntryEnabled` 消费，后者经 `path.resolve` 归一化目标，天然免疫此差异（同文件其余 junction 用例在 Node 20 上均通过；lib/ 校验按 `if: matrix.os == 'ubuntu-latest'` 在 6 个非 ubuntu job 正确 skip，验证 CI 改动本身生效）。修复：新增 `assertLinkTarget()` 辅助函数，比较前对两侧 `resolve()` 归一化并加注释记录该坑；仅改测试，`src/` 未动，本地 111 用例仍全绿、typecheck / lint 退出码 0。
 
 **2026-09-02 · Docs · README 增加贡献入口，新增 Issue 模板（社区优化）**
 
