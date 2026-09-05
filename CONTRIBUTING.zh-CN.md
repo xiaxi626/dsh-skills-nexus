@@ -61,9 +61,41 @@ npm run build       # tsc → lib/
 | `src/cli/args.ts` | `test/args.test.ts` | 极简 argv 解析器 |
 | `src/manifest.ts` | `test/manifest.test.ts` | 在临时 `DSH_HOME` 上做 manifest 读写往返 |
 | `src/resolve.ts` | `test/resolve.test.ts` | `previewSkills`（预览 skill）、`isValidSkillName` 校验 |
+| `src/link.ts` | `test/link.test.ts` | 在临时 `DSH_HOME` 上跑 `linkSkill` / `isEntryEnabled` / `unlinkSkill` / `hasCollision`——真实覆盖 Windows junction 与 macOS/Linux symlink 两条代码路径 |
 
 `npm run test:build` 把 `src/` + `test/` 编译到 `test-dist/`，可无 loader 直接跑
 （`node --test test-dist/test/`），适合 tsx loader 不可用的环境。
 
-CI（`.github/workflows/ci.yml`）在 push/PR 时于 Node 20/22/24 上运行：
-typecheck、lint、单元测试、build，以及「已提交的 `lib/` 是否与最新源码一致」的校验。
+CI（`.github/workflows/ci.yml`）在 push/PR 时于 `ubuntu` / `windows` / `macos` × Node
+20/22/24 的矩阵上运行。typecheck、lint、单元测试、build 在三个 OS 上都跑，因此
+Windows junction（`src/link.ts` 里的 `symlink(..., 'junction')`）与 macOS/Linux symlink
+两条路径都会被真实执行。唯独「已提交的 `lib/` 是否与最新构建一致」的校验固定在
+`ubuntu-latest`：`tsc` 产物是确定性的、与 OS 无关，把该步限定在 Linux 可避免 Windows
+CRLF / `core.autocrlf` 导致 `git diff` 误报。由于本仓库是公开的，额外的 OS runner
+不产生费用——唯一代价是排队时间变长。
+
+### 推送前用 actionlint 本地校验 workflow（可选）
+
+`actionlint` 会静态检查 `.github/workflows/*.yml`——矩阵/表达式语法、`runs-on`、
+`if`、`shell`、action 版本等——让你在浪费一次推送之前就发现 workflow 写错了。
+它**故意不接进 CI**：GitHub 在解析阶段本就会拒绝非法 workflow，再在 CI 里跑一遍
+actionlint 属于冗余。只把它当作推送前的本地检查。
+
+安装（需要 Go 工具链；二进制会落到 `$(go env GOPATH)/bin`，Windows 上即
+`C:\Users\<你>\go\bin\actionlint.exe`——请确保该目录在 `PATH` 里）：
+
+```bash
+go install github.com/rhysd/actionlint/cmd/actionlint@latest
+```
+
+在仓库根目录运行（退出码 `0` 且无输出即通过）：
+
+```bash
+actionlint                              # 扫描 .github/workflows/ 下全部文件
+actionlint .github/workflows/ci.yml     # 或只查你改动的那一个
+```
+
+> actionlint 可选地调用 `shellcheck`（校验 bash `run:` 脚本体）与 `pyflakes`
+> （校验 python `run:` 脚本体）。若未安装，它会打印一条“rule disabled”提示并
+> 跳过——核心的 workflow 检查仍会正常执行。我们唯一的 bash 步骤只是个简单的
+> `git diff`，因此装不装 shellcheck 都可以。
