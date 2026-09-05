@@ -15,6 +15,7 @@ import {
   parseGitSpec,
   repoSlug,
   resolveRefCommit,
+  retry,
   sanitizeName,
 } from '../src/git.js'
 
@@ -265,4 +266,59 @@ test('isDirtyWorktree detects changes; discardLocalChanges resets them', async (
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+test('cloneRepo at a raw commit SHA falls back to clone+fetch+checkout (detached HEAD)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nexus-git-'))
+  const src = join(root, 'src')
+  const dest = join(root, 'clone')
+  try {
+    await mkdir(src, { recursive: true })
+    await makeRepo(src)
+    const sha = await getHeadCommit(src)
+    // ref is a 40-hex commit SHA — `--branch <sha>` always fails, so cloneRepo
+    // falls back to clone-default + fetch + checkout.
+    await cloneRepo(parseGitSpec(`${fileUrl(src)}#${sha}`), dest)
+    assert.equal(await isDetachedHead(dest), true)
+    assert.equal(await getHeadCommit(dest), sha)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+/* ------------------------------------------------------------------ */
+/* retry — exponential-backoff helper (unit-tested with mock fns)      */
+/* ------------------------------------------------------------------ */
+
+test('retry returns result on first success', async () => {
+  let calls = 0
+  const result = await retry(async () => {
+    calls++
+    return 'ok'
+  }, { retries: 2, minDelay: 1 })
+  assert.equal(result, 'ok')
+  assert.equal(calls, 1)
+})
+
+test('retry exhausts attempts then throws', async () => {
+  let calls = 0
+  await assert.rejects(
+    retry(async () => {
+      calls++
+      throw new Error('network')
+    }, { retries: 2, minDelay: 1 }),
+    /network/,
+  )
+  assert.equal(calls, 3)
+})
+
+test('retry succeeds on second attempt', async () => {
+  let calls = 0
+  const result = await retry(async () => {
+    calls++
+    if (calls < 2) throw new Error('transient')
+    return 'recovered'
+  }, { retries: 2, minDelay: 1 })
+  assert.equal(result, 'recovered')
+  assert.equal(calls, 2)
 })

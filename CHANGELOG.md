@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+**2026-09-05 · Added · `cloneRepo` 对分支/标签克隆增加指数退避重试（弱网健壮性）**
+
+- **背景**：`add`/`update` 的核心是网络克隆，此前 `cloneRepo` 单次调用、网络抖动即失败，需用户手动重跑 `add`（`add.ts` 失败清理注释里的 “retry” 指的是用户手动重跑，非自动重试）。目标用户多为国内环境，GitHub HTTPS 访问抖动频繁，一次退避重试能实打实提升成功率；属「git 版本锁 + headless CLI」核心路径的健壮性补强，**不引入任何运行时依赖**。
+- **变更**：`src/git.ts` 新增通用 `retry(fn, { retries, minDelay })`（指数退避 `minDelay * 2^attempt`，导出供测试）；`cloneRepo` 仅对**分支/标签**克隆包一层 `retry({ retries:1, minDelay:500 })`（共 2 次尝试、中间 1 次 500ms 等待）。**commit-SHA 路径不重试**——`--branch <sha>` 是确定性失败（本机实测 `git clone --branch <40位sha>` 恒 `exit=128`、重试后失败完全相同），重试纯属浪费、亦违背「非瞬态错误不应重试」原则；仍走原有 clone+fetch+checkout fallback（该 fallback 行为零变化）。相对最初优化方案修掉一处 bug：原方案无差别重试第一个 `--branch` 克隆，会对 commit-SHA 白等 500ms。
+- **对正常克隆零影响（结构性保证）**：首次成功即 `return`，不进 catch、不执行 `setTimeout`、不进第二次循环；成功路径的 git 命令/参数/`dest`/结果与现状逐字节一致。慢克隆的 Promise 一直 pending，retry 只在 `await fn()` 等待、无时间上限——因**不含超时**，不会误伤大仓库/慢网络。失败时 git 自行清理 `dest`（本机实测两种失败后 `dest` 均不残留），`add.ts` 在 `cloneRepo` 抛出后另有一次 `rm(dest)` 兜底。
+- **不做超时**（原方案标题含“超时”，本轮移出）：超时会在“正常但慢”的克隆尚未失败时强杀，可能误伤大仓库；且 `getDefaultBranch`(`ls-remote`) 等网络调用未被覆盖，只给 clone 加超时属半成品；一旦引入超时强杀，还需在重试间显式清理 `dest`（会给纯 git 模块引入 `fs` 依赖）。按 YAGNI 移出本轮。
+- **测试**：`test/git.test.ts` 新增 3 条 `retry` 单测（首次成功 / 耗尽抛错 calls=3 / 第二次成功）+ 1 条 commit-SHA fallback 特征测试（此前该路径零覆盖，改造前先跑通锁定现状）。本地四步门禁全绿：typecheck / lint 退出码 0、`npm test` **115 用例通过**（较此前 111 增 4）、`npm run build` 退出码 0，`lib/`（`git.js` / `git.d.ts` / 两个 `.map`）已重新生成。另新增验证指南 `docs/verify-clone-retry.md`（中英），其端到端命令统一用 Git Bash 的 `&&` 链在隔离临时目录造仓库，避免误伤真实项目仓库。
+
 **2026-09-05 · Changed · CI 测试矩阵扩展至 ubuntu/windows/macos，新增 link 集成测试覆盖 junction/symlink**
 
 - **背景**：CI 此前仅在 `ubuntu-latest` 上运行（Node 20/22/24），无法验证 `src/link.ts` 中 `symlink(target, path, 'junction')` 的 Windows junction 行为与 macOS/Linux symlink 分支——这是 0.2.0 架构重构（symlink + 官方 Provider）后唯一的平台相关代码路径，且此前无任何测试直接覆盖 `linkSkill`。

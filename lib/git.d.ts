@@ -4,6 +4,21 @@
  * Uses `execFile` with argument arrays (no shell) so user-controlled refs/URLs
  * cannot trigger shell injection.
  */
+interface RetryOptions {
+    /** Number of retries *after* the first attempt (retries: 1 → 2 attempts). */
+    retries: number;
+    /** Base delay in ms; grows exponentially as `minDelay * 2 ** attempt`. */
+    minDelay: number;
+}
+/**
+ * Retry an async operation with exponential backoff.
+ *
+ * Retries on *any* thrown error, so callers must only wrap operations whose
+ * failures are plausibly transient (network jitter). A deterministic failure
+ * (e.g. `git clone --branch <commit-sha>`, which git always rejects) must NOT
+ * be wrapped — every attempt would just repeat the same failure after a delay.
+ */
+export declare function retry<T>(fn: () => Promise<T>, opts: RetryOptions): Promise<T>;
 export interface GitSpec {
     /** Original spec string the user passed. */
     raw: string;
@@ -37,7 +52,7 @@ export declare function parseGitSpec(input: string, refFallback?: string): GitSp
  * Returns e.g. `main` or `master`. Falls back to `main` on any failure.
  */
 export declare function getDefaultBranch(url: string): Promise<string>;
-/** Shallow-clone a repo at `ref` into `dest`. */
+/** Shallow-clone a repo at `ref` into `dest`, retrying transient network failures. */
 export declare function cloneRepo(spec: GitSpec, dest: string): Promise<void>;
 /** Fast-forward pull an existing clone. */
 export declare function pullRepo(dest: string): Promise<void>;
@@ -68,4 +83,5 @@ export declare function isDirtyWorktree(dest: string): Promise<boolean>;
  * re-normalize step in `update` after the pull.
  */
 export declare function discardLocalChanges(dest: string): Promise<void>;
+export {};
 //# sourceMappingURL=git.d.ts.map

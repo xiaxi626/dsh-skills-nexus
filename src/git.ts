@@ -10,6 +10,39 @@ const execFileAsync = promisify(execFile)
  * cannot trigger shell injection.
  */
 
+interface RetryOptions {
+  /** Number of retries *after* the first attempt (retries: 1 → 2 attempts). */
+  retries: number
+  /** Base delay in ms; grows exponentially as `minDelay * 2 ** attempt`. */
+  minDelay: number
+}
+
+/**
+ * Retry an async operation with exponential backoff.
+ *
+ * Retries on *any* thrown error, so callers must only wrap operations whose
+ * failures are plausibly transient (network jitter). A deterministic failure
+ * (e.g. `git clone --branch <commit-sha>`, which git always rejects) must NOT
+ * be wrapped — every attempt would just repeat the same failure after a delay.
+ */
+export async function retry<T>(
+  fn: () => Promise<T>,
+  opts: RetryOptions,
+): Promise<T> {
+  let lastErr: unknown
+  for (let attempt = 0; attempt <= opts.retries; attempt++) {
+    try {
+      return await fn()
+    } catch (err) {
+      lastErr = err
+      if (attempt < opts.retries) {
+        await new Promise((r) => setTimeout(r, opts.minDelay * 2 ** attempt))
+      }
+    }
+  }
+  throw lastErr
+}
+
 export interface GitSpec {
   /** Original spec string the user passed. */
   raw: string
@@ -107,26 +140,30 @@ export async function getDefaultBranch(url: string): Promise<string> {
   return 'main'
 }
 
-/** Shallow-clone a repo at `ref` into `dest`. */
+/** Shallow-clone a repo at `ref` into `dest`, retrying transient network failures. */
 export async function cloneRepo(spec: GitSpec, dest: string): Promise<void> {
-  // `--branch <ref>` works for both branches and tags. For a raw commit sha it
-  // would fail; in that case fall back to cloning default branch + checkout.
+  const branchClone = () =>
+    execFileAsync('git', ['clone', '--depth', '1', '--branch', spec.ref, spec.url, dest])
+
+  // `--branch <ref>` works for both branches and tags. A raw commit sha makes
+  // git fail *deterministically* ("Remote branch <sha> not found"), so it must
+  // not be retried — that would just repeat an identical failure after a delay.
+  // Only branch/tag clones (where failure is likely network jitter) get a retry.
   try {
-    await execFileAsync('git', [
-      'clone',
-      '--depth', '1',
-      '--branch', spec.ref,
-      spec.url,
-      dest,
-    ])
-  } catch (err) {
     if (isCommitLike(spec.ref)) {
-      await execFileAsync('git', ['clone', '--depth', '1', spec.url, dest])
-      await execFileAsync('git', ['fetch', '--depth', '1', 'origin', spec.ref], { cwd: dest })
-      await execFileAsync('git', ['checkout', spec.ref], { cwd: dest })
+      // A hex-looking ref could still be a real branch/tag name; try --branch
+      // once (cheap, no retry) before falling back to the commit-sha strategy.
+      await branchClone()
       return
     }
-    throw err
+    await retry(branchClone, { retries: 1, minDelay: 500 })
+    return
+  } catch (err) {
+    if (!isCommitLike(spec.ref)) throw err
+    // Commit sha: shallow-clone the default branch, then fetch + checkout the pin.
+    await execFileAsync('git', ['clone', '--depth', '1', spec.url, dest])
+    await execFileAsync('git', ['fetch', '--depth', '1', 'origin', spec.ref], { cwd: dest })
+    await execFileAsync('git', ['checkout', spec.ref], { cwd: dest })
   }
 }
 
