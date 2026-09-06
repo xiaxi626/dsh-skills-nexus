@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+**2026-09-05 · Added · CLI `add` 参数解析支持 `--flag=value` 等号写法**
+
+- **背景**：`parseAddArgs` 此前只认空格写法，`--name=value` 会被当未知 flag 静默忽略；`--subdir=skills/foo` 尤其危险——用户以为装子目录，实际 subdir 为空、静默退化成整仓安装。`--flag=value` 是 GNU/argparse/Go flag/npm/git/docker/kubectl 通行约定，补齐可减少意外。
+- **变更**：`src/cli/args.ts` 的 `parseAddArgs` 在匹配前按**首个** `=` 拆分 `flag`/`inlineVal`，以 `inlineVal ?? argv[++i]` 兼容等号与空格两种写法（`--name/--ref/--branch/--subdir`）。取首个 `=` 是因为 flag 名来自固定集合、永不含 `=`，而值可以含（`--subdir=a=b`、`--ref=feature=x` 均合法）。`??` 短路确保等号写法不多吃 token；spec 分支保留整段 token（`owner/repo=v1` 不误拆）；未知 `--flag=x` 仍忽略。`positional()` 及其他命令不受影响。
+- **顺带修复**：布尔 flag（`--yes`/`-y`/`--force`）现在**拒绝带值并抛错**。此前它们直接丢弃 `=` 后的内容，会让 `--yes=false` 静默变成 `yes=true`，从而同时绕过 wrapped-skill 的 plugin 包装层确认（`add.ts` L158-163）与 >20 skill 的大集合护栏（`add.ts` L187，`LARGE_COLLECTION_THRESHOLD=20`）；而更早的行为是 `--yes=false` 被整个忽略。同一判据下 `-y=true` 因不以 `--` 开头曾**顶掉 spec**（实测 `spec:"-y=true"`），现一并消除。
+- **测试**：`test/args.test.ts` 新增等号（含 `--branch=`）、等价、`--subdir=` 空值仍抛错、值内含 `=`、含 `=` 的 spec 不被拆、布尔 flag 带值抛错等 **8 条**用例；原有 11 条全绿，合计 19 条（隔离运行实测 `pass=19 fail=0`）。另以逐字抽取的新旧实现并排对比 **32 个 fixture**（覆盖既存 args 测试用到的全部输入）：15 项行为改变全部为本次意图内修复，既存测试输入 **0 项改变**（零回归实测得证，非推断）。全量 `npm test` **123 用例通过**；四步门禁（typecheck / lint / test / build）退出码均为 0、二次 build 幂等、`lib/`（`args.js` / `args.js.map` / `args.d.ts.map`）零漂移（`args.d.ts` 因签名未变而字节相同）。
+- **验证方式**：聚焦跑 `node --import tsx --test test/args.test.ts`（勿用 `npm test -- <file>`——会追加到硬编码全量列表），全量回归跑 `npm test`。辨识指纹：该文件用例数 **11 → 19**，新增第 11–18 条（等号 `--name=`/`--ref=`/`--subdir=`、等价、`--subdir=` 空值抛错、值内含 `=`、spec 含 `=` 不拆、布尔带值抛错）全绿即生效；换回旧代码这 8 条为 **7 红 1 绿**（仅 `a spec containing = is not split` 本来就绿）。本机 Git Bash 实测 `args.test.ts` 19/19、`npm test` 123/123 全通过。
+- **文档**：README 中英用法段各加一行注（取值型 `--name/--ref/--subdir` 亦支持 `--flag=value`，布尔 `--yes` 不接受值）；`src/cli/index.ts` 的 `printHelp()` Options 段同步补一行，`lib/cli/index.js`（及 `.map`）随之重新构建。按项目「功能改动与纯文档分开」约定拆为两个提交：`feat(cli)` 含解析器 / `printHelp()` / 测试 / 构建产物 / 本 CHANGELOG 记录，`docs` 仅含 README 中英两文件（纯文档）。
+
 **2026-09-05 · Added · `cloneRepo` 对分支/标签克隆增加指数退避重试（弱网健壮性）**
 
 - **背景**：`add`/`update` 的核心是网络克隆，此前 `cloneRepo` 单次调用、网络抖动即失败，需用户手动重跑 `add`（`add.ts` 失败清理注释里的 “retry” 指的是用户手动重跑，非自动重试）。目标用户多为国内环境，GitHub HTTPS 访问抖动频繁，一次退避重试能实打实提升成功率；属「git 版本锁 + headless CLI」核心路径的健壮性补强，**不引入任何运行时依赖**。

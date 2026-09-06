@@ -67,6 +67,54 @@ test('the last positional wins as spec', () => {
 })
 
 /* ------------------------------------------------------------------ */
+/* parseAddArgs — --flag=value equals form                             */
+/* ------------------------------------------------------------------ */
+
+test('--name=value sets the skill name', () => {
+  assert.equal(parseAddArgs(['owner/repo', '--name=my-skill']).name, 'my-skill')
+})
+
+test('--ref=value and --branch=value set the ref', () => {
+  assert.equal(parseAddArgs(['owner/repo', '--ref=dev']).ref, 'dev')
+  assert.equal(parseAddArgs(['owner/repo', '--branch=v2']).ref, 'v2')
+})
+
+test('--subdir=path sets the subdir', () => {
+  assert.equal(parseAddArgs(['owner/repo', '--subdir=skills/foo']).subdir, 'skills/foo')
+})
+
+test('--name=value and --name value are equivalent', () => {
+  assert.equal(
+    parseAddArgs(['owner/repo', '--name=my-skill']).name,
+    parseAddArgs(['owner/repo', '--name', 'my-skill']).name,
+  )
+})
+
+test('--subdir= with an empty value still throws', () => {
+  assert.throws(() => parseAddArgs(['owner/repo', '--subdir=']), /--subdir requires a path/)
+})
+
+test('a value may itself contain =', () => {
+  assert.equal(parseAddArgs(['owner/repo', '--name=a=b']).name, 'a=b')
+})
+
+test('a spec containing = is not split', () => {
+  assert.equal(parseAddArgs(['owner/repo=v1']).spec, 'owner/repo=v1')
+})
+
+test('boolean flags reject an inline value', () => {
+  // Without this guard inlineVal is silently discarded, so --yes=false would
+  // set yes=true -- defeating both the wrapped-skill prompt (add.ts L158) and
+  // the large-collection guard (add.ts L187). Throwing also removes a
+  // pre-existing bug: "-y=true" does not start with "--", so today it falls
+  // through to the positional branch and overwrites spec with "-y=true".
+  assert.throws(() => parseAddArgs(['owner/repo', '--yes=false']), /takes no value/)
+  assert.throws(() => parseAddArgs(['owner/repo', '--yes=true']), /takes no value/)
+  assert.throws(() => parseAddArgs(['owner/repo', '--force=1']), /takes no value/)
+  assert.throws(() => parseAddArgs(['owner/repo', '-y=true']), /takes no value/)
+})
+
+/* ------------------------------------------------------------------ */
 /* positional — first non-flag argument                                */
 /* ------------------------------------------------------------------ */
 
