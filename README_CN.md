@@ -54,6 +54,8 @@ dsh-skills-nexus disable <name>                     # 删除 symlink 但不删�
 dsh-skills-nexus remove <name>                      # 删除克隆 + symlink + 注销
 ```
 
+取值型选项（`--name`、`--ref`、`--subdir`）也支持 `--flag=value` 写法（如 `--subdir=skills/foo`、`--name=owner-skills`）；布尔选项 `--yes` 不接受值。
+
 支持的仓库格式：`github:owner/repo[#ref]`、完整 `https://` URL（含 `/tree/<ref>/...` 子路径）、`git+https://`、`git@`/`ssh://`、以及裸写 `owner/repo` 简写。
 
 `add` 会在注册前检查克隆下来的仓库类型：

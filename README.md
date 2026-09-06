@@ -66,6 +66,8 @@ dsh-skills-nexus disable <name>                     # remove symlink without del
 dsh-skills-nexus remove <name>                      # delete clone + symlink + unregister
 ```
 
+Value options (`--name`, `--ref`, `--subdir`) also accept the `--flag=value` form (e.g. `--subdir=skills/foo`, `--name=owner-skills`); the boolean `--yes` takes no value.
+
 Accepted repo forms: `github:owner/repo[#ref]`, full `https://` URL (incl.
 `/tree/<ref>/...` subpaths), `git+https://`, `git@`/`ssh://`, and bare
 `owner/repo` shorthand.
