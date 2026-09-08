@@ -96,20 +96,44 @@ export async function ensureDescription(
 
   if (description && description.trim().length > 0) return
 
-  // No description — add it after the `name:` line (or at the top of frontmatter).
+  // Confine every rewrite to the frontmatter region: a column-0 `name:` or
+  // `description:` line inside the Markdown body (e.g. a YAML sample in a
+  // fenced code block) must never be mistaken for a frontmatter key.
+  const match = raw.match(FRONTMATTER_RE)
+  if (!match) return
+  const fmRaw = match[1] ?? ''
+  const fmStart = raw.indexOf('\n') + 1
+  const head = raw.slice(0, fmStart)
+  const tail = raw.slice(fmStart + fmRaw.length)
+
+  // Match the file's own line ending so a CRLF checkout never turns into a
+  // mixed-EOL file.
+  const eol = raw.includes('\r\n') ? '\r\n' : '\n'
+  const line = `description: ${JSON.stringify(fallback)}`
   const hasName = typeof frontmatter.name === 'string'
-  if (hasName) {
-    const fixed = raw.replace(
-      /^(\s*name:\s*[^\n\r]*\n)/m,
-      `$1description: ${JSON.stringify(fallback)}\n`,
+
+  let fm: string
+  const descKeyRe = /^description:[^\n\r]*/m
+  if (descKeyRe.test(fmRaw)) {
+    // A top-level `description:` key already exists but is empty — fill it in
+    // place. Inserting a second one makes yaml.parse throw "Map keys must be
+    // unique", which degrades the whole frontmatter to {}.
+    fm = fmRaw.replace(descKeyRe, () => line)
+  } else if (hasName) {
+    // Insert right after the `name:` value. The pattern deliberately omits a
+    // trailing newline (fmRaw's last line has none — it lives in the closing
+    // fence) and prepends `eol` to the inserted line instead. The post-colon
+    // `\s*` is kept on purpose: `\s` includes newlines, which is what lets a
+    // multi-line plain scalar (`name:\n  My Skill`) be captured whole.
+    fm = fmRaw.replace(
+      /^(\s*name:\s*[^\n\r]*)/m,
+      (_m: string, nameLine: string) => `${nameLine}${eol}${line}`,
     )
-    await writeFile(skillFile, fixed, 'utf8')
   } else {
-    // No name either — prepend description at the start of frontmatter.
-    const fixed = raw.replace(
-      /^---\r?\n/m,
-      `---\ndescription: ${JSON.stringify(fallback)}\n`,
-    )
-    await writeFile(skillFile, fixed, 'utf8')
+    // No `name:` key — prepend at the top of the frontmatter block.
+    fm = `${line}${eol}${fmRaw}`
   }
+
+  if (fm === fmRaw) return
+  await writeFile(skillFile, `${head}${fm}${tail}`, 'utf8')
 }
