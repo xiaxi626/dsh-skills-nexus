@@ -132,6 +132,26 @@ test('corrupt manifest is backed up and resets to empty', async () => {
   assert.ok(files.some((f) => f.startsWith('manifest.json.corrupt-')), 'backup created')
 })
 
+test('writeManifest leaves no temp file behind', async () => {
+  await manifest.writeManifest({ version: 1, skills: [entry] })
+  const files = await readdir(dirname(manifestPath))
+  assert.ok(files.includes('manifest.json'))
+  assert.ok(!files.some((f) => f.endsWith('.tmp')), 'no temp file remains')
+})
+
+test('writeManifest preserves the previous manifest when the write cannot complete', async () => {
+  const good: Manifest = { version: 1, skills: [entry] }
+  await manifest.writeManifest(good)
+  // Fault-inject: make the temp path a *directory* so writeFile(tmp) throws
+  // (EISDIR on POSIX, EISDIR/EPERM on Windows) — deterministic & cross-platform.
+  await mkdir(`${manifestPath}.tmp`, { recursive: true })
+  await assert.rejects(manifest.writeManifest({ version: 1, skills: [] }))
+  // The live manifest.json was never truncated: the previous good data survives.
+  assert.deepEqual(await manifest.readManifest(), good)
+  const files = await readdir(dirname(manifestPath))
+  assert.ok(!files.some((f) => f.endsWith('.tmp')), 'temp cleaned up after failure')
+})
+
 test('removeSkillDir deletes the cloned directory', async () => {
   const dir = paths.skillDir('demo')
   await mkdir(dir, { recursive: true })

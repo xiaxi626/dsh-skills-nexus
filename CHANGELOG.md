@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+**2026-09-10 · Fixed · `writeManifest` 改为 temp + rename 原子写，防止中断产生空/半截 manifest**
+
+- **背景/根因**：旧实现 `writeFile(MANIFEST_PATH, …)` 用默认 `'w'` 标志——打开即把 `manifest.json` **截断到 0 再写**，正式文件在整个写入期间处于空/半截状态。真正会坐实“空/半截”的是两类**低概率**事件：① 进程在“已截断、未写完”的窗口内被中断（Ctrl+C / kill / 崩溃 / 断电）；② 磁盘写满（ENOSPC）写到一半。（权限不足反而**安全**：卡在 `open()`、旧文件根本没被截断，是干净失败。）由于每次写的都是**整份** manifest，一旦命中即**整个注册表**丢失、不止单条 skill。事后兜底也靠不住：`readManifest` 的 `.corrupt-<ts>` 备份存的是“这次读到的那份损坏内容”，而上一份好数据早在 `open('w')` 截断那一刻就被销毁了，所以备份下来往往是**空串或半截 JSON、救不回上一次的好状态**。旧注释却写着 “atomically (temp file + rename semantics via direct write)”——既无 temp 也无 rename，与实现不符、误导维护者以为已有原子保证。
+- **变更**：只改 `writeManifest` 一个叶子函数（`src/manifest.ts`）——先写同目录固定名临时文件 `manifest.json.tmp`，再 `rename` 覆盖正式文件（本机 Windows 实测：`rename` 覆盖已存在文件成功、源 tmp 随即消失；机制上 libuv 在 Windows 走 `MoveFileExW` + `MOVEFILE_REPLACE_EXISTING`、POSIX `rename` 原子替换），失败时在 catch 里 `rm(tmp, { recursive: true, force: true })` 清理后重抛；注释同步改为如实描述。**作用**：正式文件全程不被截断，崩溃时 manifest 要么是旧全量、要么是新全量、**绝不为空/半截**；固定名 temp 至多残留一个、下次写入即截断复用（自愈），只存在于 NEXUS_HOME 内，不污染 `repos/` 与项目目录。`readManifest`/`addEntry`/`removeEntry`/`markUpdated` 的签名与三处调用方零改动。
+- **不做**：并发写文件锁（单用户 headless CLI，YAGNI）；已损坏 manifest 的自动重建 / `repair`（属另一个工具——本次只**预防**新损坏、不**治疗**既有损坏）。
+- **测试**：`test/manifest.test.ts` 新增 2 条——`writeManifest preserves the previous manifest when the write cannot complete`（判别项：把 `manifest.json.tmp` 注入成一个目录迫使 `writeFile(tmp)` 抛错，断言 `writeManifest` reject、正式文件仍等于上一份好数据、目录内无 `.tmp` 残留）与 `writeManifest leaves no temp file behind`（回归护栏：成功写后目录内无 `.tmp`）。
+- **验证方式**：聚焦跑 `node --import tsx --test test/manifest.test.ts`（勿用 `npm test -- <file>`——会追加到硬编码全量列表），全量回归跑 `npm test`；退出码 Git Bash 用 `echo $?`、PowerShell 用 `$LASTEXITCODE`。辨识指纹：该文件用例数 **13 → 15**、`npm test` **133 → 135**；换回旧的直接写实现，判别项那条为**红**（报 `Missing expected rejection.`——旧码无视 `.tmp`、直接截断覆盖、resolve 而非 reject），护栏那条仍**绿**。本机（Windows）实测 `manifest.test.ts` 15/15、`npm test` 135/135 全通过，四步门禁（typecheck / lint / test / build）退出码均 0；`lib/` 仅 `manifest.js`+`.js.map`+`.d.ts`+`.d.ts.map` 随之更新（`.d.ts` 变在 JSDoc 注释、函数签名不变）。CI 的 `lib/` 新鲜度校验（`git diff --exit-code -- lib/`）按设计仅在 ubuntu 跑，以避开 Windows CRLF 误报。
+
 **2026-09-05 · Fixed · 修正 `ensureDescription` 在 CRLF 文件与空值 `description:` 键上的静默失败**
 
 - **背景**：`ensureDescription` 的插入正则写死了 `\n`，而 Git for Windows 默认 `core.autocrlf=true`、`git clone` 检出即 CRLF——正则永不匹配，`String.replace` 静默返回原字符串，`add`/`update` 仍打印 `⚠ added missing description` 成功提示，官方 filesystem provider 随即因缺 description 静默跳过该 skill。另一条高频路径：frontmatter 里已有**空值** `description:` 键时，旧实现会插入第二个同名键，`yaml.parse` 抛 `Map keys must be unique`，`parseFrontmatter` 的 `try/catch` 把整个 frontmatter 降级为 `{}`，同样静默失败。两者都不报错，用户拿到一个“装好了但不存在”的 skill。
