@@ -1,6 +1,6 @@
 {
   "name": "dsh-skills-nexus",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Universal DSH skill adapter — register any GitHub SKILL.md repo as a DSH skill via one command.",
   "license": "MIT",
   "repository": {

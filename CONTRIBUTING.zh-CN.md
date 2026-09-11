@@ -101,3 +101,15 @@ actionlint .github/workflows/ci.yml     # 或只查你改动的那一个
 > （校验 python `run:` 脚本体）。若未安装，它会打印一条“rule disabled”提示并
 > 跳过——核心的 workflow 检查仍会正常执行。我们唯一的 bash 步骤只是个简单的
 > `git diff`，因此装不装 shellcheck 都可以。
+
+## 提交与 PR 约定
+
+- **Conventional Commits**——每个提交都带类型前缀（和可选 scope）：
+  `feat(scope):`、`fix(scope):`、`docs:`、`ci:`、`build:`、`refactor:`、`test:`、`chore:`。
+- **功能改动与纯文档分开**——功能性改动（`src/`、`test/` 及重新构建的 `lib/`）与纯文档改动
+  （README / CONTRIBUTING / `docs/`）拆成**独立提交**。`feat`/`fix` 提交只带代码、测试、
+  重新构建的 `lib/` 与 CHANGELOG 记录；紧随其后的 `docs:` 提交只带文档文件。
+- **提交前先更新 `CHANGELOG.md`**，与它描述的改动放在同一个提交里，记在 `## [Unreleased]` 下，
+  遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
+- **开 PR 时**——[PR 模板](.github/PULL_REQUEST_TEMPLATE.md) 会用一份对齐上述 CI 门禁的质量
+  checklist 预填描述；照着填，并把任何平台相关行为写给审阅者。

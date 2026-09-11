@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-11
+
+**2026-09-11 · Docs · 新增 PR 模板，CONTRIBUTING 补「提交与 PR 约定」（Conventional Commits + 功能/文档分拆提交）**
+
+- **背景**：仓库已有双语 CONTRIBUTING、Issue 模板与 PR-on CI，唯独缺 PR 模板；且「功能改动与纯文档分开提交」这条约定此前只散落在 CHANGELOG 叙述里、CONTRIBUTING 从未正式写明，贡献者无从提前知晓。
+- **变更**：新增 `.github/PULL_REQUEST_TEMPLATE.md`（英文，与既有 Issue 模板语言一致）——含变更类型、关联 issue、对齐 CI 的质量 checklist、Breaking changes、审阅提示；其中 `lib/` 新鲜度一条如实写明 CI 用 `git diff --exit-code --quiet -- lib/` 校验、且仅在 `ubuntu-latest` 跑（避开 Windows CRLF / `core.autocrlf` 误报）。CONTRIBUTING 中英各新增「Commit & pull request conventions / 提交与 PR 约定」小节，把 Conventional Commits、功能/文档分拆、提交前更新 CHANGELOG、PR 模板入口固化为贡献者可见的正式约定。
+- **纯文档 / 仓库元数据变更**，无源码或行为变化，`lib/` 零漂移；PR 模板为纯 Markdown、无 frontmatter，无需 YAML 校验。`npm run typecheck` 退出码 0。
+
 **2026-09-10 · Fixed · `writeManifest` 改为 temp + rename 原子写，防止中断产生空/半截 manifest**
 
 - **背景/根因**：旧实现 `writeFile(MANIFEST_PATH, …)` 用默认 `'w'` 标志——打开即把 `manifest.json` **截断到 0 再写**，正式文件在整个写入期间处于空/半截状态。真正会坐实“空/半截”的是两类**低概率**事件：① 进程在“已截断、未写完”的窗口内被中断（Ctrl+C / kill / 崩溃 / 断电）；② 磁盘写满（ENOSPC）写到一半。（权限不足反而**安全**：卡在 `open()`、旧文件根本没被截断，是干净失败。）由于每次写的都是**整份** manifest，一旦命中即**整个注册表**丢失、不止单条 skill。事后兜底也靠不住：`readManifest` 的 `.corrupt-<ts>` 备份存的是“这次读到的那份损坏内容”，而上一份好数据早在 `open('w')` 截断那一刻就被销毁了，所以备份下来往往是**空串或半截 JSON、救不回上一次的好状态**。旧注释却写着 “atomically (temp file + rename semantics via direct write)”——既无 temp 也无 rename，与实现不符、误导维护者以为已有原子保证。

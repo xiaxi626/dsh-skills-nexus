@@ -111,3 +111,18 @@ actionlint .github/workflows/ci.yml     # or just the one you changed
 > "rule disabled" notice and skips them — the core workflow checks still run.
 > Our only bash step is a trivial `git diff`, so installing shellcheck is
 > optional.
+
+## Commit & pull request conventions
+
+- **Conventional Commits** — prefix every commit with a type (and optional scope):
+  `feat(scope):`, `fix(scope):`, `docs:`, `ci:`, `build:`, `refactor:`, `test:`, `chore:`.
+- **Separate code from docs** — keep functional changes (`src/`, `test/`, and the
+  rebuilt `lib/`) and pure-documentation changes (README / CONTRIBUTING / `docs/`) in
+  **separate commits**. A `feat`/`fix` commit carries its code, tests, rebuilt `lib/`,
+  and the CHANGELOG entry; a following `docs:` commit carries only the prose files.
+- **Update `CHANGELOG.md` before you commit**, in the same commit as the change it
+  describes, under `## [Unreleased]`, following
+  [Keep a Changelog](https://keepachangelog.com/).
+- **Opening a PR** — the [pull request template](.github/PULL_REQUEST_TEMPLATE.md)
+  prefills the description with a quality checklist that mirrors the CI gates above;
+  fill it in and note any platform-specific behavior for the reviewer.
