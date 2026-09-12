@@ -1,7 +1,12 @@
 /** Tiny argv parser — keeps the CLI dependency-free. */
 
 export interface AddOptions {
-  spec: string
+  /**
+   * Repo specs in the order given. `add` accepts one or more; the per-repo
+   * options below are rejected when more than one spec is present (see add.ts),
+   * because each is inherently one-to-one with a single repo.
+   */
+  specs: string[]
   name?: string
   ref?: string
   /** Path of the skill root inside the cloned repo, e.g. `skills/foo`. */
@@ -11,7 +16,7 @@ export interface AddOptions {
 }
 
 export function parseAddArgs(argv: string[]): AddOptions {
-  let spec: string | undefined
+  const specs: string[] = []
   let name: string | undefined
   let ref: string | undefined
   let subdir: string | undefined
@@ -41,17 +46,59 @@ export function parseAddArgs(argv: string[]): AddOptions {
       yes = true
     } else if (!a.startsWith('--')) {
       // 位置参数用整段 token，含 `=` 也不拆（如 owner/repo=v1）。
-      spec = a
+      // 收集全部位置参数：`add A B` 装两个仓库，不再静默丢弃靠前的（旧行为是末位覆盖）。
+      specs.push(a)
     }
   }
 
-  if (!spec) {
+  if (specs.length === 0) {
     throw new Error('missing repo spec, e.g. github:owner/repo')
   }
-  return { spec, name, ref, subdir, yes }
+  return { specs, name, ref, subdir, yes }
 }
 
 /** First positional argument, or undefined. */
 export function positional(argv: string[]): string | undefined {
   return argv.find((a) => !a.startsWith('-'))
+}
+
+export interface RemoveOptions {
+  /**
+   * Name-or-pattern tokens, in order. A token containing `*` or `?` is a glob
+   * matched against registered skill names (see remove.ts); any other token is
+   * an exact name.
+   */
+  patterns: string[]
+  /** Skip the "remove N skills matching <pattern>?" confirmation guard. */
+  yes: boolean
+}
+
+/**
+ * Parse `remove` args: one or more names/globs plus an optional `--yes`.
+ *
+ * Boolean flags reject an inline value for the same reason as parseAddArgs —
+ * silently dropping it would turn `--yes=false` into yes=true and bypass the
+ * multi-match deletion guard (remove.ts).
+ */
+export function parseRemoveArgs(argv: string[]): RemoveOptions {
+  const patterns: string[] = []
+  let yes = false
+
+  for (const a of argv) {
+    const eqIdx = a.indexOf('=')
+    const flag = eqIdx !== -1 ? a.slice(0, eqIdx) : a
+    const inlineVal = eqIdx !== -1 ? a.slice(eqIdx + 1) : undefined
+
+    if (flag === '--yes' || flag === '-y' || flag === '--force') {
+      if (inlineVal !== undefined) {
+        throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
+      }
+      yes = true
+    } else if (!a.startsWith('-')) {
+      // 名字与通配符都不以 `-` 开头（skill 名为 kebab-case），整段收集，含 `=` 也不拆。
+      patterns.push(a)
+    }
+  }
+
+  return { patterns, yes }
 }

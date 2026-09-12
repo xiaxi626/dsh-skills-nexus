@@ -1,14 +1,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseAddArgs, positional } from '../src/cli/args.js'
+import { parseAddArgs, parseRemoveArgs, positional } from '../src/cli/args.js'
 
 /* ------------------------------------------------------------------ */
 /* parseAddArgs — the tiny argv parser for `add`                       */
 /* ------------------------------------------------------------------ */
 
-test('spec is the first positional', () => {
+test('specs collects the single positional', () => {
   assert.deepEqual(parseAddArgs(['github:owner/repo']), {
-    spec: 'github:owner/repo',
+    specs: ['github:owner/repo'],
     name: undefined,
     ref: undefined,
     subdir: undefined,
@@ -19,7 +19,7 @@ test('spec is the first positional', () => {
 test('--subdir sets the skill root inside the repo', () => {
   const opts = parseAddArgs(['github:owner/repo', '--subdir', 'skills/foo'])
   assert.equal(opts.subdir, 'skills/foo')
-  assert.equal(opts.spec, 'github:owner/repo')
+  assert.equal(opts.specs[0], 'github:owner/repo')
 })
 
 test('--subdir without a value throws', () => {
@@ -28,7 +28,7 @@ test('--subdir without a value throws', () => {
 
 test('--name sets the skill name', () => {
   const opts = parseAddArgs(['github:owner/repo', '--name', 'my-skill'])
-  assert.equal(opts.spec, 'github:owner/repo')
+  assert.equal(opts.specs[0], 'github:owner/repo')
   assert.equal(opts.name, 'my-skill')
 })
 
@@ -45,14 +45,14 @@ test('--yes / -y / --force set yes', () => {
 
 test('options can appear before the spec', () => {
   const opts = parseAddArgs(['--yes', '--name', 'x', 'owner/repo'])
-  assert.equal(opts.spec, 'owner/repo')
+  assert.equal(opts.specs[0], 'owner/repo')
   assert.equal(opts.name, 'x')
   assert.equal(opts.yes, true)
 })
 
 test('unknown flags are ignored', () => {
   const opts = parseAddArgs(['--verbose', 'owner/repo'])
-  assert.equal(opts.spec, 'owner/repo')
+  assert.equal(opts.specs[0], 'owner/repo')
 })
 
 test('missing spec throws', () => {
@@ -60,10 +60,11 @@ test('missing spec throws', () => {
   assert.throws(() => parseAddArgs(['--yes']), /missing repo spec/)
 })
 
-test('the last positional wins as spec', () => {
-  // The parser is intentionally naive: each non-flag token overwrites spec.
+test('all positionals are collected as specs, in order', () => {
+  // `add A B` installs both repos; the old "last positional wins" behavior
+  // silently dropped A. Multiple specs are now preserved for batch install.
   const opts = parseAddArgs(['owner/repo', 'other/repo'])
-  assert.equal(opts.spec, 'other/repo')
+  assert.deepEqual(opts.specs, ['owner/repo', 'other/repo'])
 })
 
 /* ------------------------------------------------------------------ */
@@ -99,7 +100,7 @@ test('a value may itself contain =', () => {
 })
 
 test('a spec containing = is not split', () => {
-  assert.equal(parseAddArgs(['owner/repo=v1']).spec, 'owner/repo=v1')
+  assert.equal(parseAddArgs(['owner/repo=v1']).specs[0], 'owner/repo=v1')
 })
 
 test('boolean flags reject an inline value', () => {
@@ -124,4 +125,40 @@ test('positional returns the first non-flag argument', () => {
   assert.equal(positional(['--flag', 'value', 'target']), 'value')
   assert.equal(positional([]), undefined)
   assert.equal(positional(['-x']), undefined)
+})
+
+/* ------------------------------------------------------------------ */
+/* parseRemoveArgs — names / globs + --yes                             */
+/* ------------------------------------------------------------------ */
+
+test('parseRemoveArgs collects every name/pattern in order', () => {
+  assert.deepEqual(parseRemoveArgs(['a', 'theme-*', 'b']).patterns, ['a', 'theme-*', 'b'])
+  assert.equal(parseRemoveArgs(['a']).yes, false)
+})
+
+test('parseRemoveArgs keeps glob metacharacters intact', () => {
+  assert.deepEqual(parseRemoveArgs(['skill-?']).patterns, ['skill-?'])
+  assert.deepEqual(parseRemoveArgs(['*']).patterns, ['*'])
+})
+
+test('parseRemoveArgs detects --yes / -y / --force', () => {
+  assert.equal(parseRemoveArgs(['a', '--yes']).yes, true)
+  assert.equal(parseRemoveArgs(['a', '-y']).yes, true)
+  assert.equal(parseRemoveArgs(['a', '--force']).yes, true)
+})
+
+test('parseRemoveArgs excludes flags from patterns', () => {
+  assert.deepEqual(parseRemoveArgs(['--yes', 'a']).patterns, ['a'])
+})
+
+test('parseRemoveArgs boolean flags reject an inline value', () => {
+  // Same guard as parseAddArgs: --yes=false must not silently become yes=true
+  // and bypass the multi-match deletion guard in remove.ts.
+  assert.throws(() => parseRemoveArgs(['a', '--yes=false']), /takes no value/)
+  assert.throws(() => parseRemoveArgs(['a', '-y=1']), /takes no value/)
+})
+
+test('parseRemoveArgs with no names yields an empty pattern list', () => {
+  assert.deepEqual(parseRemoveArgs([]).patterns, [])
+  assert.deepEqual(parseRemoveArgs(['--yes']).patterns, [])
 })

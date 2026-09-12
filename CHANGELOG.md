@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+**2026-09-12 · Added · CLI `add`/`remove` 支持多目标批量操作，`remove` 支持 `*`/`?` 通配符**
+
+- **背景**：`add` 与 `remove` 此前一次只处理一个目标，且多余的位置参数被**静默丢弃**——`parseAddArgs` 对每个位置参数执行 `spec = a`（末位覆盖），`add owner/a owner/b` 只装 `owner/b`；`remove` 用 `positional()` 只取第一个参数，`remove a b c` 只删 `a`。旧行为被 `test/args.test.ts` 的 `the last positional wins as spec` 用例显式固化。而 `update` 早已支持批量（无参数时更新全部 enabled，并逐项计失败数），`add`/`remove` 的能力缺口与之不一致；`README_CN.md` 甚至用“两条独立 remove 命令”来演示删除多个 skill，印证了管理大量 skill 时的低效。
+- **变更**：
+  - `parseAddArgs`（`src/cli/args.ts`）返回 `specs: string[]`、收集全部位置参数；新增 `parseRemoveArgs` 返回 `{ patterns, yes }`。`positional()`（单数）保持不动，`update`/`toggle` 零影响。
+  - `add`（`src/cli/commands/add.ts`）把单仓库逻辑抽为 `addOne`，主体按 `specs` 顺序循环、逐项独立：一个仓库失败不中断其余，退出码“任一失败即非零”（与 `update` 同构）。原 `return 0`（识别为 dsh-plugin / 用户取消）归为 skipped、`return 1`（各类拒绝）归为 failed，单仓库的输出与退出码逐条不变。
+  - **每仓库级选项与多目标互斥**：`--name`/`--ref`/`--subdir` 各自一对一绑定单个仓库，与多个 spec 同时出现时**显式报错 `return 1` 且不安装任何仓库**，取代旧的静默误用。
+  - `remove`（`src/cli/commands/remove.ts`）把单条目逻辑抽为 `removeOne`，接受多个 name 与 `*`/`?` 通配符（对已注册 skill 名做整段全匹配）；逐目标独立删除，缺失名计为逐项失败、退出码非零。
+  - **多命中删除护栏**：通配符匹配到 **>1** 个 skill 时（删除不可逆），先打印完整待删清单再要求确认（`--yes` 跳过）；在非交互 shell（非 TTY）无法提问时**拒绝执行并 `return 2`**、提示改用 `--yes`，绝不静默批量删除。精确单名与“通配符仅命中 1 个”不触发护栏，行为与今日一致。
+  - 新增两个叶子模块：`src/cli/glob.ts`（极简 `*`/`?` 匹配器，转义其余正则特殊字符、`^…$` 锚定；**零第三方依赖**，不引入 glob/minimatch）与 `src/cli/prompt.ts`（从 `add.ts` 提取的 `confirm`，供 `add`/`remove` 共用）。`src/cli/index.ts` 的 `printHelp()` 补 Batch 段说明。
+- **不做**：`enable`/`disable`（toggle）批量——超出本次范围，`positional()` 已就位、后续可低成本跟进；未知 flag 拒绝——会破坏现有“unknown flags are ignored”约定；`[…]` 字符类与 `**` 通配——skill 名为扁平 kebab-case，`*`/`?` 已覆盖，字符类转义复杂度高、收益近零；`--ref` 应用于全部 spec——统一按“每仓库选项与多目标互斥”报错，零歧义；`--dry-run`——由“待删清单 + 确认闸”覆盖。
+- **测试**：`test/args.test.ts` 19 → 25（重写 `the last positional wins` 为 `all positionals are collected as specs`，`.spec` 断言改 `.specs[0]`，新增 6 条 `parseRemoveArgs` 用例）；`test/add.test.ts` 8 → 11（多仓库一次安装、每仓库选项 + 多 spec 拒绝、逐项失败仍继续）；新增 `test/glob.test.ts`（9 条：`hasMeta` / `globToRegExp` 锚定与转义 / `matchNames` 的 `*`、`?`、字面量、边界）与 `test/remove.test.ts`（10 条：精确名单删、未注册名退 1、无参退 2、多名批量、含缺失名的部分失败退 1、`*`/`?` 通配符加 `--yes` 删除、单命中免确认、多命中非 TTY 无 `--yes` 退 2 且不删、零命中退 1）。
+- **验证方式**：聚焦跑 `node --import tsx --test test/glob.test.ts test/remove.test.ts test/args.test.ts test/add.test.ts`（勿用 `npm test -- <file>`——会追加到硬编码全量列表），全量回归跑 `npm test`；退出码 PowerShell 用 `$LASTEXITCODE`、Git Bash 用 `echo $?`。辨识指纹：全量用例数 **135 → 163**（+28 = args +6、glob +9、remove +10、add +3）；换回旧的单目标实现，`test/remove.test.ts` 的批量 / 通配符用例、`test/add.test.ts` 的多仓库用例、以及 `test/args.test.ts` 的 `all positionals are collected as specs` 均为**红**（旧码末位覆盖只留一个 spec）。本机（Windows / PowerShell）实测 `npm test` **163/163** 全通过，四步门禁（typecheck / lint / test / build）退出码均为 0；端到端探针：隔离 `DSH_HOME` 下 `add owner/a owner/b --name x` 退 1 并打印互斥提示、`remove 'foo-*'`（空清单）退 1 打印 “No skills match”。`lib/` 随源码重建（`args`/`add`/`remove`/`index` 更新，新增 `glob`/`prompt`；`index.d.ts` 因导出签名未变而不变，`add.d.ts`/`remove.d.ts` 仅 JSDoc 变化）。
+- **文档**：README 中英用法段把“多条独立 remove 命令”改为通配符 / 多参数一条命令，并补 `add` 多仓库、每仓库选项互斥、通配符需加引号（防 shell 提前展开）等说明；`src/cli/index.ts` 的 `printHelp()` 同步补 Batch 段。按项目「功能改动与纯文档分开」约定拆为两个提交：`feat(cli)` 含解析器 / glob / prompt / add / remove / printHelp / 测试 / package.json / 构建产物 / 本 CHANGELOG 记录，`docs` 仅含 README 中英两文件（纯文档）。
+
 ## [0.3.0] - 2026-09-11
 
 **2026-09-11 · Docs · 新增 PR 模板，CONTRIBUTING 补「提交与 PR 约定」（Conventional Commits + 功能/文档分拆提交）**

@@ -1,8 +1,6 @@
 import { mkdir, readdir, rm, stat } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
 import { join } from 'node:path'
-import { createInterface } from 'node:readline/promises'
-import { stdin as input, stdout as output } from 'node:process'
 import { addEntry, hasEntry, readManifest } from '../../manifest.js'
 import { REPOS_DIR, repoDir } from '../../paths.js'
 import {
@@ -18,13 +16,14 @@ import { locateSkillFiles } from '../../locator.js'
 import { previewSkills } from '../../resolve.js'
 import { normalizeSkillName, ensureDescription } from '../../frontmatter.js'
 import { linkSkill, hasCollision } from '../../link.js'
+import { confirm } from '../prompt.js'
 import { parseAddArgs } from '../args.js'
 
 /**
- * `add` — clone a GitHub SKILL.md repo and expose it via a symlink in the
- * official DSH skills root.
+ * `add` — clone one or more GitHub SKILL.md repos and expose each via symlinks
+ * in the official DSH skills root.
  *
- * The clone lands under <repos>/<path>/ and a symlink is created at
+ * Each clone lands under <repos>/<path>/ and a symlink is created at
  * ~/.dsh/skills/<name>/ so the official filesystem provider discovers it
  * automatically. Multi-skill repos create one symlink per discovered skill.
  *
@@ -32,11 +31,78 @@ import { parseAddArgs } from '../args.js'
  * repos): the subdir is the skill root, the entry gets a `subdir` field, and
  * the clone directory is dedicated to that entry (independent-clone design).
  *
- * Before registering, the clone is *previewed* with the full skill rules, so
+ * Multiple specs are installed left-to-right and independently: a failure on
+ * one repo does not abort the rest, and the exit code is non-zero if any repo
+ * failed (the same per-item model as `update`). The per-repo options
+ * (--name/--ref/--subdir) are one-to-one with a single repo, so combining them
+ * with multiple specs is rejected up front rather than silently misapplied.
+ *
+ * Before registering, each clone is *previewed* with the full skill rules, so
  * repos that yield zero installable skills are rejected.
  */
 export async function add(argv: string[]): Promise<number> {
-  const { spec, name, ref, subdir, yes } = parseAddArgs(argv)
+  const { specs, name, ref, subdir, yes } = parseAddArgs(argv)
+
+  // --name/--ref/--subdir each refine a single repo; they cannot be spread
+  // across several specs unambiguously. Refuse explicitly instead of silently
+  // applying them to just one (the old "last positional wins" footgun).
+  if (specs.length > 1 && (name || ref || subdir)) {
+    const used = [name && '--name', ref && '--ref', subdir && '--subdir']
+      .filter(Boolean)
+      .join(', ')
+    process.stderr.write(
+      `${used} applies to a single repo and cannot be combined with ${specs.length} repo specs.\n` +
+        `Run a separate "dsh-skills-nexus add <repo> ${used}" command per repo to customize each,\n` +
+        `or drop the option to install all ${specs.length} repos with their default names.\n`,
+    )
+    return 1
+  }
+
+  const multi = specs.length > 1
+  let failures = 0
+  let addedCount = 0
+  for (const spec of specs) {
+    try {
+      const res = await addOne(spec, { name, ref, subdir, yes })
+      if (res.status === 'failed') failures++
+      else if (res.status === 'added') addedCount++
+    } catch (err) {
+      // A thrown error (e.g. clone / network failure) is a per-item failure —
+      // isolate it so the remaining specs still get a chance to install.
+      failures++
+      process.stderr.write(
+        `✗ ${spec}: ${err instanceof Error ? err.message : String(err)}\n`,
+      )
+    }
+  }
+
+  if (multi) {
+    process.stdout.write(
+      `\n${addedCount}/${specs.length} repo(s) added` +
+        (failures > 0 ? `, ${failures} failed` : '') +
+        `.\n`,
+    )
+  }
+  return failures === 0 ? 0 : 1
+}
+
+/** Outcome of installing a single repo spec. */
+type AddResult =
+  | { status: 'added'; skillName: string }
+  | { status: 'skipped' }
+  | { status: 'failed' }
+
+/**
+ * Install one repo spec. All user-facing messaging is preserved verbatim from
+ * the original single-repo `add`; the former `return 0`/`return 1` exit codes
+ * map to `skipped`/`failed` so the caller can aggregate across multiple specs
+ * without changing what a single-spec run prints or returns.
+ */
+async function addOne(
+  spec: string,
+  opts: { name?: string; ref?: string; subdir?: string; yes?: boolean },
+): Promise<AddResult> {
+  const { name, ref, subdir, yes } = opts
 
   // Parse once to get the URL; we'll refine the ref below if needed.
   let gitSpec = parseGitSpec(spec, ref ?? 'main')
@@ -59,7 +125,7 @@ export async function add(argv: string[]): Promise<number> {
     process.stderr.write(
       `Invalid --subdir "${subdir}": must be a repo-relative path (no leading "/", no "..").\n`,
     )
-    return 1
+    return { status: 'failed' }
   }
 
   const repoBase = sanitizeName(repoSlug(gitSpec))
@@ -76,7 +142,7 @@ export async function add(argv: string[]): Promise<number> {
       `A skill named "${skillName}" is already registered (path "${path}").\n` +
       `Use "dsh-skills-nexus update ${skillName}" to refresh it, or "dsh-skills-nexus remove ${skillName}" first.\n`,
     )
-    return 1
+    return { status: 'failed' }
   }
 
   // Check for collisions with manually-placed skills in the official root.
@@ -86,7 +152,7 @@ export async function add(argv: string[]): Promise<number> {
       `This appears to be manually placed (not a nexus symlink).\n` +
       `Please remove it first or use --name to choose a different name.\n`,
     )
-    return 1
+    return { status: 'failed' }
   }
 
   const dest = repoDir(path)
@@ -126,7 +192,7 @@ export async function add(argv: string[]): Promise<number> {
         `Subdirectory "${subdir}" does not exist in the cloned repository.\n`,
       )
       await rm(dest, { recursive: true, force: true })
-      return 1
+      return { status: 'failed' }
     }
   }
 
@@ -141,7 +207,7 @@ export async function add(argv: string[]): Promise<number> {
       `  dsh plugin --profile <name> add "${spec}"\n`,
     )
     await rm(dest, { recursive: true, force: true })
-    return 0
+    return { status: 'skipped' }
   }
 
   if (repoKind.kind === 'unknown') {
@@ -151,7 +217,7 @@ export async function add(argv: string[]): Promise<number> {
       (await nestedHint(dest)),
     )
     await rm(dest, { recursive: true, force: true })
-    return 1
+    return { status: 'failed' }
   }
 
   // SKILL.md + DSH 薄包装层：询问是否忽略包装层、按普通 SKILL.md 仓库管理。
@@ -167,7 +233,7 @@ export async function add(argv: string[]): Promise<number> {
         `  dsh plugin --profile <name> add "${spec}"\n`,
       )
       await rm(dest, { recursive: true, force: true })
-      return 0
+      return { status: 'skipped' }
     }
   }
 
@@ -180,7 +246,7 @@ export async function add(argv: string[]): Promise<number> {
       (await nestedHint(dest)),
     )
     await rm(dest, { recursive: true, force: true })
-    return 1
+    return { status: 'failed' }
   }
 
   // Guard against accidental full installs of large collections.
@@ -193,7 +259,7 @@ export async function add(argv: string[]): Promise<number> {
     if (!proceed) {
       process.stdout.write(`Aborted.\n`)
       await rm(dest, { recursive: true, force: true })
-      return 0
+      return { status: 'skipped' }
     }
   }
 
@@ -263,7 +329,7 @@ export async function add(argv: string[]): Promise<number> {
       (normalizedCount > 0 ? `  normalized: ${normalizedCount} frontmatter field(s)\n` : '') +
       `  The skill(s) will appear in the DSH catalog on next reload.\n`,
   )
-  return 0
+  return { status: 'added', skillName }
 }
 
 /** Repos with > this many skills trigger the "install all?" guard (unless --subdir/--yes). */
@@ -294,24 +360,4 @@ async function hasNestedSkills(dir: string): Promise<boolean> {
     if (located.length > 0) return true
   }
   return false
-}
-
-/**
- * Ask a yes/no question on the terminal.
- *
- * If stdin is not a TTY, default to `defaultValue` instead of hanging.
- */
-async function confirm(question: string, defaultValue: boolean): Promise<boolean> {
-  if (!input.isTTY) return defaultValue
-
-  const rl = createInterface({ input, output })
-  try {
-    const suffix = defaultValue ? ' [Y/n] ' : ' [y/N] '
-    const answer = (await rl.question(question + suffix)).trim().toLowerCase()
-    if (answer === 'y' || answer === 'yes') return true
-    if (answer === 'n' || answer === 'no') return false
-    return defaultValue
-  } finally {
-    rl.close()
-  }
 }

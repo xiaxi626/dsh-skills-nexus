@@ -187,3 +187,62 @@ test('large collections require confirmation unless --yes is given', async () =>
   m = await manifest.readManifest()
   assert.equal(m.skills.filter((s) => s.path.startsWith('src-g')).length, 1)
 })
+
+/* ------------------------------------------------------------------ */
+/* Batch install (multiple repo specs in one `add` call)               */
+/* ------------------------------------------------------------------ */
+
+/** Create a source repo with a single root SKILL.md on `main`. */
+async function makeSkillRepo(dir: string): Promise<void> {
+  await mkdir(dir, { recursive: true })
+  await git(dir, ['init'])
+  await git(dir, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  await git(dir, ['config', 'user.email', 'test@example.com'])
+  await git(dir, ['config', 'user.name', 'Nexus Test'])
+  await writeFile(join(dir, 'SKILL.md'), '# test\n', 'utf8')
+  await git(dir, ['add', '.'])
+  await git(dir, ['commit', '-m', 'initial'])
+}
+
+test('add installs multiple repos in a single call', async () => {
+  const a = join(home, 'src-multi-a')
+  const b = join(home, 'src-multi-b')
+  await makeSkillRepo(a)
+  await makeSkillRepo(b)
+
+  const rc = await add.add([`${fileUrl(a)}#main`, `${fileUrl(b)}#main`])
+  assert.equal(rc, 0)
+  const m = await manifest.readManifest()
+  assert.ok(m.skills.find((s) => s.name === 'src-multi-a'))
+  assert.ok(m.skills.find((s) => s.name === 'src-multi-b'))
+})
+
+test('add refuses per-repo options combined with multiple specs (installs nothing)', async () => {
+  const a = join(home, 'src-guard-a')
+  const b = join(home, 'src-guard-b')
+  await makeSkillRepo(a)
+  await makeSkillRepo(b)
+
+  // --name is one-to-one with a single repo; with two specs it is ambiguous,
+  // so `add` must refuse up front rather than silently apply it to just one.
+  const rc = await add.add([`${fileUrl(a)}#main`, `${fileUrl(b)}#main`, '--name', 'x'])
+  assert.equal(rc, 1)
+  const m = await manifest.readManifest()
+  assert.equal(m.skills.filter((s) => s.path.startsWith('src-guard')).length, 0)
+})
+
+test('add continues past a per-repo failure and reports it in the exit code', async () => {
+  const a = join(home, 'src-part-a')
+  const b = join(home, 'src-part-b')
+  await makeSkillRepo(a)
+  await makeSkillRepo(b)
+
+  // Install A first, so the batch below hits a duplicate for A but still adds B.
+  assert.equal(await add.add([`${fileUrl(a)}#main`]), 0)
+
+  const rc = await add.add([`${fileUrl(a)}#main`, `${fileUrl(b)}#main`])
+  assert.equal(rc, 1) // A is a duplicate → failed; B added → non-zero aggregate
+  const m = await manifest.readManifest()
+  assert.ok(m.skills.find((s) => s.name === 'src-part-b')) // B added despite A failing
+  assert.equal(m.skills.filter((s) => s.name === 'src-part-a').length, 1) // A not duplicated
+})
