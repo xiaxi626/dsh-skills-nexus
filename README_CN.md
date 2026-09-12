@@ -42,6 +42,7 @@ dsh-skills-nexus add github:owner/repo
 dsh-skills-nexus add github:owner/repo#dev          # 指定分支 / tag
 dsh-skills-nexus add https://github.com/owner/repo
 dsh-skills-nexus add owner/repo                     # 简写
+dsh-skills-nexus add github:owner/a github:owner/b  # 一次安装多个仓库
 dsh-skills-nexus add github:owner/repo --yes         # 跳过"包装型仓库？"确认
 dsh-skills-nexus add github:owner/repo --subdir skills/foo   # 只安装集合仓库里的某个子目录
 dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills   # 自定义条目名（条目名回退链：--name > subdir 末段 > 仓库名）
@@ -51,10 +52,13 @@ dsh-skills-nexus list                               # 列出所有已注册 skil
 dsh-skills-nexus update [name]                      # 刷新（分支 pin 拉取；tag/commit pin 校验）
 dsh-skills-nexus enable  <name>                     # 创建 symlink（默认开启）
 dsh-skills-nexus disable <name>                     # 删除 symlink 但不删克隆
-dsh-skills-nexus remove <name>                      # 删除克隆 + symlink + 注销
+dsh-skills-nexus remove <name>...                   # 删除克隆 + symlink + 注销（可一次给多个名字）
+dsh-skills-nexus remove 'theme-*'                   # …或用 * / ? 通配符匹配 skill 名
 ```
 
 取值型选项（`--name`、`--ref`、`--subdir`）也支持 `--flag=value` 写法（如 `--subdir=skills/foo`、`--name=owner-skills`）；布尔选项 `--yes` 不接受值。
+
+`add` 可接受多个仓库 spec，`remove` 可接受多个名字与 `*`/`?` 通配符；每个目标独立处理，任一失败则退出码非零。由于 `--name`/`--ref`/`--subdir` 是每仓库级选项，不能与多个 `add` spec 同时使用——要分别定制请分开跑多条 `add`。`remove` 的通配符若匹配到多个 skill，会先列出待删清单并要求确认（加 `--yes` 跳过）；通配符请加引号（`'theme-*'`），以免被 shell 提前展开。
 
 支持的仓库格式：`github:owner/repo[#ref]`、完整 `https://` URL（含 `/tree/<ref>/...` 子路径）、`git+https://`、`git@`/`ssh://`、以及裸写 `owner/repo` 简写。
 
@@ -78,6 +82,10 @@ dsh-skills-nexus list
 
 # 删除一个（删除 symlink、克隆目录并注销）
 dsh-skills-nexus remove <skill-name>
+
+# 一次删除多个——按名字，或用 * / ? 通配符（记得加引号）
+dsh-skills-nexus remove <name1> <name2>
+dsh-skills-nexus remove 'theme-*' --yes
 ```
 
 下次 DSH 重载后该 skill 从目录中消失，不影响其他已注册的 skill。
@@ -86,9 +94,7 @@ dsh-skills-nexus remove <skill-name>
 
 ```bash
 # 1. （可选）先删除所有已管理的 skill，清理 ~/.dsh/skills-nexus/ 目录
-dsh-skills-nexus remove <name1>
-dsh-skills-nexus remove <name2>
-# ...
+dsh-skills-nexus remove '*' --yes          # '*' 匹配所有已注册 skill
 
 # 2. 从 DSH profile 中卸载插件
 dsh plugin --profile web remove dsh-skills-nexus

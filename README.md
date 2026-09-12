@@ -54,6 +54,7 @@ dsh-skills-nexus add github:owner/repo
 dsh-skills-nexus add github:owner/repo#dev          # pick a branch/tag
 dsh-skills-nexus add https://github.com/owner/repo
 dsh-skills-nexus add owner/repo                     # shorthand
+dsh-skills-nexus add github:owner/a github:owner/b  # install several repos in one call
 dsh-skills-nexus add github:owner/repo --yes         # skip "wrapped repo?" prompt
 dsh-skills-nexus add github:owner/repo --subdir skills/foo   # install one subdir of a collection repo
 dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills   # custom entry name (fallback chain: --name > subdir leaf > repo name)
@@ -63,10 +64,13 @@ dsh-skills-nexus list                               # all registered skills (+ c
 dsh-skills-nexus update [name]                      # refresh (branch pin: pull; tag/commit pin: verify)
 dsh-skills-nexus enable  <name>                     # create symlink (default)
 dsh-skills-nexus disable <name>                     # remove symlink without deleting clone
-dsh-skills-nexus remove <name>                      # delete clone + symlink + unregister
+dsh-skills-nexus remove <name>...                   # delete clone + symlink + unregister (one or more)
+dsh-skills-nexus remove 'theme-*'                   # ...or a * / ? glob matched against skill names
 ```
 
 Value options (`--name`, `--ref`, `--subdir`) also accept the `--flag=value` form (e.g. `--subdir=skills/foo`, `--name=owner-skills`); the boolean `--yes` takes no value.
+
+`add` accepts multiple repo specs and `remove` accepts multiple names plus `*`/`?` globs; each target is handled independently and the exit code is non-zero if any one failed. Because `--name`/`--ref`/`--subdir` are per-repo, they cannot be combined with multiple `add` specs — run separate `add` commands to customize each. A `remove` glob matching more than one skill lists them and asks for confirmation first (`--yes` skips it); quote the pattern (`'theme-*'`) so your shell does not expand it.
 
 Accepted repo forms: `github:owner/repo[#ref]`, full `https://` URL (incl.
 `/tree/<ref>/...` subpaths), `git+https://`, `git@`/`ssh://`, and bare
@@ -92,6 +96,10 @@ dsh-skills-nexus list
 
 # remove one (deletes symlink, clone directory, and unregisters)
 dsh-skills-nexus remove <skill-name>
+
+# remove several at once — by name, or by a * / ? glob (quote it)
+dsh-skills-nexus remove <name1> <name2>
+dsh-skills-nexus remove 'theme-*' --yes
 ```
 
 The skill disappears from the DSH catalog on the next reload. All other
@@ -101,9 +109,7 @@ registered skills are unaffected.
 
 ```bash
 # 1. (optional) remove all managed skills first, cleaning ~/.dsh/skills-nexus/
-dsh-skills-nexus remove <name1>
-dsh-skills-nexus remove <name2>
-# ...
+dsh-skills-nexus remove '*' --yes          # '*' matches every registered skill
 
 # 2. remove the plugin from the DSH profile
 dsh plugin --profile web remove dsh-skills-nexus
