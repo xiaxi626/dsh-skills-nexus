@@ -60,7 +60,7 @@ dsh-skills-nexus add github:owner/repo --subdir skills/foo   # install one subdi
 dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills   # custom entry name (fallback chain: --name > subdir leaf > repo name)
 
 # inspect / maintain
-dsh-skills-nexus list                               # all registered skills (+ commit, subdir, status)
+dsh-skills-nexus list                               # all registered skills (+ source repo, commit, subdir, status)
 dsh-skills-nexus update [name]                      # refresh (branch pin: pull; tag/commit pin: verify)
 dsh-skills-nexus enable  <name>                     # create symlink (default)
 dsh-skills-nexus disable <name>                     # remove symlink without deleting clone
@@ -325,7 +325,9 @@ ls -la ~/.dsh/skills/
   with `--subdir <path>` — each install is its own entry with its own clone
   (independent-clone design, see [docs/subdir-design.md](docs/subdir-design.md)
   for the P1/P2 trade-off). Installing the whole repo without `--subdir` is
-  guarded by a confirmation prompt above 20 skills.
+  guarded by a confirmation prompt above 20 skills. Entries cherry-picked from
+  the same repo each keep their own clone, but `list` shows a **SOURCE** column
+  (the origin `owner/repo`) so same-origin entries are easy to spot.
 - **Flat-markdown filter**: a flat `*.md` file without frontmatter `name` AND
   `description` is not treated as a skill — collection-repo docs like
   `README.zh-CN.md`, `CONTRIBUTING.md` or `community-leaderboard.md` are never

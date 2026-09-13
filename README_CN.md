@@ -48,7 +48,7 @@ dsh-skills-nexus add github:owner/repo --subdir skills/foo   # 只安装集合�
 dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills   # 自定义条目名（条目名回退链：--name > subdir 末段 > 仓库名）
 
 # 查看 / 维护
-dsh-skills-nexus list                               # 列出所有已注册 skill（含安装的 commit、subdir、状态）
+dsh-skills-nexus list                               # 列出所有已注册 skill（含来源仓库 SOURCE、commit、subdir、状态）
 dsh-skills-nexus update [name]                      # 刷新（分支 pin 拉取；tag/commit pin 校验）
 dsh-skills-nexus enable  <name>                     # 创建 symlink（默认开启）
 dsh-skills-nexus disable <name>                     # 删除 symlink 但不删克隆
@@ -268,7 +268,7 @@ ls -la ~/.dsh/skills/
 - **add 后是否立即可见**：新添加的 skill 是否立即出现在目录中，取决于 DSH 是否重新扫描了 `~/.dsh/skills/`。如果 profile 在 add 之前已启动，重载一下即可——官方 filesystem provider 会重新扫描 skills 根目录，拾取新创建的 symlink。
 - **版本固定与更新**：用 `#分支名`、`#tag名` 或 `#commit-hash` 固定 ref。安装时 manifest 会记录实际解析到的 commit（`commit` 字段）——一个轻量锁，`list` 会显示它。`update` 只对**分支** pin 的 skill 做快进拉取（并打印 commit 变化）；**tag/commit** pin 的 skill 是固定点：只校验当前 checkout 是否仍等于 pin（漂移则自动恢复），不做 pull——被固定的版本永远不会静默漂移。不加 `#ref` 时，CLI 会通过 `git ls-remote --symref` 自动探测远程默认分支（探测失败回落到 `main`）。
 - **仅用于 skill 内容仓库**：这不是 `dsh plugin add` 的替代品。如果仓库本身就有 `dsh.bundle.patch`，请用正常方式安装——nexus 是给那些没有封装的仓库用的。完整决策指南见 [nexus 与 `dsh plugin`——什么时候用哪个](docs/nexus-vs-plugin.zh-CN.md)。
-- **集合仓库与 `--subdir`**：skill 藏在子目录的集合仓库用 `--subdir <path>` 按需安装——每次安装是一个独立条目、独立克隆（独立克隆设计，P1/P2 权衡见 [docs/subdir-design.md](docs/subdir-design.md)）。不带 `--subdir` 全量安装时，根目录无可用 skill 会被拒绝；超过 20 个 skill 会弹确认提示。
+- **集合仓库与 `--subdir`**：skill 藏在子目录的集合仓库用 `--subdir <path>` 按需安装——每次安装是一个独立条目、独立克隆（独立克隆设计，P1/P2 权衡见 [docs/subdir-design.md](docs/subdir-design.md)）。不带 `--subdir` 全量安装时，根目录无可用 skill 会被拒绝；超过 20 个 skill 会弹确认提示。从同一仓库挑装的多个条目各自保留独立克隆，但 `list` 会显示 **SOURCE** 列（来源 `owner/repo`），同一仓库挑出的条目一眼可辨。
 - **平铺 md 过滤**：没有 frontmatter `name` **且**没有 `description` 的平铺 `*.md` 不会被当作 skill——集合仓库的文档（`README.zh-CN.md`、`CONTRIBUTING.md`、`community-leaderboard.md` 等）永远不会被"假装安装"。发现阶段的跳过名单也按前缀模式覆盖 `readme*`、`contributing*`、`license*`、`changelog*`、`code-of-conduct*`、`security*`。
 - **同名不消歧**：DSH 按名称索引 skill，后安装的同名 skill 会覆盖前者。用 `--name` 区分条目，或用 `--subdir` 只装需要的。enable/disable 按条目（即按安装的 subdir）生效，`remove` 删除整个条目的克隆及其所有 symlink。
 - **skill 名校验**：DSH 要求 skill 名是小写 kebab-case（`[a-z0-9]+` 段，用单个 `-` 分隔）。frontmatter `name` 不合法（如 `CurriculumDesigner`）会导致 DSH 拒绝该 skill，因此 nexus 会在安装时归一化这类名称（转为 kebab-case），并在 `add` 时以 `⚠` 警告。

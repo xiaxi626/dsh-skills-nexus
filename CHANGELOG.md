@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+**2026-09-13 · Added · `list` 新增 SOURCE 列，显示每个条目的来源仓库 `owner/repo`**
+
+- **背景**：`list` 此前只有 NAME/SUBDIR/REF/COMMIT/DIR/UPDATED，看不出条目来自哪个仓库。用 `--subdir` 从同一集合仓库（如 `trae-community/trae-skills`）挑装多个 skill 时，各条目在 `list` 里彼此独立、无法一眼辨认同源——而来源信息其实早已存在 manifest 的 `gitUrl`/`url` 字段里，只是从未展示。这是「分不清来源」的**可见性**缺口，与「多份独立克隆占磁盘」（P2 共享克隆范畴，见 `docs/subdir-design.md`）是两个独立问题；本次只补前者。
+- **变更**：只改 `src/cli/commands/list.ts` 一个源文件。
+  - 新增并**导出**纯函数 `sourceLabel(gitUrl)`：从规范化后的 git URL 取末两段（按 `/` 或 `:` 分隔、去掉尾部 `.git`）得到 `owner/repo`，使 `github:o/r`、`https://…/o/r.git`、`git@host:o/r`、`ssh://…` 等不同写法的同一仓库归一到同一标签。**从 `gitUrl` 推、不从原始 `url` 推**，保证同源显示一致。
+  - `list` 表格在 **NAME 之后、SUBDIR 之前**插入 SOURCE 列，列宽 `srcW = max(6, 各行 source 长度)`，沿用既有 `padEnd` + 双空格对齐风格；行数据数组相应右移一格，表头与打印行同步。
+  - `gitUrl` 缺失时回退 `url`；空 manifest 的提前返回分支（“No skills registered”）不受影响、不打印表头。
+- **不做**：不把重复 SOURCE 折叠成「只显示一次、后续留空」的分组视图（逐行重复才利于扫齐与 `grep`，分组/排序是更大改动）；不合并磁盘（同源仍各一份克隆，去重属 P2 共享克隆，按 `docs/subdir-design.md` 的触发条件延后）；不改 manifest 结构（`gitUrl` 早已存在，无需迁移）。
+- **测试**：新增 `test/list.test.ts`（10 条）——7 条纯单测覆盖 `sourceLabel` 的 https / scp（`git@host:`）/ `ssh://` / 尾斜杠 / 裸段 / 空串 / 多写法归一；3 条集成测经 `manifest.addEntry` 直接塞条目 + 接管 `process.stdout.write`，断言 SOURCE 表头与派生 `owner/repo`、同源两条目显示相同标签（出现 2 次）、空 manifest 不打印表头。`package.json` 的 `test` 脚本硬编码列表按字母序插入 `test/list.test.ts`。既有 `test/toggle.test.ts` 的 list 用例（断言行首 `/^on\s/`）因 SOURCE 插在 NAME 之后、行首 state 不变而保持绿。
+- **验证方式**：聚焦跑 `node --import tsx --test test/list.test.ts`（勿用 `npm test -- <file>`——会追加到硬编码全量列表），全量回归跑 `npm test`；退出码 PowerShell 用 `$LASTEXITCODE`、Git Bash 用 `echo $?`。辨识指纹：全量用例数 **163 → 173**（+10）；换回旧的无 SOURCE 实现，`test/list.test.ts` 的 SOURCE 相关用例为**红**。本机（Windows / PowerShell）实测 `list.test.ts` 10/10、`npm test` 173/173 全通过，四步门禁（typecheck / lint / test / build）退出码均为 0；`lib/` 仅 `cli/commands/list.js`+`.js.map`+`.d.ts`+`.d.ts.map` 随之更新（新增导出 `sourceLabel`，`.d.ts` 相应变化）。CI 的 `lib/` 新鲜度校验（`git diff --exit-code -- lib/`）按设计仅在 ubuntu 跑，以避开 Windows CRLF 误报。
+- **文档**：README 中英用法段的 `list` 注释补 SOURCE，集合仓库注意事项各加一句「同源条目可用 `list` 的 SOURCE 列辨认」。本次分两个原子提交：`feat(cli)` 含 `list.ts` / 新测试 / `package.json` / 构建产物（`lib/`）；`docs` 含 README 中英两文件 + 本 CHANGELOG 记录。
+
 **2026-09-12 · Added · CLI `add`/`remove` 支持多目标批量操作，`remove` 支持 `*`/`?` 通配符**
 
 - **背景**：`add` 与 `remove` 此前一次只处理一个目标，且多余的位置参数被**静默丢弃**——`parseAddArgs` 对每个位置参数执行 `spec = a`（末位覆盖），`add owner/a owner/b` 只装 `owner/b`；`remove` 用 `positional()` 只取第一个参数，`remove a b c` 只删 `a`。旧行为被 `test/args.test.ts` 的 `the last positional wins as spec` 用例显式固化。而 `update` 早已支持批量（无参数时更新全部 enabled，并逐项计失败数），`add`/`remove` 的能力缺口与之不一致；`README_CN.md` 甚至用“两条独立 remove 命令”来演示删除多个 skill，印证了管理大量 skill 时的低效。
