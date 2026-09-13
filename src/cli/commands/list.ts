@@ -28,6 +28,7 @@ export async function list(_argv: string[]): Promise<number> {
     rows.push([
       state,
       s.name,
+      sourceLabel(s.gitUrl || s.url),
       s.subdir ?? '—',
       s.ref,
       s.commit ? short(s.commit) : '—',
@@ -37,13 +38,14 @@ export async function list(_argv: string[]): Promise<number> {
   }
 
   const nameW = Math.max(4, ...rows.map((r) => r[1]!.length))
-  const subW = Math.max(6, ...rows.map((r) => r[2]!.length))
+  const srcW = Math.max(6, ...rows.map((r) => r[2]!.length))
+  const subW = Math.max(6, ...rows.map((r) => r[3]!.length))
   process.stdout.write(
-    `    ${'NAME'.padEnd(nameW)}  ${'SUBDIR'.padEnd(subW)}  REF           COMMIT    DIR      UPDATED\n`,
+    `    ${'NAME'.padEnd(nameW)}  ${'SOURCE'.padEnd(srcW)}  ${'SUBDIR'.padEnd(subW)}  REF           COMMIT    DIR      UPDATED\n`,
   )
   for (const r of rows) {
     process.stdout.write(
-      `${r[0]}  ${r[1]!.padEnd(nameW)}  ${r[2]!.padEnd(subW)}  ${r[3]!.padEnd(13)}${r[4]!.padEnd(9)}${r[5]!.padEnd(9)}${r[6]}\n`,
+      `${r[0]}  ${r[1]!.padEnd(nameW)}  ${r[2]!.padEnd(srcW)}  ${r[3]!.padEnd(subW)}  ${r[4]!.padEnd(13)}${r[5]!.padEnd(9)}${r[6]!.padEnd(9)}${r[7]}\n`,
     )
   }
   process.stdout.write(
@@ -51,6 +53,20 @@ export async function list(_argv: string[]): Promise<number> {
     `  Symlinks in: ${OFFICIAL_SKILLS_DIR} (on = linked to catalog)\n`,
   )
   return 0
+}
+
+/**
+ * Derive a canonical `owner/repo` source label from a normalized git URL, so
+ * entries added via different spec forms (`github:o/r`, `https://…/o/r.git`,
+ * `o/r`) all group under the same string in `list`. Takes the last two
+ * `/`- or `:`-delimited segments after stripping a trailing `.git`.
+ *
+ * Exported for unit testing — the derivation is pure (no FS, no I/O).
+ */
+export function sourceLabel(gitUrl: string): string {
+  const segs = gitUrl.replace(/\.git$/i, '').split(/[/:]/).filter(Boolean)
+  if (segs.length >= 2) return `${segs[segs.length - 2]}/${segs[segs.length - 1]}`
+  return segs[0] ?? gitUrl
 }
 
 function short(sha: string): string {
