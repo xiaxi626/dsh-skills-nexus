@@ -18,6 +18,7 @@ import { normalizeSkillName, ensureDescription } from '../../frontmatter.js'
 import { linkSkill, hasCollision } from '../../link.js'
 import { confirm } from '../prompt.js'
 import { parseAddArgs } from '../args.js'
+import { batchPrefix, withSpinner } from '../progress.js'
 
 /**
  * `add` — clone one or more GitHub SKILL.md repos and expose each via symlinks
@@ -61,7 +62,11 @@ export async function add(argv: string[]): Promise<number> {
   const multi = specs.length > 1
   let failures = 0
   let addedCount = 0
-  for (const spec of specs) {
+  for (let i = 0; i < specs.length; i++) {
+    const spec = specs[i]!
+    // Batch counter: only meaningful for multi-repo runs; printed to stdout so
+    // non-interactive logs also show which spec is in flight.
+    if (multi) process.stdout.write(`\n${batchPrefix(i + 1, specs.length)}${spec}\n`)
     try {
       const res = await addOne(spec, { name, ref, subdir, yes })
       if (res.status === 'failed') failures++
@@ -110,7 +115,10 @@ async function addOne(
   // If user didn't pin a ref, detect the remote's default branch.
   if (!ref && !spec.includes('#')) {
     process.stdout.write(`Detecting default branch for ${gitSpec.url}…\n`)
-    const detected = await getDefaultBranch(gitSpec.url)
+    const detected = await withSpinner(
+      'resolving default branch',
+      () => getDefaultBranch(gitSpec.url),
+    )
     if (detected !== gitSpec.ref) {
       process.stdout.write(`  → using ${detected} (detected)\n`)
     }
@@ -162,7 +170,9 @@ async function addOne(
 
   process.stdout.write(`Cloning ${gitSpec.url} (ref: ${gitSpec.ref}) → ${dest}\n`)
   try {
-    await cloneRepo(gitSpec, dest)
+    await withSpinner(`cloning (${gitSpec.ref})`, () =>
+      cloneRepo(gitSpec, dest),
+    )
   } catch (err) {
     // Clean up any partially-created directory so a retry starts clean.
     await rm(dest, { recursive: true, force: true })

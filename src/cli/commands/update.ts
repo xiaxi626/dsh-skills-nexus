@@ -15,6 +15,7 @@ import { previewSkills } from '../../resolve.js'
 import { normalizeSkillName, ensureDescription } from '../../frontmatter.js'
 import { linkSkill, isEntryEnabled } from '../../link.js'
 import { positional } from '../args.js'
+import { batchPrefix, withSpinner } from '../progress.js'
 
 /**
  * `update [name]` — bring a skill's clone to the latest state, or verify a
@@ -53,9 +54,11 @@ export async function update(argv: string[]): Promise<number> {
   }
 
   let failures = 0
-  for (const s of targets) {
+  const total = targets.length
+  for (let i = 0; i < targets.length; i++) {
+    const s = targets[i]!
     const dir = repoDir(s.path)
-    process.stdout.write(`Updating ${s.name} (${s.ref})…\n`)
+    process.stdout.write(`${batchPrefix(i + 1, total)}Updating ${s.name} (${s.ref})…\n`)
     try {
       const before = await getHeadCommit(dir)
       let after: string
@@ -79,8 +82,9 @@ export async function update(argv: string[]): Promise<number> {
           process.stdout.write(`  ✓ pinned at ${short(after)} — nothing to update\n`)
         }
       } else {
-        // Branch pin — fast-forward.
-        await pullRepo(dir)
+        // Branch pin — fast-forward. `git pull` is the only network step in
+        // `update`, so it's the one worth animating.
+        await withSpinner(`pulling ${s.name}`, () => pullRepo(dir))
         after = await getHeadCommit(dir)
         process.stdout.write(
           after === before
