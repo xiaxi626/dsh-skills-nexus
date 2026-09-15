@@ -39,12 +39,27 @@ wrapper, so this path doesn't work. `dsh-skills-nexus` fills the gap:
 
 ## Install nexus
 
+Install the CLI globally — **this** is what puts the `dsh-skills-nexus` command
+on your shell PATH:
+
 ```bash
-dsh plugin --profile web add "github:xiaxi626/dsh-skills-nexus"
+npm install -g github:xiaxi626/dsh-skills-nexus
 ```
 
-Restart the profile once. The `dsh-skills-nexus` CLI command is then available.
-`lib/` compiled artifacts are committed with the repo — install and use.
+`lib/` compiled artifacts are committed with the repo, so there is no build
+step — install and use. (Once the package is published to npm you can use
+`npm install -g dsh-skills-nexus` instead.)
+
+> **`dsh plugin add` does NOT provide the shell command.** Registering nexus as
+> a DSH plugin (`dsh plugin --profile web add "github:xiaxi626/dsh-skills-nexus"`)
+> only installs the package into the profile's `node_modules` and registers a
+> Cordis layer whose `apply()` is an intentional no-op — skill discovery happens
+> through the symlinks nexus creates in `~/.dsh/skills/` plus the official
+> filesystem provider. The plugin layer is therefore optional on both counts: it
+> has no effect on the CLI, and skills load without it too — discovery runs
+> entirely through the symlinks + the official provider. The
+> `dsh-skills-nexus` command comes only from the global npm install above (or
+> `npm link` during development).
 
 ## Usage
 
@@ -107,26 +122,59 @@ registered skills are unaffected.
 
 ### Uninstall nexus itself
 
+Nexus leaves **three independent things**, cleaned by *different* commands —
+removing one does **not** remove the others. The annotated block below clears
+each one; run only the lines you need.
+
+> **The trap everyone hits — read this first.** The `dsh-skills-nexus` you type
+> in the shell comes **only** from item 3 below (`npm link` or `npm install -g`).
+> `--patch` mounts a layer for the current DSH process only, and `dsh plugin add`
+> only writes the profile's `node_modules` — **neither puts a command on your
+> shell PATH**. So "I installed the GitHub version but it still runs my local
+> logic" means the command you typed went through item 3's `npm link` into your local
+> workspace; it has nothing to do with the copy GitHub installed into item 2. To
+> really switch to remote: `npm uninstall -g dsh-skills-nexus`, then
+> `npm install -g github:<owner>/<repo>`.
+
 ```bash
-# 1. (optional) remove all managed skills first, cleaning ~/.dsh/skills-nexus/
+# 1. skill DATA — the clones + manifest under ~/.dsh/skills-nexus/ (data, not the command)
 dsh-skills-nexus remove '*' --yes          # '*' matches every registered skill
 
-# 2. remove the plugin from the DSH profile
+# 2. DSH profile plugin layer — only if you used `dsh plugin add` (--patch does NOT write here)
 dsh plugin --profile web remove dsh-skills-nexus
 
-# 3. (optional) delete leftover state
+# 3. global CLI command — THIS is the `dsh-skills-nexus` you type in the shell
+npm uninstall -g dsh-skills-nexus
+
+# (optional) delete any leftover skill-data directory from item 1
 #    macOS / Linux:
 rm -rf ~/.dsh/skills-nexus
 #    Windows PowerShell:
 # Remove-Item -Recurse -Force ~/.dsh/skills-nexus
-
-# 4. (optional) delete the local test directory
-#    Windows PowerShell:
-# Remove-Item -Recurse -Force dsh-skills-nexus
 ```
 
-Restart the DSH profile. The `dsh-skills-nexus` CLI and all its skills will be
-removed.
+Restart the DSH profile. The plugin layer, the CLI command and all managed
+skills will be gone.
+
+> **Never** "clean up" with a bare relative `Remove-Item -Recurse -Force
+> dsh-skills-nexus`: its effect depends on the current directory — from the npm
+> global prefix it deletes the CLI's bin shims (the command suddenly becomes
+> "not found"), and from your clone's parent it deletes your source tree. If
+> you truly want to discard the local clone, delete it by explicit full path.
+
+**Fallback — manual removal (only if `npm uninstall -g` is unavailable).**
+Delete the bin shims first, then the link. **Never** pass `-Recurse` when
+removing the link: it is a junction/symlink into your clone, and `-Recurse`
+would follow it and delete your source tree.
+
+```powershell
+# Windows PowerShell
+Remove-Item -Force "$(npm prefix -g)\dsh-skills-nexus*"               # bin shims
+Remove-Item -Force "$(npm prefix -g)\node_modules\dsh-skills-nexus"   # the link — NO -Recurse
+```
+
+On Git Bash / macOS / Linux just use `npm uninstall -g dsh-skills-nexus`;
+do not hand-delete the link there (`rm` on a directory-style link is unsafe).
 
 ## Local testing steps
 
@@ -202,8 +250,10 @@ EOF
 npx @deepseek-ai/dsh web --patch overlay.yml
 ```
 
-This mounts nexus as a temporary layer in the current profile, making the
-`dsh-skills-nexus` CLI command available. **After changing code, re-run
+This mounts nexus as a temporary layer **for this DSH process only** — stop the
+process and the layer is gone; nothing is persisted to the profile. Note it
+does **not** put the `dsh-skills-nexus` CLI on your shell PATH; the shell
+command comes from `npm link` in Step 4. **After changing code, re-run
 `npm run build` and restart DSH to pick up changes.**
 
 ### Step 4 — add a skill and test with the CLI
@@ -238,27 +288,16 @@ Option A — overwrite with `--force` (simplest, works on all platforms):
 npm link --force
 ```
 
-Option B — manually remove stale global links, then re-link:
-
-**Git Bash:**
+Option B — remove the stale global link with npm, then re-link (all platforms):
 
 ```bash
-rm -f "$(npm prefix -g)/dsh-skills-nexus"
-rm -f "$(npm prefix -g)/dsh-skills-nexus.cmd"
-rm -f "$(npm prefix -g)/dsh-skills-nexus.ps1"
+npm uninstall -g dsh-skills-nexus
 npm link
 ```
 
-**Windows PowerShell:**
-
-```powershell
-Remove-Item -Force "$(npm prefix -g)\dsh-skills-nexus*"
-npm link
-```
-
-> Using `$(npm prefix -g)` instead of `~` or hardcoded paths ensures
-> the correct global npm directory is resolved regardless of `HOME`
-> misconfiguration in Git Bash.
+> Prefer `npm uninstall -g` over manually deleting files under the npm global
+> prefix: it removes the bin shims and the link in one safe step, and avoids
+> `Remove-Item` / `rm` footguns on a symlinked global package.
 
 ### Step 5 — verify in DSH
 
@@ -277,6 +316,15 @@ npm link
 
 Once restarted, ask "what skills do you have?" or similar in the DSH session,
 and check whether `theme-port-skill` appears in the skill list.
+
+### Clean up after local testing
+
+`--patch` wrote nothing to the profile, so there is no plugin to remove. Local
+testing leaves just two things — the skill data and the `npm link` — so follow
+[Uninstall nexus itself](#uninstall-nexus-itself) items 1 and 3 (run
+`dsh-skills-nexus remove '*' --yes` first, then `npm uninstall -g
+dsh-skills-nexus`); skip item 2 (`dsh plugin remove`), which does not apply
+here.
 
 ---
 

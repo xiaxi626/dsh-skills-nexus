@@ -25,6 +25,9 @@
   用临时 `DSH_HOME` 替代的：被验证的恰恰是真实 profile 的装载链路。
 - **不访问 GitHub、不创建链接**：修复未推送前用本地 `file:` 源代替
   `github:` 规格；装载验证不调用 `dsh-skills-nexus add`，因此不涉及任何链接创建。
+- **隔离信号**：若你之前在别处跑过 `dsh-skills-nexus add`，cold boot [c] 前请确保
+  `~/.dsh/skills/` 没有指向 nexus 的悬空 symlink——残留的坏链接会给 filesystem
+  provider 扫描掺入与本契约无关的噪音。
 - 结尾的清理步骤把 profile 恢复原状（仅剩基础 bundle）。
 
 ## 前置条件

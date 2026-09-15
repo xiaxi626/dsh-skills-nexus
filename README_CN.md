@@ -28,11 +28,15 @@
 
 ## 安装 nexus
 
+全局安装 CLI——**只有这一步**才会把 `dsh-skills-nexus` 命令放进你的 shell PATH：
+
 ```bash
-dsh plugin --profile web add "github:xiaxi626/dsh-skills-nexus"
+npm install -g github:xiaxi626/dsh-skills-nexus
 ```
 
-重启一次 profile。之后 `dsh-skills-nexus` CLI 命令就可用了。`lib/` 编译产物已随仓库提交，安装即用。
+`lib/` 编译产物已随仓库提交，无需构建，安装即用。（等发布到 npm 后，可改用 `npm install -g dsh-skills-nexus`。）
+
+> **`dsh plugin add` 不提供 shell 命令。** 把 nexus 注册为 DSH 插件（`dsh plugin --profile web add "github:xiaxi626/dsh-skills-nexus"`）只是把包装进 profile 的 `node_modules`、注册一个 `apply()` 为空操作的 Cordis layer——skill 发现靠 nexus 在 `~/.dsh/skills/` 建的 symlink + 官方 filesystem provider。所以插件层两头都是可选的：既不影响 CLI，skill 加载也不需要它——发现完全靠 symlink + 官方 provider；`dsh-skills-nexus` 命令只来自上面的全局 npm 安装（开发期则来自 `npm link`）。
 
 ## 使用
 
@@ -92,25 +96,40 @@ dsh-skills-nexus remove 'theme-*' --yes
 
 ### 卸载 nexus 本身
 
+nexus 会留下**三个互相独立**的东西，用*不同*的命令清理——清掉一个**不会**连带清掉其他。下面这段带注释的命令逐条清理，只跑你需要的那几行即可。
+
+> **最容易踩的坑——先读这条。** 你在终端里敲的 `dsh-skills-nexus`，**只**来自下面的第 3 项（`npm link` 或 `npm install -g`）。`--patch` 只把 layer 挂进当前这个 DSH 进程、`dsh plugin add` 只写 profile 的 `node_modules`，**两者都不会把命令放进你的 shell PATH**。所以「装了 GitHub 版却还在跑本地逻辑」= 你敲的命令走的是第 3 项里 `npm link` 指向的本地工作区，跟 GitHub 装进第 2 项的那份毫无关系。想真正切到远程：先 `npm uninstall -g dsh-skills-nexus`，再 `npm install -g github:<owner>/<repo>`。
+
 ```bash
-# 1. （可选）先删除所有已管理的 skill，清理 ~/.dsh/skills-nexus/ 目录
+# 1. skill 数据——~/.dsh/skills-nexus/ 下的克隆 + 清单（是数据，不是命令本身）
 dsh-skills-nexus remove '*' --yes          # '*' 匹配所有已注册 skill
 
-# 2. 从 DSH profile 中卸载插件
+# 2. DSH profile 插件层——仅当你用过 dsh plugin add（--patch 不写这里）
 dsh plugin --profile web remove dsh-skills-nexus
 
-# 3. （可选）删除残留状态
+# 3. 全局 CLI 命令——你在终端敲的 dsh-skills-nexus 就是它！
+npm uninstall -g dsh-skills-nexus
+
+# （可选）删除第 1 项残留的数据目录
 #    macOS / Linux:
 rm -rf ~/.dsh/skills-nexus
 #    Windows PowerShell:
 # Remove-Item -Recurse -Force ~/.dsh/skills-nexus
-
-# 4. （可选）删除本地测试目录
-#    Windows PowerShell:
-# Remove-Item -Recurse -Force dsh-skills-nexus
 ```
 
-重启 DSH profile。`dsh-skills-nexus` CLI 及其所有 skill 都会被移除。
+重启 DSH profile。插件层、CLI 命令与所有已管理的 skill 都会消失。
+
+> **切勿**用裸相对路径 `Remove-Item -Recurse -Force dsh-skills-nexus` 来「清理」：它的效果完全取决于当前目录——在 npm 全局前缀目录下跑会删掉 CLI 的 bin shim（命令突然变成「not found」），在你克隆的父目录下跑会删掉你的源码树。若确实要丢弃本地克隆，请用明确的完整路径删除。
+
+**兜底——手动删除（仅当 `npm uninstall -g` 不可用时）。** 先删 bin shim，再删链接。删除链接时**绝不**加 `-Recurse`：它是指向你克隆的 junction/符号链接，加 `-Recurse` 会顺着链接删进你的源码树。
+
+```powershell
+# Windows PowerShell
+Remove-Item -Force "$(npm prefix -g)\dsh-skills-nexus*"               # bin shim
+Remove-Item -Force "$(npm prefix -g)\node_modules\dsh-skills-nexus"   # 链接——不加 -Recurse
+```
+
+Git Bash / macOS / Linux 请直接用 `npm uninstall -g dsh-skills-nexus`，不要手动删链接（对目录型链接用 `rm` 不安全）。
 
 ## 本地测试步骤
 
@@ -179,7 +198,7 @@ EOF
 npx @deepseek-ai/dsh web --patch overlay.yml
 ```
 
-这会把 nexus 作为临时 layer 挂载进当前 profile，CLI 命令 `dsh-skills-nexus` 随之可用。**每次改了代码重新 `npm run build` 后，重启 DSH 生效。**
+这只把 nexus 作为临时 layer 挂载进**当前这个 DSH 进程**——进程一停 layer 就消失，不会写进 profile。注意它**不会**把 `dsh-skills-nexus` 命令放进你的 shell PATH；shell 里的命令来自第四步的 `npm link`。**每次改了代码重新 `npm run build` 后，重启 DSH 生效。**
 
 ### 第四步：用 CLI 加一个 skill 测试
 
@@ -210,25 +229,14 @@ ls -la ~/.dsh/skills/
 npm link --force
 ```
 
-方案 B — 手动删除旧的全局链接，再重新链接：
-
-**Git Bash：**
+方案 B — 用 npm 移除旧的全局链接，再重新链接（全平台通用）：
 
 ```bash
-rm -f "$(npm prefix -g)/dsh-skills-nexus"
-rm -f "$(npm prefix -g)/dsh-skills-nexus.cmd"
-rm -f "$(npm prefix -g)/dsh-skills-nexus.ps1"
+npm uninstall -g dsh-skills-nexus
 npm link
 ```
 
-**Windows PowerShell：**
-
-```powershell
-Remove-Item -Force "$(npm prefix -g)\dsh-skills-nexus*"
-npm link
-```
-
-> 用 `$(npm prefix -g)` 而不是 `~` 或硬编码路径，可以确保无论 Git Bash 中 `HOME` 环境变量是否正确配置，都能解析到正确的 npm 全局目录。
+> 优先用 `npm uninstall -g`，而不是手动去 npm 全局目录删文件：它会一次性安全地移除 bin shim 和链接，避免对符号链接的全局包误用 `Remove-Item` / `rm` 踩坑。
 
 ### 第五步：在 DSH 里验证
 
@@ -241,6 +249,10 @@ npm link
 > 重启后 DSH 会重新加载 filesystem provider，此时它会扫描 `~/.dsh/skills/` 中的 symlink，发现刚通过 CLI 添加的 skill。
 
 重启完成后，在 DSH 会话里问一句「你有哪些 skill」或类似触发目录查询的话，看 `theme-port-skill` 是否出现在 skill 列表里。
+
+### 本地测试后的清理
+
+`--patch` 不写 profile，所以没有插件要移除。本地测试只留下两样——skill 数据与 `npm link`——按[卸载 nexus 本身](#卸载-nexus-本身)的第 1、3 项清理即可（先 `dsh-skills-nexus remove '*' --yes`，再 `npm uninstall -g dsh-skills-nexus`）；跳过第 2 项（`dsh plugin remove`），这里用不上。
 
 ---
 

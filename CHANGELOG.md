@@ -4,6 +4,47 @@
 
 ## [Unreleased]
 
+**2026-09-15 · Docs · 纠正安装说明：CLI 命令来自全局 npm 安装而非 `dsh plugin add`（README ×2 + `src/index.ts` 注释）**
+
+- **背景**：用户发现 README「安装 nexus」段声称 `dsh plugin --profile web add github:...` + 重启后「`dsh-skills-nexus` CLI 命令就可用了」，与卸载段新加的「坑」提示自相矛盾。经文件系统实测坐实：profile 里已装 nexus 插件（`~/.dsh/profiles/web/node_modules/dsh-skills-nexus` 及多份 `.pnpm` 副本），但全局 npm 前缀无链接（`AppData\Roaming\npm\node_modules\dsh-skills-nexus` = False）、`where.exe dsh-skills-nexus` 找不到——直接证明 `dsh plugin add` 只把包装进 profile 的 node_modules、注册 `apply()` 空操作的 Cordis layer，**从不向 shell PATH 暴露 bin**。错误源头是 `src/index.ts` 第 9–12 行注释（声称该入口让 `dsh plugin add` "makes the CLI command available"），README 照抄。
+- **变更**：1. README / README_CN「安装 nexus」段改为以 `npm install -g github:xiaxi626/dsh-skills-nexus` 为获取 CLI 命令的主步骤（注明未发布 npm、发布后可用裸包名；`lib/` 已提交无需构建），删除「重启后 CLI 就可用」错误句；新增引用块说明 `dsh plugin add` 不提供 shell 命令、插件层 `apply()` 为空操作、skill 发现靠 symlink + 官方 provider，故插件层可选、对 CLI 无影响。2. `src/index.ts` 第 9–12 行注释改写为「`dsh plugin add` 只注册空操作 layer、不放命令进 PATH；命令来自全局 npm 安装或 `npm link`」。3. 同段引用块补强：点明插件层**两头都可选**——既不影响 CLI，skill 加载也不需要它（发现全靠 symlink + 官方 provider）。4. README / README_CN 本地测试段补「本地测试后的清理」小节（`--patch` 不写 profile、无插件可移除，只需清 skill 数据 + `npm link`，引用卸载段第 1、3 项）。5. `docs/verify-plugin-install.md` 与 `.zh-CN.md` 前置说明各补一条「隔离信号」：cold boot [c] 前确保 `~/.dsh/skills/` 无指向 nexus 的悬空 symlink，避免残留坏链接给 filesystem provider 扫描掺入与本契约无关的噪音。6. 修正下方 2026-09-14 条目「卸载步骤补 `where.exe` 核对」的失实表述——README 从未写入 `where.exe`，且它是 Windows 专有命令、跨平台文档不宜采用，故不纳入。
+- **提交拆分**：README ×2 + verify-plugin-install ×2 + CHANGELOG 为纯文档（`docs:`）；`src/index.ts` 为源码文件注释修正，按项目约定与文档分开原子提交。`src/index.ts` 仅改注释、无行为变化；因 tsconfig 未开 `removeComments`、注释会写进 `lib/index.js`，已跑 `npm run build` 重建（`lib/index.js` 第 9–14 行同步为新注释），构建退出码 0。
+
+**2026-09-14 · Added · `add`/`update` 网络等待期新增 TTY 门控 spinner 与多目标 `[i/N]` 批量计数器**
+
+- **背景**：`add`/`update` 的唯一慢点是**网络单发调用**——`add` 的 `getDefaultBranch`（`git ls-remote`）与 `cloneRepo`（`git clone --depth 1`），`update` 的 `pullRepo`（`git pull`）。此前这些调用期间终端完全静默，大仓库或慢网络下像卡死。而 `remove`/`list`/`enable`/`disable` 全是本地 FS 瞬时操作，加进度反馈只会一闪而过、反成噪音，故本次不碰。pip 式**百分比**条需要预知总量，而 `git clone --depth 1` 走的是 `execFileAsync`（缓冲、不流式），要拿真实百分比得把 `git.ts` 改成 `spawn` 并解析 git stderr 进度行、牵动 retry 与测试，侵入过大；单次网络调用本就不知百分比，硬凑百分比反而**不诚实**，故采用**不确定态 spinner（转圈 + 已用秒数）**。
+- **变更**：新增叶子模块 `src/cli/progress.ts`（**零第三方依赖**，仅用 `node:process`），导出三样：`startSpinner(message)`→`{ update, stop }`、`withSpinner(message, fn)`（`try/finally` 保证抛错也停表，失败 clone/pull 不留卡死动画）、`batchPrefix(i, N)`（`N>1` 才返回 `[i/N] `）。`add.ts`：`getDefaultBranch`/`cloneRepo` 用 `withSpinner` 包裹；多 spec 时循环体前打印 `[i/N] <spec>` 头行。`update.ts`：`pullRepo` 用 `withSpinner` 包裹；多目标时把 `[i/N]` 前缀加到既有 `Updating <name> (<ref>)…` 行首。**全部输出走 stderr**（stdout 仍留给命令的结构化结果行），且**只在 `stderr.isTTY` 为真时渲染**——非 TTY（CI / 管道 / 测试 / `> log`）下 spinner 是静默 no-op，`\r`/ANSI 绝不污染被捕获的输出，既有测试（只断言退出码与 manifest 状态、不断言进度文本）保持绿。**渲染前用纯函数 `clampToWidth(text, cols)` 把整行按终端宽度（`stderr.columns`，未知则回退 80）截断、超出以单格 `…` 收尾**：这是修掉「Git Bash / mintty 80 列下刷屏一堆 resolving」的关键——spinner 行（glyph+消息+`… Ns`）一旦超过终端宽度就**换行**，此后 `\r` 只回到**第 2 行**行首、`\x1b[2K` 只擦第 2 行，每帧都把上一帧的第 1 行滞留在滚动缓冲里、越堆越多；把行钳在宽度内即保证任意终端都能单行原地重绘。同时把 spinner 消息本身改短（`resolving default branch`、`cloning (<ref>)`——完整 URL 上一行 stdout 已打印，无需重复），进一步远离截断阈值。仅用 `\r`、擦行 `\x1b[2K`、光标隐/显，Windows Terminal / conhost(Win10+) 与 POSIX 终端皆支持，跨平台 CI 矩阵安全；动画定时器 `unref()` 不吊住事件循环。
+- **不做**：不改 `git.ts`（不引 `spawn`、不解析 git 真实百分比）；不给 `remove`/`list`/`toggle` 加进度反馈（瞬时本地操作）；不引任何第三方进度库（`ora`/`cli-progress` 等，违反 CLI dependency-free 约束）；单目标运行不加 `[i/N]` 头（`batchPrefix` 在 `N≤1` 返回空串，输出与今日逐字节一致）。
+- **测试**：新增 `test/progress.test.ts`（8 条）——2 条纯单测钉 `batchPrefix`（`N≤1` 空串、`N>1` 得 `[i/N] `）；3 条在测试运行器的非 TTY 环境下断言 `startSpinner` 为静默 no-op（先断言 `!stderr.isTTY` 钉住整个设计前提，再验 `update`/`stop` 可安全重复调用不抛）、`withSpinner` 正常 resolve 包裹值、以及包裹函数 reject 时仍走 `finally` 停表并向外抛；3 条钉 `clampToWidth`（预算内原样返回、超预算截断为恰好 `cols` 长且以 `…` 收尾、退化预算 `1`→`…` / `0`→空串），把「行不超宽→不换行」这条修复前提固化。`package.json` 的 `test` 脚本硬编码列表按字母序插入 `test/progress.test.ts`。既有 `add`/`update` 集成测因非 TTY no-op、stdout 契约未变而全绿。
+- **验证方式**：聚焦跑 `node --import tsx --test test/progress.test.ts`（勿用 `npm test -- <file>`——会追加到硬编码全量列表），全量回归跑 `npm test`；退出码 PowerShell 用 `$LASTEXITCODE`、Git Bash 用 `echo $?`。辨识指纹：全量用例数 **173 → 181**（+8）；把 `progress.ts` 的 TTY 门控去掉（无条件渲染），`test/progress.test.ts` 的 no-op 那条为**红**；把 `clampToWidth` 改成恒等返回（不截断），其 3 条用例为**红**。本机（Windows / PowerShell，非 TTY）实测 `progress.test.ts` 8/8、`npm test` 181/181 全通过，门禁 typecheck / lint（`npx eslint` 目标文件 EXIT=0）/ test / build 均 0；`lib/` 随源码重建（新增 `cli/progress.js`+`.js.map`+`.d.ts`+`.d.ts.map`，`cli/commands/add.js`、`update.js` 及对应 `.d.ts`/`.map` 更新）。**注**：spinner 的原地重绘依赖真实 TTY，非交互环境无法复现，本机修复以 `clampToWidth` 单测 + 宽度算术为证据（旧 spinner 行约 83 列 > mintty 默认 80 列故换行刷屏，钳宽后 ≤ 宽度不换行）。
+- **真 TTY 目视 A/B（限推送前）**：推送前 `origin` 不含 spinner，可把「远程旧版」与「本地新版」并排各跑一次、肉眼对比。思路：`git clone` 取远程码（不受 npm 的 EALLOWGIT 限制）、复用本地依赖免 `npm install`，再按绝对路径直调两版入口。**必须在交互式终端跑**——spinner 只在 TTY 渲染，管道/重定向下静默：
+
+```powershell
+# 先把 $local 改成你的工作区路径（例：c:/Users/you/Downloads/dsh-skills-nexus）
+$local = "<本地仓库路径>"
+
+# ── 远程版（committed lib，无 spinner）──────────────────────────
+git clone --depth 1 https://github.com/xiaxi626/dsh-skills-nexus "$env:TEMP/nexus-remote"
+Copy-Item -Recurse -Force "$local/node_modules" "$env:TEMP/nexus-remote/node_modules"   # 复用 yaml，免 npm install
+node "$env:TEMP/nexus-remote/lib/cli/index.js" add github:xiaxi626/theme-port-skill       # 观察：网络等待期【完全静默】
+node "$env:TEMP/nexus-remote/lib/cli/index.js" remove '*' --yes
+
+# ── 本地版（工作区 lib，有 spinner）────────────────────────────
+node "$local/lib/cli/index.js" add github:xiaxi626/theme-port-skill                        # 观察：【转圈 + 已用秒数】
+node "$local/lib/cli/index.js" remove '*' --yes
+
+# ── 收尾：删临时远程克隆（真实目录，安全）──────────────────────
+Remove-Item -Recurse -Force "$env:TEMP/nexus-remote"
+```
+
+Git Bash 把 `$env:TEMP` / `Copy-Item` / `Remove-Item -Recurse -Force` 换成 `/tmp` / `cp -r` / `rm -rf`（两套语法勿混用，否则报 `Invalid argument`）。**为何远程静默**：nexus 内部 clone 走 `execFileAsync`（缓冲、子进程无 TTY），git 原生 `Receiving objects: %` 被抑制；而手敲 `git clone` 在终端看到的 % 是 git 直连 TTY 的自带进度，与 `nexus add` 无关。推送后远程==本地、对比即失效。
+
+**2026-09-14 · Docs · README 卸载 / 本地测试段修正：补 npm 全局链接清理、移除危险裸相对路径删除、纠正 --patch 不提供 shell CLI 的错误表述**
+
+- **背景**：用户实测发现「`dsh plugin remove` 后再从 GitHub 安装，裸 `dsh-skills-nexus` 仍解析到本地构建」（以为在测远程、实际在测本地）。根因是 nexus 实际留下**三个互相独立的产物**——profile 插件层（`dsh plugin add`）、npm 全局 CLI 链接（`npm link`）、skill 数据（`add`）——而 README 卸载段只覆盖插件层与数据，**漏了 `npm link` 创建的全局 CLI 链接**；`dsh plugin remove` 与 `npm uninstall -g` 互不连带，故插件删了全局链接仍在。叠加两处文档缺陷：1. 卸载第 4 步 `Remove-Item -Recurse -Force dsh-skills-nexus` 是**裸相对路径**，在 npm 全局前缀目录下跑会误删 bin shim 致 `command not found`（用户已实际踩中）、在项目父目录下跑会删源码树；2. Step 3 错误声称 `--patch` 会「使 CLI 命令可用」，实际 `--patch` 只挂载当次 DSH 进程的临时 layer、不写 profile 也不提供 shell PATH 命令，shell 命令来自 Step 4 的 `npm link`。
+- **变更**：README / README_CN 同步四处。1. 卸载段由「表格+散文」改写为**命令+注释**风格（用户反馈表格难懂）：删掉三产物对照表，改为在一个 bash 块里用第1项 skill 数据 / 第2项 profile 插件层 / 第3项 全局 CLI 命令 三段带注释命令（逐条注明各清什么、何时需要），并置顶一条「你在终端敲的 dsh-skills-nexus 只来自第3项（npm link/npm install -g），--patch 与 dsh plugin add 都不提供 shell 命令」的关键提示，点明「装了 GitHub 版却仍跑本地」的根因与真正切远程做法（npm uninstall -g 再 npm install -g github:）。2. 新增「兜底——手动删除」段（仅当 `npm uninstall -g` 不可用）：先 `Remove-Item -Force "$(npm prefix -g)\dsh-skills-nexus*"` 删 bin shim，再 `Remove-Item -Force "$(npm prefix -g)\node_modules\dsh-skills-nexus"` 删链接且**绝不加 `-Recurse`**（链接是指向克隆的 junction，加 `-Recurse` 会顺链接删进源码树）；Git Bash / macOS / Linux 仍只用 `npm uninstall -g`。3. Step 3 改写为「--patch 仅挂载当次进程、不持久化、不提供 shell PATH 命令」。4. 本地测试 EEXIST 方案 B 由手动 `rm -f`/`Remove-Item` 删 shim 改为 `npm uninstall -g dsh-skills-nexus` + `npm link`（全平台一条路）。注：`npm uninstall -g` 对 `npm link` 的链接包同样有效，与是否已发布到 npm 无关，故手动删除仅作兜底而非主路径。
+- **纯文档变更**，无源码或行为变化，`lib/` 零漂移；`npm run typecheck` 退出码 0。
+
 **2026-09-13 · Added · `list` 新增 SOURCE 列，显示每个条目的来源仓库 `owner/repo`**
 
 - **背景**：`list` 此前只有 NAME/SUBDIR/REF/COMMIT/DIR/UPDATED，看不出条目来自哪个仓库。用 `--subdir` 从同一集合仓库（如 `trae-community/trae-skills`）挑装多个 skill 时，各条目在 `list` 里彼此独立、无法一眼辨认同源——而来源信息其实早已存在 manifest 的 `gitUrl`/`url` 字段里，只是从未展示。这是「分不清来源」的**可见性**缺口，与「多份独立克隆占磁盘」（P2 共享克隆范畴，见 `docs/subdir-design.md`）是两个独立问题；本次只补前者。

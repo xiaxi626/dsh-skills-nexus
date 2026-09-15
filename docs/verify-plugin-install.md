@@ -33,6 +33,10 @@ change touching the contract must re-run this guide.
 - **No GitHub access, no links created**: before the fix is pushed, a local
   `file:` source stands in for the `github:` spec; the walkthrough never calls
   `dsh-skills-nexus add`, so no link creation of any kind is involved.
+- **Isolate the signal**: if you ran `dsh-skills-nexus add` elsewhere before,
+  make sure `~/.dsh/skills/` holds no dangling nexus symlinks before the cold
+  boot in [c] — a leftover broken link can add filesystem-provider scan noise
+  that has nothing to do with this contract.
 - The cleanup step restores the profile to its original state (base bundles
   only).
 
