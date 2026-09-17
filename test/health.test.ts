@@ -15,7 +15,6 @@ import type { SkillEntry } from '../src/types.js'
 let home: string
 let health: typeof import('../src/health.js')
 let paths: typeof import('../src/paths.js')
-let manifest: typeof import('../src/manifest.js')
 
 before(async () => {
   home = await mkdtemp(join(tmpdir(), 'nexus-health-'))
@@ -23,7 +22,6 @@ before(async () => {
   delete process.env.DSH_SKILLS_NEXUS_HOME
   health = await import('../src/health.js')
   paths = await import('../src/paths.js')
-  manifest = await import('../src/manifest.js')
 })
 
 after(async () => {
