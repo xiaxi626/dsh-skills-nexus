@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+**2026-09-17 · Added · 新增 symlink 完整性诊断模块 `src/health.ts`（供未来 `doctor` 命令复用）；`apply()` 保持 no-op**
+
+- **背景**：插件层 `apply()` 长期是字面 no-op。最初尝试在 `apply()` 里做启动时断链检测并 warn，但实测发现：DSH 的 Cordis context 提供 `ctx.logger`，warn 被路由进 DSH 内部日志系统，终端不可见；若改走 `console.warn` 保证可见性，则牺牲宿主日志路由/级别控制的 proper integration，不合适。同时确认 `list` 的 DIR 列已能主动发现断链（`stat(repoDir)` 失败显示 `missing`）。结论：启动时被动检测在当前输出通道下价值不成立，砍掉 `apply()` 行为；但诊断能力本身有真实需求（用户不会总跑 `list`，生态中甚至有人专门写插件提醒已安装 skill 的状态），故保留诊断模块作为未来 `doctor` CLI 命令的内部实现。
+- **变更**：新增 `src/health.ts`，导出 `diagnoseEntry(entry)`（四态：`'ok' | 'disabled' | 'broken-link' | 'missing-target'`）、`checkHealth()`（遍历全部 manifest entry 收集异常，排除正常 disabled）、`formatWarning(issues)`（人类可读警告文本）。诊断逻辑：遍历 `OFFICIAL_SKILLS_DIR` 下 symlink，`readlink` + `resolve` 比对是否落在 `repoDir(entry.path)` 内（与 `link.ts` 的 `isEntryEnabled()` 同一路径解析策略），命中后 `stat(target)` 验证目录存在性。纯文件系统操作，不联网、不调 git。`src/index.ts` 的 `apply()` **保持 no-op**，仅 JSDoc 注明诊断能力位于 `health.ts`、将由未来 `doctor` 命令承载及不接入启动路径的原因。
+- **不做**：不在 `apply()` 中调用健康检查（输出通道不可验证 + 不愿牺牲 proper integration）；不注册 Cordis provider/service；不自动修复；不报告 disabled entry。
+- **测试**：新增 `test/health.test.ts`（11 条集成测试），覆盖 `diagnoseEntry` 四态、`checkHealth` 空 manifest / 混合状态 / manifest 不存在、`formatWarning` 空 / 单条 / 多条。`package.json` test 脚本按字母序插入。全量 192/192 通过。
+- **验证方式**：`node --import tsx --test test/health.test.ts` 跑单文件，`npm test` 跑全量回归；退出码 PowerShell 用 `$LASTEXITCODE`、Git Bash 用 `echo $?`。辨识指纹：全量用例数 181 → 192（+11）；`node -e "import('./lib/index.js').then(m => m.apply())"` 在任何断链状态下均**无输出**（apply 为 no-op 的回归锚点）；直接调用 `node -e "import('./lib/health.js').then(m => m.checkHealth().then(console.log))"` 在断链环境下返回非空数组。
+
 **2026-09-15 · Docs · 纠正安装说明：CLI 命令来自全局 npm 安装而非 `dsh plugin add`（README ×2 + `src/index.ts` 注释）**
 
 - **背景**：用户发现 README「安装 nexus」段声称 `dsh plugin --profile web add github:...` + 重启后「`dsh-skills-nexus` CLI 命令就可用了」，与卸载段新加的「坑」提示自相矛盾。经文件系统实测坐实：profile 里已装 nexus 插件（`~/.dsh/profiles/web/node_modules/dsh-skills-nexus` 及多份 `.pnpm` 副本），但全局 npm 前缀无链接（`AppData\Roaming\npm\node_modules\dsh-skills-nexus` = False）、`where.exe dsh-skills-nexus` 找不到——直接证明 `dsh plugin add` 只把包装进 profile 的 node_modules、注册 `apply()` 空操作的 Cordis layer，**从不向 shell PATH 暴露 bin**。错误源头是 `src/index.ts` 第 9–12 行注释（声称该入口让 `dsh plugin add` "makes the CLI command available"），README 照抄。
