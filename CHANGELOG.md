@@ -11,6 +11,7 @@
 - **不做**：不在 `apply()` 中调用健康检查（输出通道不可验证 + 不愿牺牲 proper integration）；不注册 Cordis provider/service；不自动修复；不报告 disabled entry。
 - **测试**：新增 `test/health.test.ts`（11 条集成测试），覆盖 `diagnoseEntry` 四态、`checkHealth` 空 manifest / 混合状态 / manifest 不存在、`formatWarning` 空 / 单条 / 多条。`package.json` test 脚本按字母序插入。全量 192/192 通过。
 - **验证方式**：`node --import tsx --test test/health.test.ts` 跑单文件，`npm test` 跑全量回归；退出码 PowerShell 用 `$LASTEXITCODE`、Git Bash 用 `echo $?`。辨识指纹：全量用例数 181 → 192（+11）；`node -e "import('./lib/index.js').then(m => m.apply())"` 在任何断链状态下均**无输出**（apply 为 no-op 的回归锚点）；直接调用 `node -e "import('./lib/health.js').then(m => m.checkHealth().then(console.log))"` 在断链环境下返回非空数组。
+- **测试修复补充**：推送后 CI 九个矩阵作业全红于 lint 步：`test/health.test.ts` 的 `manifest` 变量赋值后未使用（`@typescript-eslint/no-unused-vars`）。根因：本地门禁只跑了目标文件 lint（`npx eslint src/health.ts src/index.ts`），未覆盖 `test/`；CI 跑的是全仓 `eslint .`。修复：删除该未使用的 `let manifest` 声明与 `before()` 中的动态 import 行（测试经 `paths.MANIFEST_PATH` + `writeFile` 直写 manifest，不需要 manifest 模块引用）。验证：全仓 `npx eslint .` exit 0、`test/health.test.ts` 11/11。教训固化：提交前 lint 必须跑全仓 `eslint .`（与 CI 同命令），目标文件 lint 仅作开发期快速反馈。
 
 **2026-09-15 · Docs · 纠正安装说明：CLI 命令来自全局 npm 安装而非 `dsh plugin add`（README ×2 + `src/index.ts` 注释）**
 
