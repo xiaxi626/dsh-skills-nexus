@@ -167,6 +167,29 @@ export async function cloneRepo(spec: GitSpec, dest: string): Promise<void> {
   }
 }
 
+/**
+ * Resolve the commit SHA a remote currently advertises for `ref`, via
+ * `git ls-remote`. Returns `undefined` on any failure (offline, private repo,
+ * a raw commit SHA the server does not advertise, or timeout) so callers can
+ * treat "unknown" as "skip" rather than an error. Bounded by a 15s timeout so a
+ * hung network cannot stall `doctor --updates`.
+ */
+export async function lsRemoteCommit(
+  url: string,
+  ref: string,
+): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync('git', ['ls-remote', url, ref], {
+      timeout: 15000,
+    })
+    const line = stdout.trim().split('\n')[0]
+    if (!line) return undefined
+    return line.split(/\s+/)[0]
+  } catch {
+    return undefined
+  }
+}
+
 /** Fast-forward pull an existing clone. */
 export async function pullRepo(dest: string): Promise<void> {
   await execFileAsync('git', ['pull', '--ff-only'], { cwd: dest })

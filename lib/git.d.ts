@@ -54,6 +54,14 @@ export declare function parseGitSpec(input: string, refFallback?: string): GitSp
 export declare function getDefaultBranch(url: string): Promise<string>;
 /** Shallow-clone a repo at `ref` into `dest`, retrying transient network failures. */
 export declare function cloneRepo(spec: GitSpec, dest: string): Promise<void>;
+/**
+ * Resolve the commit SHA a remote currently advertises for `ref`, via
+ * `git ls-remote`. Returns `undefined` on any failure (offline, private repo,
+ * a raw commit SHA the server does not advertise, or timeout) so callers can
+ * treat "unknown" as "skip" rather than an error. Bounded by a 15s timeout so a
+ * hung network cannot stall `doctor --updates`.
+ */
+export declare function lsRemoteCommit(url: string, ref: string): Promise<string | undefined>;
 /** Fast-forward pull an existing clone. */
 export declare function pullRepo(dest: string): Promise<void>;
 /** Full commit SHA currently checked out in a clone. */

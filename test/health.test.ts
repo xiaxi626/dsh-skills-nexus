@@ -161,8 +161,8 @@ test('checkHealth detects missing-target and excludes disabled entries', async (
 
   const issues = await health.checkHealth()
   assert.equal(issues.length, 1)
-  assert.equal(issues[0].name, 'check-broken-skill')
-  assert.equal(issues[0].issue, 'missing-target')
+  assert.equal(issues[0]!.name, 'check-broken-skill')
+  assert.equal(issues[0]!.issue, 'missing-target')
 })
 
 test('checkHealth returns empty when manifest file does not exist', async () => {
@@ -191,10 +191,73 @@ test('formatWarning formats single issue with specific repair command', () => {
 test('formatWarning formats multiple issues with generic repair hint', () => {
   const result = health.formatWarning([
     { name: 'alpha', issue: 'missing-target' },
-    { name: 'beta', issue: 'broken-link' },
+    { name: 'beta', issue: 'missing-target' },
   ])
   assert.ok(result.includes('[nexus] Warning: 2 skills have broken symlinks:'))
   assert.ok(result.includes('- alpha (symlink points to missing directory)'))
-  assert.ok(result.includes('- beta (symlink target is unreadable)'))
+  assert.ok(result.includes('- beta (symlink points to missing directory)'))
   assert.ok(result.includes('dsh-skills-nexus update <name>'))
+})
+
+/* ------------------------------------------------------------------ */
+/* Orphan detection tests (findOrphanRepos / findOrphanLinks)          */
+/* ------------------------------------------------------------------ */
+
+/** Wipe repos/ and the skills root so each orphan test starts clean. */
+async function resetDirs(): Promise<void> {
+  await rm(paths.REPOS_DIR, { recursive: true, force: true })
+  await rm(paths.OFFICIAL_SKILLS_DIR, { recursive: true, force: true })
+}
+
+test('findOrphanRepos flags clone dirs no entry references', async () => {
+  await resetDirs()
+  await makeRepoDir('referenced-repo')
+  await makeRepoDir('leftover-repo')
+  const orphans = await health.findOrphanRepos([makeEntry('referenced-repo')])
+  assert.deepEqual(orphans, ['leftover-repo'])
+})
+
+test('findOrphanRepos returns empty when repos/ does not exist', async () => {
+  await resetDirs()
+  assert.deepEqual(await health.findOrphanRepos([]), [])
+})
+
+test('findOrphanLinks reports orphan-link for a valid target no entry claims', async () => {
+  await resetDirs()
+  const dir = await makeRepoDir('unclaimed-repo')
+  await makeLink('unclaimed-skill', dir)
+  const links = await health.findOrphanLinks([])
+  assert.equal(links.length, 1)
+  assert.equal(links[0]!.name, 'unclaimed-skill')
+  assert.equal(links[0]!.code, 'orphan-link')
+})
+
+test('findOrphanLinks reports dangling-link when the target inside repos/ is gone', async () => {
+  await resetDirs()
+  const dir = await makeRepoDir('ghost-repo')
+  await makeLink('ghost-skill', dir)
+  await rm(dir, { recursive: true, force: true }) // target gone, link remains
+  const links = await health.findOrphanLinks([])
+  assert.equal(links.length, 1)
+  assert.equal(links[0]!.code, 'dangling-link')
+})
+
+test('findOrphanLinks skips a link a live entry claims (no double report)', async () => {
+  await resetDirs()
+  const dir = await makeRepoDir('claimed-repo')
+  await makeLink('claimed-skill', dir)
+  const links = await health.findOrphanLinks([makeEntry('claimed-repo', 'claimed-skill')])
+  assert.deepEqual(links, [])
+})
+
+test('findOrphanLinks ignores symlinks pointing outside repos/', async () => {
+  await resetDirs()
+  const outside = await mkdtemp(join(tmpdir(), 'nexus-outside-'))
+  try {
+    await makeLink('user-own-skill', outside)
+    const links = await health.findOrphanLinks([])
+    assert.deepEqual(links, [])
+  } finally {
+    await rm(outside, { recursive: true, force: true })
+  }
 })

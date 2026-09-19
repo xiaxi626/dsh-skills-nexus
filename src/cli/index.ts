@@ -8,6 +8,7 @@
  *   remove <name-or-pattern>... [--yes]
  *   enable  <name>
  *   disable <name>
+ *   doctor [--json] [--updates]
  *
  * Pure CLI tool — clones GitHub SKILL.md repos and exposes them via symlinks
  * in the official DSH skills root (~/.dsh/skills/). The official filesystem
@@ -18,6 +19,7 @@ import { list } from './commands/list.js'
 import { update } from './commands/update.js'
 import { remove } from './commands/remove.js'
 import { toggle } from './commands/toggle.js'
+import { doctor } from './commands/doctor.js'
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv
@@ -38,6 +40,8 @@ async function main(argv: string[]): Promise<number> {
       return toggle(rest, true)
     case 'disable':
       return toggle(rest, false)
+    case 'doctor':
+      return doctor(rest)
     case '-h':
     case '--help':
     case 'help':
@@ -61,12 +65,18 @@ Usage:
   dsh-skills-nexus remove <name-or-pattern>... [--yes]
   dsh-skills-nexus enable  <name>
   dsh-skills-nexus disable <name>
+  dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # read-only full checkup
 
 Options:
   --name <name>     entry name (default: repo slug, or subdir's last segment)
   --ref <ref>       branch / tag / commit (same as the #ref suffix)
   --subdir <path>   install one subdirectory of a collection repo, e.g. --subdir skills/foo
   --yes             skip confirmation prompts (large collections; multi-match removal)
+
+  doctor options:
+  --json            emit a stable machine-readable report (version 1) on stdout
+  --updates         also compare branch-pinned entries against their remote (network)
+  --quiet           print nothing unless there is at least one error (CI convenience)
 
   Value options also accept --flag=value (e.g. --subdir=skills/foo); --yes takes no value.
 
