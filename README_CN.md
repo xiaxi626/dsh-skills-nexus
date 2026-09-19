@@ -58,6 +58,7 @@ dsh-skills-nexus enable  <name>                     # 创建 symlink（默认开
 dsh-skills-nexus disable <name>                     # 删除 symlink 但不删克隆
 dsh-skills-nexus remove <name>...                   # 删除克隆 + symlink + 注销（可一次给多个名字）
 dsh-skills-nexus remove 'theme-*'                   # …或用 * / ? 通配符匹配 skill 名
+dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # 只读体检 nexus 全量状态（退出码 0/1/2）
 ```
 
 取值型选项（`--name`、`--ref`、`--subdir`）也支持 `--flag=value` 写法（如 `--subdir=skills/foo`、`--name=owner-skills`）；布尔选项 `--yes` 不接受值。
@@ -296,6 +297,7 @@ ls -la ~/.dsh/skills/
 - [验证克隆重试功能（P0）](docs/verify-clone-retry.zh-CN.md)
 - [验证集合仓库支持（P1）](docs/verify-collection-support.zh-CN.md)
 - [验证插件装载契约（plugin add → dsh web 冷启动）](docs/verify-plugin-install.zh-CN.md)
+- [验证 `doctor` 命令（P0）](docs/verify-doctor.zh-CN.md)
 - [贡献指南——项目结构、测试与 CI](CONTRIBUTING.zh-CN.md)
 - [更新日志](CHANGELOG.md)
 

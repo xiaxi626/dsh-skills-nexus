@@ -81,6 +81,7 @@ dsh-skills-nexus enable  <name>                     # create symlink (default)
 dsh-skills-nexus disable <name>                     # remove symlink without deleting clone
 dsh-skills-nexus remove <name>...                   # delete clone + symlink + unregister (one or more)
 dsh-skills-nexus remove 'theme-*'                   # ...or a * / ? glob matched against skill names
+dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # read-only full checkup of nexus state (exit 0/1/2)
 ```
 
 Value options (`--name`, `--ref`, `--subdir`) also accept the `--flag=value` form (e.g. `--subdir=skills/foo`, `--name=owner-skills`); the boolean `--yes` takes no value.
@@ -403,6 +404,7 @@ ls -la ~/.dsh/skills/
 - [Verifying the clone-retry feature (P0)](docs/verify-clone-retry.md)
 - [Verifying collection-repo support (P1)](docs/verify-collection-support.md)
 - [Verifying the plugin-load contract (plugin add → dsh web cold boot)](docs/verify-plugin-install.md)
+- [Verifying the `doctor` command (P0)](docs/verify-doctor.md)
 - [Contributing — project layout, testing & CI](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
 

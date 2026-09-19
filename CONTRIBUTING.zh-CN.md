@@ -41,6 +41,8 @@ src/
 >   测试套件、指数退避观测、分支/标签/commit-SHA 克隆回归。
 > - [验证集合仓库支持（P1）](docs/verify-collection-support.zh-CN.md) ——
 >   `--subdir` 按需安装、平铺 md 过滤、大集合防呆。
+> - [验证 `doctor` 命令（P0）](docs/verify-doctor.zh-CN.md) ——
+>   只读体检：报告状态/code、退出码、`--json` / `--updates` / `--quiet`、孤立对象与损坏 manifest 的处理。
 > 每篇均为覆盖 Windows / Linux / macOS 的可直接复制的验证流程。
 
 质量门禁，本地全部可跑：

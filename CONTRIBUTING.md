@@ -45,6 +45,8 @@ rules), see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 >   test suite, exponential-backoff observation, branch/tag/commit-SHA clone regression.
 > - [Verifying collection-repo support (P1)](docs/verify-collection-support.md) —
 >   `--subdir` installs, flat-md filtering, large-collection guards.
+> - [Verifying the `doctor` command (P0)](docs/verify-doctor.md) —
+>   read-only checkup: report statuses/codes, exit codes, `--json` / `--updates` / `--quiet`, orphan & corrupt-manifest handling.
 > Each is a copy-paste walkthrough for Windows / Linux / macOS.
 
 Quality gates, all runnable locally:
