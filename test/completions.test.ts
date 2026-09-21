@@ -219,7 +219,7 @@ test('every template counts positionals, so flags do not consume the slot', () =
   // no runner in this project's CI, so its rule is pinned as text only.
   assert.match(bashTemplate, /nargs=\$\(\(nargs \+ 1\)\)/)
   assert.match(zshTemplate, /nargs=\$\(\( nargs \+ 1 \)\)/)
-  assert.match(fishTemplate, /string match -r -v -- \^- /)
+  assert.match(fishTemplate, /string match -qr -- \^- "\$t\[\$i\]"/)
   assert.match(powershellTemplate, /\$nargs = @\(\$els\[2\.\.\(\$done - 1\)\] \| Where-Object \{ \$_ -notlike '-\*' \}\)\.Count/)
   assert.doesNotMatch(powershellTemplate, /\$slot -eq /)
 })
@@ -493,7 +493,7 @@ test('the emitted zsh template completes correctly in a real zsh', { skip: !HAS_
     assert.deepEqual(rest, [
       'add-flags|-- --name --ref --subdir --yes',
       'doctor-bare-dashes|-- --json --updates --quiet',
-      'shell-values|bash zsh fish powershell',
+      'shell-values|-- bash zsh fish powershell',
       'update-names|alpha beta',
       // `--yes` is accepted before the names, so it must not consume the slot.
       'remove-yes|alpha beta',

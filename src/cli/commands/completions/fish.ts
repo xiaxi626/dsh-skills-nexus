@@ -3,7 +3,7 @@
  *
  * A plain list of ASCII lines joined on demand — deliberately NOT a template
  * literal, so its `$t[2]` / `(...)` survive being written out. Every line is a
- * double-quoted TS string (the only double quotes in the script are the two
+ * double-quoted TS string (the only double quotes in the script are the ones
  * around the expansions below, escaped here); keep the content pure ASCII.
  *
  * fish completions are declarative: each `complete` line carries a condition
@@ -22,8 +22,12 @@
  * name, the subcommand, and nothing else - hence `-eq 2`. Counting rather than
  * looking at a position keeps `remove --yes <TAB>` working, because `--yes` is
  * accepted before the names; none of these commands has a value-taking flag,
- * so a flag value can never be miscounted as a positional. The expansions are
- * quoted so a user-typed wildcard reaches `string match` literally.
+ * so a flag value can never be miscounted as a positional. The words are
+ * filtered one at a time, each expansion quoted: quoting the whole list makes
+ * fish join its elements with spaces into a single argument, so `string match`
+ * would see one word and the count could never come out right, and an unquoted
+ * empty element expands to nothing - `string match` with no STRING reads
+ * stdin, which would hang the completion.
  *
  * Layer 3 goes through the CLI rather than reading `manifest.json`, so an
  * internal schema change cannot silently break completion.
@@ -54,5 +58,5 @@ export const fishTemplate = [
   '',
   '# Installed skill names - ask the CLI instead of reading its state file,',
   '# so an internal schema change cannot silently break completion.',
-  "complete -c dsh-skills-nexus -f -n 'set -l t (commandline -opc); set -l p (string match -r -v -- ^- \"$t\"); contains -- \"$t[2]\" update pull remove rm enable disable; and test (count $p) -eq 2' -a '(dsh-skills-nexus list --names 2>/dev/null)'",
+  "complete -c dsh-skills-nexus -f -n 'set -l t (commandline -opc); set -l p; for i in (seq (count $t)); if not string match -qr -- ^- \"$t[$i]\"; set -a p \"$t[$i]\"; end; end; contains -- \"$t[2]\" update pull remove rm enable disable; and test (count $p) -eq 2' -a '(dsh-skills-nexus list --names 2>/dev/null)'",
 ].join("\n") + "\n"
