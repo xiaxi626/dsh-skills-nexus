@@ -25,6 +25,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install extra test shells (Linux)
+        # The completion tests execute each emitted template in its real shell
+        # and self-skip where that shell is missing. macOS ships zsh and Windows
+        # has bash via Git Bash; fish is in no default image, so Linux installs
+        # zsh and fish - skipping fish would let a broken template ship green.
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update -qq && sudo apt-get install -y zsh fish
+
       - name: Typecheck
         run: npm run typecheck
 

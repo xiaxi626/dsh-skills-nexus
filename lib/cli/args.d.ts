@@ -34,4 +34,19 @@ export interface RemoveOptions {
  * multi-match deletion guard (remove.ts).
  */
 export declare function parseRemoveArgs(argv: string[]): RemoveOptions;
+export interface ListOptions {
+    /** Print only skill names, one per line — the machine path (shell completion). */
+    names: boolean;
+}
+/**
+ * Parse `list` args. `list` has no positional form and exactly one boolean flag.
+ *
+ * `--names` rejects an inline value for the same reason as `--yes` above:
+ * `--names=false` silently becoming `names=true` would hand a scripted caller
+ * the names-only stream when it asked for the human table. Unlike `add` — which
+ * ignores unknown flags because it has extra options to be tolerant about —
+ * unknown arguments here are usage errors: a typo like `--name` would otherwise
+ * silently print the table to a script that expects one name per line.
+ */
+export declare function parseListArgs(argv: string[]): ListOptions;
 //# sourceMappingURL=args.d.ts.map

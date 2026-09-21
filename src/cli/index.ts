@@ -3,12 +3,13 @@
  * dsh-skills-nexus CLI
  *
  *   add    github:owner/repo[#ref]... [--name <name>] [--yes]
- *   list
+ *   list   [--names]
  *   update [name]
  *   remove <name-or-pattern>... [--yes]
  *   enable  <name>
  *   disable <name>
  *   doctor [--json] [--updates]
+ *   completions --shell <bash|zsh|fish|powershell>
  *
  * Pure CLI tool — clones GitHub SKILL.md repos and exposes them via symlinks
  * in the official DSH skills root (~/.dsh/skills/). The official filesystem
@@ -20,6 +21,7 @@ import { update } from './commands/update.js'
 import { remove } from './commands/remove.js'
 import { toggle } from './commands/toggle.js'
 import { doctor } from './commands/doctor.js'
+import { completions } from './commands/completions.js'
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv
@@ -42,6 +44,8 @@ async function main(argv: string[]): Promise<number> {
       return toggle(rest, false)
     case 'doctor':
       return doctor(rest)
+    case 'completions':
+      return completions(rest)
     case '-h':
     case '--help':
     case 'help':
@@ -60,12 +64,13 @@ function printHelp(): void {
 
 Usage:
   dsh-skills-nexus add    <github:owner/repo[#ref]>... [--name <name>] [--subdir <path>] [--yes]
-  dsh-skills-nexus list
+  dsh-skills-nexus list [--names]
   dsh-skills-nexus update [name]            # refresh clones (default: all enabled)
   dsh-skills-nexus remove <name-or-pattern>... [--yes]
   dsh-skills-nexus enable  <name>
   dsh-skills-nexus disable <name>
   dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # read-only full checkup
+  dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>  # print a completion script
 
 Options:
   --name <name>     entry name (default: repo slug, or subdir's last segment)
@@ -73,10 +78,17 @@ Options:
   --subdir <path>   install one subdirectory of a collection repo, e.g. --subdir skills/foo
   --yes             skip confirmation prompts (large collections; multi-match removal)
 
+  list options:
+  --names           print only skill names, one per line (machine-readable; used by
+                    shell completion)
+
   doctor options:
   --json            emit a stable machine-readable report (version 1) on stdout
   --updates         also compare branch-pinned entries against their remote (network)
   --quiet           print nothing unless there is at least one error (CI convenience)
+
+  completions options:
+  --shell <name>    target shell: bash, zsh, fish or powershell
 
   Value options also accept --flag=value (e.g. --subdir=skills/foo); --yes takes no value.
 

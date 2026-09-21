@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseAddArgs, parseRemoveArgs, positional } from '../src/cli/args.js'
+import { parseAddArgs, parseListArgs, parseRemoveArgs, positional } from '../src/cli/args.js'
 
 /* ------------------------------------------------------------------ */
 /* parseAddArgs — the tiny argv parser for `add`                       */
@@ -161,4 +161,33 @@ test('parseRemoveArgs boolean flags reject an inline value', () => {
 test('parseRemoveArgs with no names yields an empty pattern list', () => {
   assert.deepEqual(parseRemoveArgs([]).patterns, [])
   assert.deepEqual(parseRemoveArgs(['--yes']).patterns, [])
+})
+
+/* ------------------------------------------------------------------ */
+/* parseListArgs — the names-only path for machine consumption         */
+/* ------------------------------------------------------------------ */
+
+test('parseListArgs defaults to the human table', () => {
+  assert.equal(parseListArgs([]).names, false)
+})
+
+test('--names selects the machine path', () => {
+  assert.equal(parseListArgs(['--names']).names, true)
+})
+
+test('parseListArgs boolean flag rejects an inline value', () => {
+  // Same guard as parseAddArgs/parseRemoveArgs: --names=false must not become
+  // names=true, or a scripted caller asking for the table silently receives
+  // the one-name-per-line stream instead.
+  assert.throws(() => parseListArgs(['--names=false']), /takes no value/)
+  assert.throws(() => parseListArgs(['--names=1']), /takes no value/)
+})
+
+test('parseListArgs rejects positionals and unknown flags', () => {
+  // `list` has no positional form and no other option, so a stray token is a
+  // typo rather than a target. Rejecting it (instead of ignoring it the way
+  // `add` tolerates its extra options) keeps a mistyped `--name` from silently
+  // printing the full table to a consumer that expects one name per line.
+  assert.throws(() => parseListArgs(['foo']), /unknown argument/)
+  assert.throws(() => parseListArgs(['--json']), /unknown argument/)
 })
