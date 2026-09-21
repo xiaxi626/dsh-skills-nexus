@@ -82,6 +82,7 @@ dsh-skills-nexus disable <name>                     # remove symlink without del
 dsh-skills-nexus remove <name>...                   # delete clone + symlink + unregister (one or more)
 dsh-skills-nexus remove 'theme-*'                   # ...or a * / ? glob matched against skill names
 dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # read-only full checkup of nexus state (exit 0/1/2)
+dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>  # print a completion script for that shell
 ```
 
 Value options (`--name`, `--ref`, `--subdir`) also accept the `--flag=value` form (e.g. `--subdir=skills/foo`, `--name=owner-skills`); the boolean `--yes` takes no value.
@@ -99,6 +100,57 @@ When you `add` a repo, nexus inspects the clone before registering it:
 - **Pure DSH plugin (no SKILL.md)** — prints a message telling you to use that repo's own DSH plugin installation flow, then exits without registering.
 - **Neither** — reports that no SKILL.md or DSH plugin marker was found and exits with an error.
 - **Collection repos** (`skills/<name>/SKILL.md` layout, e.g. `trae-community/trae-skills`) — installing the whole repo yields no installable skill at the root; nexus rejects it and suggests `--subdir <path>`. Installations that yield more than 20 skills trigger a confirmation prompt (skip with `--yes`).
+
+## Shell completion
+
+`dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>` prints a
+completion script for that shell — subcommands, per-command flags, and the
+installed skill names (fetched through `dsh-skills-nexus list --names`). Load
+it once in the shell you use:
+
+```bash
+# bash (~/.bashrc)
+eval "$(dsh-skills-nexus completions --shell bash)"
+
+# zsh (~/.zshrc, after compinit)
+eval "$(dsh-skills-nexus completions --shell zsh)"
+
+# fish (once, or save as ~/.config/fish/completions/dsh-skills-nexus.fish)
+dsh-skills-nexus completions --shell fish | source
+```
+
+```powershell
+# PowerShell ($PROFILE)
+dsh-skills-nexus completions --shell powershell | Out-String | Invoke-Expression
+```
+
+To unload, delete the loading line from your profile and undo the
+registration in the current session — or simply open a new terminal if you
+never wrote the line to a profile:
+
+```bash
+# bash
+complete -r dsh-skills-nexus
+unset -f _dsh_skills_nexus
+
+# zsh
+compdef -d dsh-skills-nexus
+unfunction _dsh_skills_nexus
+
+# fish
+complete -c dsh-skills-nexus -e
+```
+
+```powershell
+# PowerShell — re-register with a null script block to remove the completer
+Register-ArgumentCompleter -Native -CommandName dsh-skills-nexus -ScriptBlock $null
+```
+
+Completion of the command **name** itself needs no script — your shell
+completes executables from `PATH`, so having the npm global bin on `PATH` is
+already enough. The scripts above complete the command's arguments. For the
+full per-shell verification walkthrough see
+[Verifying shell completion](docs/verify-completions.md).
 
 ## Uninstall
 
@@ -405,6 +457,7 @@ ls -la ~/.dsh/skills/
 - [Verifying collection-repo support (P1)](docs/verify-collection-support.md)
 - [Verifying the plugin-load contract (plugin add → dsh web cold boot)](docs/verify-plugin-install.md)
 - [Verifying the `doctor` command (P0)](docs/verify-doctor.md)
+- [Verifying shell completion](docs/verify-completions.md)
 - [Contributing — project layout, testing & CI](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
 

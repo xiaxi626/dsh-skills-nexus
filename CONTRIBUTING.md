@@ -47,6 +47,8 @@ rules), see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 >   `--subdir` installs, flat-md filtering, large-collection guards.
 > - [Verifying the `doctor` command (P0)](docs/verify-doctor.md) —
 >   read-only checkup: report statuses/codes, exit codes, `--json` / `--updates` / `--quiet`, orphan & corrupt-manifest handling.
+> - [Verifying shell completion (P1–P2)](docs/verify-completions.md) —
+>   bash / zsh / fish / PowerShell templates: per-shell drivers, layered scenarios, engine quirks.
 > Each is a copy-paste walkthrough for Windows / Linux / macOS.
 
 Quality gates, all runnable locally:

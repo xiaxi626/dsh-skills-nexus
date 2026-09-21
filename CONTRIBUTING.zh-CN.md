@@ -43,6 +43,8 @@ src/
 >   `--subdir` 按需安装、平铺 md 过滤、大集合防呆。
 > - [验证 `doctor` 命令（P0）](docs/verify-doctor.zh-CN.md) ——
 >   只读体检：报告状态/code、退出码、`--json` / `--updates` / `--quiet`、孤立对象与损坏 manifest 的处理。
+> - [验证命令补全（P1–P2）](docs/verify-completions.zh-CN.md) ——
+>   bash / zsh / fish / PowerShell 四套模板：各 shell 驱动方式、分层场景、引擎特性。
 > 每篇均为覆盖 Windows / Linux / macOS 的可直接复制的验证流程。
 
 质量门禁，本地全部可跑：

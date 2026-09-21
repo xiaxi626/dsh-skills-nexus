@@ -59,6 +59,7 @@ dsh-skills-nexus disable <name>                     # 删除 symlink 但不删�
 dsh-skills-nexus remove <name>...                   # 删除克隆 + symlink + 注销（可一次给多个名字）
 dsh-skills-nexus remove 'theme-*'                   # …或用 * / ? 通配符匹配 skill 名
 dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # 只读体检 nexus 全量状态（退出码 0/1/2）
+dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>  # 输出对应 shell 的补全脚本
 ```
 
 取值型选项（`--name`、`--ref`、`--subdir`）也支持 `--flag=value` 写法（如 `--subdir=skills/foo`、`--name=owner-skills`）；布尔选项 `--yes` 不接受值。
@@ -74,6 +75,54 @@ dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # 只读体检 nexus 全
 - **纯 DSH 插件（没有 SKILL.md）**：提示请按该仓库自己的 DSH 插件安装方式安装，不建议用 nexus 管理，然后退出，不注册。
 - **两者都不是**：提示未找到 SKILL.md 或 DSH 插件标记，报错退出。
 - **集合仓库**（`skills/<name>/SKILL.md` 布局，如 `trae-community/trae-skills`）：整个仓库安装时根目录没有可安装的 skill，nexus 会拒绝并提示改用 `--subdir <path>` 指定子目录；一次安装解析出超过 20 个 skill 时会弹确认提示（`--yes` 跳过）。
+
+## Shell 补全
+
+`dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>` 输出对应
+shell 的补全脚本——补子命令、每个命令的 flag，以及已安装的 skill 名（通过
+`dsh-skills-nexus list --names` 取数）。在你用的 shell 里装载一次即可：
+
+```bash
+# bash（~/.bashrc）
+eval "$(dsh-skills-nexus completions --shell bash)"
+
+# zsh（~/.zshrc，需在 compinit 之后）
+eval "$(dsh-skills-nexus completions --shell zsh)"
+
+# fish（一次性装载，或保存为 ~/.config/fish/completions/dsh-skills-nexus.fish）
+dsh-skills-nexus completions --shell fish | source
+```
+
+```powershell
+# PowerShell（$PROFILE）
+dsh-skills-nexus completions --shell powershell | Out-String | Invoke-Expression
+```
+
+卸载：从配置文件里删掉装载行，并在当前会话里撤销注册；若从未写进配置
+文件，直接开一个新终端即可（新会话天然干净）：
+
+```bash
+# bash
+complete -r dsh-skills-nexus
+unset -f _dsh_skills_nexus
+
+# zsh
+compdef -d dsh-skills-nexus
+unfunction _dsh_skills_nexus
+
+# fish
+complete -c dsh-skills-nexus -e
+```
+
+```powershell
+# PowerShell——用空脚本块重新注册以移除补全器
+Register-ArgumentCompleter -Native -CommandName dsh-skills-nexus -ScriptBlock $null
+```
+
+命令**名**本身的补全不需要任何脚本——shell 会从 `PATH` 里补可执行文件名，
+只要 npm 全局 bin 在 `PATH` 中即可自动生效；上面的脚本补的是该命令的
+**参数**。逐 shell 的完整验证流程见
+[验证命令补全](docs/verify-completions.zh-CN.md)。
 
 ## 卸载
 
@@ -298,6 +347,7 @@ ls -la ~/.dsh/skills/
 - [验证集合仓库支持（P1）](docs/verify-collection-support.zh-CN.md)
 - [验证插件装载契约（plugin add → dsh web 冷启动）](docs/verify-plugin-install.zh-CN.md)
 - [验证 `doctor` 命令（P0）](docs/verify-doctor.zh-CN.md)
+- [验证命令补全](docs/verify-completions.zh-CN.md)
 - [贡献指南——项目结构、测试与 CI](CONTRIBUTING.zh-CN.md)
 - [更新日志](CHANGELOG.md)
 
