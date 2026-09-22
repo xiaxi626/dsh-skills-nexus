@@ -107,7 +107,14 @@ Accepted repo forms:
   github:owner/repo
   github:owner/repo#branch
   https://github.com/owner/repo
+  git+https://github.com/owner/repo.git
+  git@github.com:owner/repo.git        (SSH)
+  ssh://git@github.com/owner/repo.git  (SSH)
   owner/repo
+
+  An https /tree/<ref>/<path> suffix is accepted but ignored — nexus clones the
+  repo root. To install a single subdirectory of a collection repo, pass
+  --subdir <path>; the /tree path does not select it.
 
 State is stored at: ~/.dsh/skills-nexus/manifest.json
 Repo clones live in: ~/.dsh/skills-nexus/repos/<name>/

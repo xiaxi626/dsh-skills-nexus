@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+**2026-09-22 · Docs · CLI `--help` 的「Accepted repo forms」补齐 SSH（`git@` / `ssh://`）与 `git+https://` 写法，并澄清 `/tree` 子路径被忽略（装子目录须显式 `--subdir`）**
+
+- **背景**：`parseGitSpec`（`src/git.ts`）早已支持 scp-like（`git@host:owner/repo.git`）、`ssh://`、`git+https://`，并把 `https://…/tree/<ref>/<path>` 归约到仓库根（子路径与其内的 ref 均忽略、只认 `#ref`）；`test/git.test.ts` 以「scp-like git@ and ssh:// URLs pass through untouched」「git+https: scheme is stripped and normalized」「/tree/<ref>/... subpath is reduced to the repo root」三条用例钉住，README.md / README_CN.md 也都列了这些形式。唯独 CLI `--help`（`src/cli/index.ts` 的 `printHelp()`）漏列 SSH 与 `git+https://`；且 `/tree` 子路径的行为易被误解为「按子目录安装」——实际它被忽略、克隆的是仓库根，装子目录须显式 `--subdir`。本次仅补文档性输出并澄清该误解，不改任何解析行为。
+- **变更**：`src/cli/index.ts` 的 `printHelp()` 在「Accepted repo forms」段补 `git+https://…`、`git@…  (SSH)`、`ssh://…  (SSH)` 三行，并在列表后新增一段说明：`https` URL 的 `/tree/<ref>/<path>` 后缀被接受但忽略、克隆的是仓库根，装集合仓库的单个子目录须用 `--subdir <path>`（`/tree` 路径不会替你选子目录）；`lib/cli/index.js` 与 `.js.map` 随源码重建（`printHelp` 为模块内私有函数、签名未变，故 `lib/cli/index.d.ts` 不漂移）。
+- **不做**：不改 `parseGitSpec` 的解析行为（这些形式与 `/tree` 归约早已实现并有测试，无需改码）；不改 `--subdir` 逻辑；不引入「自动从 `/tree` 路径推导 `--subdir`」的新行为（那是功能变更、须另行立项，且会与「`/tree` 仅用于浏览定位、不承诺安装语义」的现有约定冲突）。
+- **如何辨识改动**：`git status --short` 仅 3 个源码/产物文件变化——`src/cli/index.ts`、`lib/cli/index.js`、`lib/cli/index.js.map`（`lib/cli/index.d.ts` 不变；`CHANGELOG.md` 为本条）；`node lib/cli/index.js --help` 的「Accepted repo forms」段多出 `git+https://…` 与两行 SSH，段末多出 `/tree` 子路径忽略说明三行。
+- **验证方式**：四步门禁 `npm run typecheck` / `npm run lint`（全仓 `eslint .`）/ `npm test` / `npm run build` 退出码均为 0；全量 `npm test` **246 条 · 0 失败**（243 通过 / 3 跳过，跳过项为本机缺 zsh/fish/bash 的补全用例，数量随本机 shell 可用性浮动、与本次改动无关）；本次仅改 `printHelp()` 字符串、无逻辑变更、不新增用例，相关解析行为早由 `test/git.test.ts` 覆盖；`node lib/cli/index.js --help` 目视新增行与说明段、列对齐无误。
+
 **2026-09-22 · Docs · 新增「在 nexus 之上构建 / 基座」双语文档 `docs/build-on-nexus.md` / `.zh-CN.md`；README 双语补「给工具开发者」小节与文档索引**
 
 - **背景**：本次是主动为未来预留——尚无开发者提出把本项目当基座，但 nexus 客观上已具备被当作「往 DSH 装 GitHub SKILL.md 仓库」基座的条件（可供 GUI / 同步守护进程 / CI / 上层安装器复用）。趁早把对外可依赖的接口面收拢成一处、并划清边界，好过日后有人来集成时才补：此前可依赖的只读接口散落在 `doctor` 与 `list --names` 各自的验证文档里、无一处统一交代；更缺一份「没有承诺什么」的说明，容易诱导未来的外部工具去 `import` 包内部或直接解析 `manifest.json`（内部 schema 会演进，直读必被静默打断——`list --names` 存在的初衷正是此解耦，同理 git 补全调 `for-each-ref` 而非读 `.git/refs/`）。
