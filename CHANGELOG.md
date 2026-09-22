@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+**2026-09-22 · Docs · 新增「在 nexus 之上构建 / 基座」双语文档 `docs/build-on-nexus.md` / `.zh-CN.md`；README 双语补「给工具开发者」小节与文档索引**
+
+- **背景**：本次是主动为未来预留——尚无开发者提出把本项目当基座，但 nexus 客观上已具备被当作「往 DSH 装 GitHub SKILL.md 仓库」基座的条件（可供 GUI / 同步守护进程 / CI / 上层安装器复用）。趁早把对外可依赖的接口面收拢成一处、并划清边界，好过日后有人来集成时才补：此前可依赖的只读接口散落在 `doctor` 与 `list --names` 各自的验证文档里、无一处统一交代；更缺一份「没有承诺什么」的说明，容易诱导未来的外部工具去 `import` 包内部或直接解析 `manifest.json`（内部 schema 会演进，直读必被静默打断——`list --names` 存在的初衷正是此解耦，同理 git 补全调 `for-each-ref` 而非读 `.git/refs/`）。
+- **决策（只承诺已被测试钉住的只读面）**：文档只承诺两个既有且有测试锚的只读接口——`doctor --json` 的 `version: 1` 契约与 `list --names` 名字流；不借「写文档」顺带承诺任何新机器契约。写侧 JSON（`list --json`、`add`/`remove` 结构化输出）属契约设计级别的重大决策，须单独立项评审，否则会把未经测试的表面积变成对外义务。放弃的替代：随文档规划写侧接口、把更多 `exports` 子路径当公开 API 治理（二者非错，仅需另行立项）；否决 GitHub wiki（项目文档文化为 in-repo 双语成对、随 PR 原子提交、被测试引用，wiki 会造成双源分裂）。
+- **变更**：新增 `docs/build-on-nexus.md` 与 `docs/build-on-nexus.zh-CN.md`——五段结构：其一「为什么在 nexus 之上构建」（列出 nexus 已解决的跨平台琐碎项：spec 解析 / 带重试克隆 / ref 固定与锁 / frontmatter 归一化 / 集合 `--subdir` / junction 软链 / 官方 provider 免维护发现）；其二两个可依赖只读接口的完整契约（`list --names` 的逐行/空串/退出码/内联值护栏；`doctor --json` 的 `version: 1` 顶层形状、检查项 id 顺序 `manifest`/`roots`/`symlinks`/`orphan-repo`/`orphan-link`/`git-sanity`/`updates`、`status` 四态 `ok`/`warn`/`error`/`update-available`、issue `code` 全清单、退出码，并回指 `verify-doctor` 取每项含义）；其三「没有的接口」清单（写侧无机器输出、`add` 静默忽略未知 flag、暂无 `list --json`、无 Cordis service/provider/hook、包内部含 `./resolve` 均非公开 API）；其四集成范式（shell out、补全脚本为参考消费者、symlink 可见性 vs Policy 状态的生态边界、自动化零不可信代码执行）；其五稳定性分级与维护规则（`version` 递增即破坏性变更）。README.md / README_CN.md 各新增「For tool builders / 给工具开发者」小节并在文档索引各补一条对应语言链接。
+- **不做**：不新增或改动任何源码与测试（纯文档）；不承诺写侧机器接口；不改 `doctor --json` / `list --names` 的既有行为。
+- **如何辨识改动**：`git status` 仅显示 5 个文件变化——2 个新文件（`docs/build-on-nexus.md` / `.zh-CN.md`）+ 3 个改动（`README.md`、`README_CN.md`、`CHANGELOG.md`），`src/` 与 `lib/` 零变化。
+- **验证方式（文档即事实，逐字回码核对）**：文档所述契约均取自当前源码而非追记——检查项 id 顺序与 `status` 四态取自 `src/cli/commands/doctor.ts`（`finalize`/`runChecks`/`checkUpdates` 返回值）；issue `code` 全清单取自同文件各 `code: '…'` 字面；`--json` 输出为 `JSON.stringify(report, null, 2)` + 换行（2 空格缩进、末尾换行）；`list --names` 逐行/空串/退出码 0·1·2/内联值护栏取自 `src/cli/commands/list.ts` 与 `src/cli/args.ts` 的 `parseListArgs`；`add` 静默忽略未知 flag 取自 `parseAddArgs`（未知 `--flag` 不进任何分支、不报错）；`exports` 仅 `.`/`./resolve`/`./package.json` 取自 `package.json`；`apply()` no-op 取自 `src/index.ts`。双语两份逐节对照小节标题与契约值一致，唯正文语言不同。README 两份的小节与索引链接对称新增。
+
 **2026-09-20 · Docs · 新增「命令自动补全」双语验证指南 `docs/verify-completions.md` / `.zh-CN.md`；README 与 CONTRIBUTING 双语补索引（命令自动补全 P3）**
 
 - **背景**：P1 / P2 交付四份补全模板后，「照抄即可复现」的端到端验证面还散落在开发期的临时探针里；其中 PowerShell 的两条引擎行为（裸 `-`/`--` 不触发参数补全器、补全器空集时回落文件名补全）与 bash 的 `COMPREPLY` 语义都只能靠实测与源码证据定性，zsh / fish 在本机（无 zsh / fish / WSL / 容器）无法执行、已移交 CI。故仿 `docs/verify-doctor.md` 范式补一份双语验证指南，并同步双语文档索引。

@@ -337,6 +337,17 @@ ls -la ~/.dsh/skills/
 - **构建脚本**：由于 nexus 自己 clone 内容仓库（不走 pnpm），它完全绕开了 pnpm 的 `allowBuilds` 拦截。
 - **Windows 链接**：nexus 在 Windows 上创建目录联接（junction，`symlink(..., 'junction')`）、在其他平台上创建普通目录软链——均不需要开发者模式或管理员权限。
 
+## 给工具开发者
+
+想在 nexus 之上构建工具——GUI 面板、同步守护进程、CI 任务、或更上层的、把 GitHub
+上 `SKILL.md` 仓库装进 DSH 的安装器？nexus 已经把跨平台的琐碎部分全部解决（spec
+解析、带重试的克隆、ref 固定、frontmatter 归一化、集合仓库 `--subdir`、Windows
+junction 软链），并对外暴露两个稳定、只读、可依赖的机器接口：
+`dsh-skills-nexus list --names`（枚举已安装 skill）与 `dsh-skills-nexus doctor --json`
+（带版本号的健康报告）。请 shell out 调 CLI——绝不要 `import` 包内部、也不要读
+`manifest.json`。完整契约、生态边界、以及**没有承诺**的接口清单，见
+**[在 nexus 之上构建——面向工具开发者的机器接口](docs/build-on-nexus.zh-CN.md)**。
+
 ## 文档
 
 - [架构——数据流、目录布局、SKILL.md 发现规则](docs/ARCHITECTURE.zh-CN.md)
@@ -348,6 +359,7 @@ ls -la ~/.dsh/skills/
 - [验证插件装载契约（plugin add → dsh web 冷启动）](docs/verify-plugin-install.zh-CN.md)
 - [验证 `doctor` 命令（P0）](docs/verify-doctor.zh-CN.md)
 - [验证命令补全](docs/verify-completions.zh-CN.md)
+- [在 nexus 之上构建——面向工具开发者的机器接口](docs/build-on-nexus.zh-CN.md)
 - [贡献指南——项目结构、测试与 CI](CONTRIBUTING.zh-CN.md)
 - [更新日志](CHANGELOG.md)
 

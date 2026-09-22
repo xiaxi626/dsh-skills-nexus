@@ -447,6 +447,20 @@ ls -la ~/.dsh/skills/
   (`symlink(..., 'junction')`) and plain directory symlinks elsewhere — neither
   needs Developer Mode or admin privileges.
 
+## For tool builders
+
+Want to build on nexus — a GUI, a sync daemon, a CI job, or a higher-level
+installer that installs GitHub `SKILL.md` repos into DSH? Nexus already solves
+the fiddly cross-platform parts (spec parsing, clone-with-retry, ref pinning,
+frontmatter normalization, collection `--subdir`, Windows-junction symlinks)
+and exposes two stable, read-only machine interfaces you can depend on:
+`dsh-skills-nexus list --names` (enumerate installed skills) and
+`dsh-skills-nexus doctor --json` (a versioned health report). Shell out to the
+CLI — never `import` package internals or read `manifest.json`. See
+**[Building on nexus — machine interfaces for tool authors](docs/build-on-nexus.md)**
+for the full contract, the ecosystem boundary, and the explicit list of
+interfaces that are **not** promised.
+
 ## Documentation
 
 - [Architecture — data flow, directory layout, SKILL.md discovery](docs/ARCHITECTURE.md)
@@ -458,6 +472,7 @@ ls -la ~/.dsh/skills/
 - [Verifying the plugin-load contract (plugin add → dsh web cold boot)](docs/verify-plugin-install.md)
 - [Verifying the `doctor` command (P0)](docs/verify-doctor.md)
 - [Verifying shell completion](docs/verify-completions.md)
+- [Building on nexus — machine interfaces for tool authors](docs/build-on-nexus.md)
 - [Contributing — project layout, testing & CI](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
 
