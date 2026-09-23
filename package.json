@@ -39,6 +39,7 @@
     "test:build": "tsc -p tsconfig.test.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "prepublishOnly": "npm run typecheck && npm run lint && npm test",
     "cli": "node --import tsx src/cli/index.ts"
   },
   "dependencies": {
