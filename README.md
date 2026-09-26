@@ -39,27 +39,89 @@ wrapper, so this path doesn't work. `dsh-skills-nexus` fills the gap:
 
 ## Install nexus
 
+### Optional: register as a DSH plugin
+
+To register nexus in the DSH `web` profile, run the following (replace `web`
+if you use a different profile):
+
+```bash
+dsh plugin --profile web add "github:xiaxi626/dsh-skills-nexus"
+```
+
+This uses pnpm to install the package into the DSH profile. It **does not
+provide a global CLI command and is not a prerequisite for the CLI install
+below**. Skip it if you only need the CLI to manage skills.
+
+### Install the CLI globally
+
 Install the CLI globally — **this** is what puts the `dsh-skills-nexus` command
-on your shell PATH:
+on your shell PATH (provided npm's global command directory is already on PATH):
+
+**npm 12:** after confirming that you trust the repository and its dependencies,
+explicitly allow Git dependencies for this installation:
+
+```bash
+npm install -g --allow-git=all github:xiaxi626/dsh-skills-nexus
+```
+
+**Older npm versions (where Git dependencies are not blocked):** the original
+command works. Choose one of these two commands based on your version and policy:
 
 ```bash
 npm install -g github:xiaxi626/dsh-skills-nexus
 ```
 
-`lib/` compiled artifacts are committed with the repo, so there is no build
-step — install and use. (Once the package is published to npm you can use
-`npm install -g dsh-skills-nexus` instead.)
+#### Troubleshooting `EALLOWGIT`
 
-> **`dsh plugin add` does NOT provide the shell command.** Registering nexus as
-> a DSH plugin (`dsh plugin --profile web add "github:xiaxi626/dsh-skills-nexus"`)
-> only installs the package into the profile's `node_modules` and registers a
-> Cordis layer whose `apply()` is an intentional no-op — skill discovery happens
-> through the symlinks nexus creates in `~/.dsh/skills/` plus the official
-> filesystem provider. The plugin layer is therefore optional on both counts: it
-> has no effect on the CLI, and skills load without it too — discovery runs
-> entirely through the symlinks + the official provider. The
-> `dsh-skills-nexus` command comes only from the global npm install above (or
-> `npm link` during development).
+If the original command reports:
+
+```text
+npm error code EALLOWGIT
+npm error Fetching packages of type "git" have been disabled
+```
+
+**npm's Git dependency policy** blocked the installation before download; this
+is not a missing Nexus installation or a repository build failure. Starting
+with npm 12, `allow-git` defaults to `none` instead of allowing Git dependencies.
+A `github:owner/repo` spec is a Git dependency and therefore requires explicit
+permission. Check your version with `npm --version`; on npm 12, check the
+active policy with `npm config get allow-git`.
+
+The stricter default reduces supply-chain risk: Git dependencies access remote
+repositories and may introduce configuration the project does not control.
+**This error does not mean npm detected malicious code in Nexus, nor does it
+indicate that Nexus is incompatible with npm 12.** There is no need to reinstall
+the DSH plugin or downgrade npm for this error. If you trust the source, use
+the command with `--allow-git=all` above to remove this specific block; subsequent
+download and installation steps still need to satisfy other requirements.
+
+> `--allow-git=all` applies only to this invocation and does not permanently
+> change npm configuration. It permits all Git dependencies in this installation,
+> including transitive dependencies; it does not certify their safety. Avoid
+> setting `allow-git=all` globally and permanently. `dsh plugin add` uses pnpm,
+> whose configuration is independent of npm's; a successful plugin installation
+> does not change npm's policy.
+
+`lib/` compiled artifacts are committed with the repo, so there is no build
+step — install and use.
+
+If you only need the published npm registry release (currently `0.3.0`), you
+can use this command instead:
+
+```bash
+npm install -g dsh-skills-nexus
+```
+
+This installs a registry package, not a Git dependency, so Nexus itself does
+not require `--allow-git=all` via this route. The published release may differ
+from the latest code on GitHub.
+
+> **The plugin layer is optional.** It only installs the package into the
+> profile's `node_modules` and registers a Cordis layer whose `apply()` is an
+> intentional no-op. Skills are discovered and loaded through the symlinks
+> nexus creates in `~/.dsh/skills/` plus the official filesystem provider,
+> without needing this layer. The global CLI comes from the npm installation
+> above (or `npm link` during development).
 
 ## Usage
 
@@ -186,8 +248,9 @@ each one; run only the lines you need.
 > shell PATH**. So "I installed the GitHub version but it still runs my local
 > logic" means the command you typed went through item 3's `npm link` into your local
 > workspace; it has nothing to do with the copy GitHub installed into item 2. To
-> really switch to remote: `npm uninstall -g dsh-skills-nexus`, then
-> `npm install -g github:<owner>/<repo>`.
+> really switch to remote: `npm uninstall -g dsh-skills-nexus`, then globally
+> install the GitHub version using the version and policy guidance in
+> [Install nexus](#install-nexus) (npm 12 requires explicit `--allow-git=all`).
 
 ```bash
 # 1. skill DATA — the clones + manifest under ~/.dsh/skills-nexus/ (data, not the command)

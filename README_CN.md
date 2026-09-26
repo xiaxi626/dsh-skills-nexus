@@ -28,15 +28,58 @@
 
 ## 安装 nexus
 
-全局安装 CLI——**只有这一步**才会把 `dsh-skills-nexus` 命令放进你的 shell PATH：
+### 可选：注册为 DSH 插件
+
+如果需要将 nexus 注册到 DSH 的 `web` profile，可执行（其他 profile 请替换 `web`）：
+
+```bash
+dsh plugin --profile web add "github:xiaxi626/dsh-skills-nexus"
+```
+
+这一步通过 pnpm 把包装进 DSH profile，**不会提供全局 CLI 命令，也不是下面 CLI 安装的前置条件**。只需使用 CLI 管理 skill 时，可以跳过。
+
+### 全局安装 CLI
+
+全局安装 CLI——**只有这一步**才会把 `dsh-skills-nexus` 命令放进你的 shell PATH（前提是 npm 全局命令目录已在 PATH 中）：
+
+**npm 12：**确认信任仓库及其依赖后，显式允许本次安装获取 Git 依赖：
+
+```bash
+npm install -g --allow-git=all github:xiaxi626/dsh-skills-nexus
+```
+
+**较旧的 npm（未禁止 Git 依赖时）：**可使用原命令；两条安装命令按版本和策略选一条执行即可：
 
 ```bash
 npm install -g github:xiaxi626/dsh-skills-nexus
 ```
 
-`lib/` 编译产物已随仓库提交，无需构建，安装即用。（等发布到 npm 后，可改用 `npm install -g dsh-skills-nexus`。）
+#### 遇到 `EALLOWGIT` 怎么办？
 
-> **`dsh plugin add` 不提供 shell 命令。** 把 nexus 注册为 DSH 插件（`dsh plugin --profile web add "github:xiaxi626/dsh-skills-nexus"`）只是把包装进 profile 的 `node_modules`、注册一个 `apply()` 为空操作的 Cordis layer——skill 发现靠 nexus 在 `~/.dsh/skills/` 建的 symlink + 官方 filesystem provider。所以插件层两头都是可选的：既不影响 CLI，skill 加载也不需要它——发现完全靠 symlink + 官方 provider；`dsh-skills-nexus` 命令只来自上面的全局 npm 安装（开发期则来自 `npm link`）。
+如果原命令报错：
+
+```text
+npm error code EALLOWGIT
+npm error Fetching packages of type "git" have been disabled
+```
+
+这是 **npm 的 Git 依赖获取策略**在下载前拦截了安装，不是 Nexus 没装，也不是仓库构建失败。npm 12 起，`allow-git` 默认从允许改为 `none`；`github:owner/repo` 属于 Git 依赖，因此需要显式放行。可用 `npm --version` 查看版本；npm 12 可用 `npm config get allow-git` 查看当前策略。
+
+默认收紧是为了降低供应链风险：Git 依赖会访问远程仓库，并可能引入项目无法控制的配置。**这个错误不代表 npm 检测到了 Nexus 的恶意代码，也不表示 Nexus 与 npm 12 不兼容。** 不必为此重装 DSH 插件或降级 npm；确认信任来源后，使用上面带 `--allow-git=all` 的命令即可解除这一项拦截，后续下载和安装仍需满足其他条件。
+
+> `--allow-git=all` 仅对本次调用生效，不会永久修改 npm 配置；它会放行本次安装中的所有 Git 依赖（包括传递依赖），不代表这些依赖已经过安全验证。不建议全局永久设置 `allow-git=all`。`dsh plugin add` 使用 pnpm，其配置与 npm 独立；插件安装成功不会改变 npm 的策略。
+
+`lib/` 编译产物已随仓库提交，无需构建，安装即用。
+
+如果只需 npm registry 上的已发布版本（当前为 `0.3.0`），也可改用下面的命令：
+
+```bash
+npm install -g dsh-skills-nexus
+```
+
+这是 registry 包安装，不属于 Git 依赖，无需为 Nexus 本身设置 `--allow-git=all`；已发布版本与 GitHub 最新代码可能不同。
+
+> **插件层是可选的。** 它只把包装进 profile 的 `node_modules`、注册一个 `apply()` 为空操作的 Cordis layer。skill 发现与加载依靠 nexus 在 `~/.dsh/skills/` 建的 symlink + 官方 filesystem provider，不需要该插件层；全局 CLI 则来自上面的 npm 安装（开发期也可用 `npm link`）。
 
 ## 使用
 
@@ -148,7 +191,7 @@ dsh-skills-nexus remove 'theme-*' --yes
 
 nexus 会留下**三个互相独立**的东西，用*不同*的命令清理——清掉一个**不会**连带清掉其他。下面这段带注释的命令逐条清理，只跑你需要的那几行即可。
 
-> **最容易踩的坑——先读这条。** 你在终端里敲的 `dsh-skills-nexus`，**只**来自下面的第 3 项（`npm link` 或 `npm install -g`）。`--patch` 只把 layer 挂进当前这个 DSH 进程、`dsh plugin add` 只写 profile 的 `node_modules`，**两者都不会把命令放进你的 shell PATH**。所以「装了 GitHub 版却还在跑本地逻辑」= 你敲的命令走的是第 3 项里 `npm link` 指向的本地工作区，跟 GitHub 装进第 2 项的那份毫无关系。想真正切到远程：先 `npm uninstall -g dsh-skills-nexus`，再 `npm install -g github:<owner>/<repo>`。
+> **最容易踩的坑——先读这条。** 你在终端里敲的 `dsh-skills-nexus`，**只**来自下面的第 3 项（`npm link` 或 `npm install -g`）。`--patch` 只把 layer 挂进当前这个 DSH 进程、`dsh plugin add` 只写 profile 的 `node_modules`，**两者都不会把命令放进你的 shell PATH**。所以「装了 GitHub 版却还在跑本地逻辑」= 你敲的命令走的是第 3 项里 `npm link` 指向的本地工作区，跟 GitHub 装进第 2 项的那份毫无关系。想真正切到远程：先 `npm uninstall -g dsh-skills-nexus`，再按[安装 nexus](#安装-nexus)中的版本与策略说明全局安装 GitHub 版（npm 12 需显式加 `--allow-git=all`）。
 
 ```bash
 # 1. skill 数据——~/.dsh/skills-nexus/ 下的克隆 + 清单（是数据，不是命令本身）
