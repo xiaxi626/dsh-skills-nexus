@@ -1,0 +1,53 @@
+/**
+ * Browser half — Phase 0 probe.
+ *
+ * Registers one Settings section that renders a single line of text. Its job
+ * is to prove the client contract end to end on a real host: package
+ * `dsh.client` metadata → `./client` export → `__ModuleLoader__.load` closure
+ * factory → `ctx.slots` registration → the section appears in Settings.
+ *
+ * The real panel (entry cards, job progress, confirm dialogs) replaces the
+ * body in Phase 3; the module shape — name / inject / apply — is final.
+ * @module dsh-skills-nexus/client
+ */
+
+import type { ReactElement } from 'react'
+
+/** Client-side loader diagnostics read this name. */
+export const name = 'dsh-skills-nexus-client'
+
+/**
+ * Services this half reaches through `ctx.<name>`.
+ *
+ * These are cordis *service* names, not package names: `slots` is registered
+ * by the ui-slots package. Cordis refuses an undeclared property access —
+ * `ctx.slots` without this list fails the whole loader entry with "cannot get
+ * property slots without inject", which blanks the settings dialog rather
+ * than degrading. (The package-name list in `dsh.client.inject` is a
+ * different layer: the host's boot-graph ordering, not the runtime inject.)
+ */
+export const inject = ['slots']
+
+/** The probe page — proves the section renders inside the real Settings shell. */
+function ProbeSection(): ReactElement {
+  return <div>dsh-skills-nexus — client half loaded (Phase 0 probe).</div>
+}
+
+/**
+ * Register the settings page.
+ * @param ctx - client context carrying the slots service.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function apply(ctx: any): void {
+  ctx.slots.inject('settings.section', () =>
+    ctx.slots.register(
+      {
+        name: 'settings.section',
+        id: 'skills-nexus',
+        order: 300,
+        label: () => 'Skills Nexus',
+      },
+      ProbeSection,
+    ),
+  )
+}

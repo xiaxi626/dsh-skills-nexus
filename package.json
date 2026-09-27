@@ -16,6 +16,15 @@
   "dsh": {
     "bundle": {
       "patch": "cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
     }
   },
   "bin": {
@@ -23,6 +32,10 @@
   },
   "exports": {
     ".": "./lib/index.js",
+    "./client": {
+      "types": "./lib/client-types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
     "./resolve": "./lib/resolve.js",
     "./package.json": "./package.json"
   },
@@ -33,6 +46,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:client": "tsdown && tsc -p tsconfig.client-types.json",
     "dev": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx --test test/add.test.ts test/args.test.ts test/completions.test.ts test/doctor.test.ts test/frontmatter.test.ts test/git.test.ts test/git-sparse-probe.test.ts test/glob.test.ts test/health.test.ts test/link.test.ts test/list.test.ts test/locator.test.ts test/manifest.test.ts test/progress.test.ts test/remove.test.ts test/repo-kind.test.ts test/resolve.test.ts test/toggle.test.ts test/update.test.ts",
@@ -47,7 +61,11 @@
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "@types/react": "^18.3.31",
     "eslint": "^9.39.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tsdown": "^0.22.14",
     "tsx": "^4.19.0",
     "typescript": "^5.5.4",
     "typescript-eslint": "^8.67.0"
