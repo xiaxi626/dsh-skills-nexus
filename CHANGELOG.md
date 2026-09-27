@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+**2026-09-27 · Fixed · 稀疏安装集成测试与 CI 适配旧版 Git：12 条稀疏测试按本机能力门控、CI 新增 Ubuntu 22.04 的 Git 2.34 作业、两版 README 注明稀疏流程需要 Git 2.35+**
+
+- **背景**：外部评估在 Git 2.34.1（Ubuntu 22.04 LTS 默认版本，官方支持至 2027 年）上运行全量测试，报出 12 条失败（274 通过 / 2 跳过）。逐条对码定位：失败集合恰为 6 条（`test/git.test.ts` 的稀疏模式断言）+ 2 条（`test/add.test.ts` 的 `checkout: sparse` 与兄弟目录断言）+ 4 条（`test/update.test.ts` 的兄弟目录断言）——这些集成测试隐含了「本机 Git 支持 cone 模式稀疏检出」这一环境前提，但未把它表达出来。`sparse-checkout set --cone` 自 Git 2.35（2022-01）起提供；2.34 及更旧版本上 `cloneRepo` 的两步能力探测会正确判定缺能力、按设计降级为整仓检出（带可见警告），产品行为无误，失败仅由测试未按前提断言所致。CI（ubuntu-latest，Git 2.43+）与开发机（Git 2.50.1）不受影响，故此前始终全绿。
+- **变更**：新增 `test/sparse-capability.ts`——测试侧能力探测：在一次性临时仓库内跑 `git sparse-checkout set -h`（判据与 `src/git.ts` 的 `sparseSetCapabilities` 同源，`LC_ALL=C`），导出 `SPARSE_SKIP`（无 `--cone` 时为 skip 原因字符串，否则 `false`）；并设交叉校验——帮助文本判无 `--cone` 而 `git --version` ≥ 2.35 时直接抛错，防止探测自身失效造成假绿（12 条用例被静默跳过仍显示全绿）。`test/git.test.ts` 6 条、`test/add.test.ts` 2 条、`test/update.test.ts` 4 条稀疏集成测试统一改为 `{ skip: SPARSE_SKIP }`；`test/git-sparse-probe.test.ts` 新增 1 条判据测试（2.35 形态帮助文本判真、2.34 形态判假）。`.github/workflows/ci.yml` 新增 `legacy-git` 作业：ubuntu:22.04 容器 + 其自带的 Git 2.34.1（先断言版本确为 2.34，防止镜像演进使本作业静默失去意义）跑全量测试，把「旧 Git 下 12 条跳过、其余全过」钉进 CI。`README.md` / `README_CN.md` 双语成对注明：稀疏流程需要 **Git 2.35+**，更旧的 Git 自动降级为整仓检出。
+- **不做**：不改任何产品代码（`src/` 与 `lib/` 零变化）——探测与降级本就是显式设计；不把 12 条测试改写为「旧 Git 分支断言降级」——降级路径已由 `test/git-sparse-probe.test.ts` 对 mock Git 逐条覆盖（缺 `sparse-checkout`、缺 `--cone`、spawn 失败等），集成层按环境跳过即达意；新 Git 上的既有行为与断言零变化。
+- **验证方式**：四步门禁 `npm run typecheck` / `npm run lint` / `npm test` / `npm run build` 退出码均为 0；`npm run test:build`（覆盖 `test/` 的类型检查）退出码 0；`npm run build` 后 `git diff --stat -- lib/` 输出为空（构建产物零漂移）。全量 `npm test`（本机 Git 2.50.1）**289 条 · 286 通过 · 0 失败 · 3 跳过**（跳过为本机缺 bash/zsh/fish 的补全用例；基线 288 条，+1 为本条新增判据测试），12 条稀疏测试在本机真实执行、全部通过。负向对照（临时将 `SPARSE_SKIP` 强制为 skip 原因，模拟旧 Git）：**289 条 · 274 通过 · 0 失败 · 15 跳过**——跳过集合恰为 12 条稀疏（6+2+4，名称逐一核对）+ 3 条补全，随后复原并复跑恢复全绿。`legacy-git` CI 作业与真旧 Git 下的端到端行为留待推送后由 CI 首跑验证（本机无 Git 2.34 环境，无法本地端到端复现；作业内已含版本断言）。
+- **如何辨识改动**：`git status --short` 恰 9 个条目——测试 5（`test/sparse-capability.ts` 新增 + 4 个测试文件）+ CI 1 + 文档 3（`README.md`、`README_CN.md`、本 CHANGELOG）；`src/` 与 `lib/` 零变化。
+
 ## [0.4.0] - 2026-09-27
 
 **2026-09-27 · Security · 加固 repo spec / ref 与 `--subdir` 技能根的输入校验：拒绝 Git 选项注入（前导 `-`）、`transport::address` 辅助器语法（如 `ext::`）与控制字符；URL scheme 白名单（https/http/ssh/git/file）；远端默认分支名与符号链接技能根同样设防**

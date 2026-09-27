@@ -482,9 +482,10 @@ ls -la ~/.dsh/skills/
   root's and ancestor directories' own files, and a remote that ignores the
   filter may hand over the whole repository — nexus warns when that happens).
   To leave sparse mode, run `git -C <clone> sparse-checkout disable` (fetches
-  everything else; `update` will not re-enable it); if this Git cannot run
-  the sparse flow, the same clone is completed as a full checkout after a
-  visible warning. Installing the whole repo without `--subdir` is guarded
+  everything else; `update` will not re-enable it). The sparse flow needs
+  **Git 2.35 or newer** (older Git has no `--cone` on `sparse-checkout set`);
+  if this Git cannot run it, the same clone is completed as a full checkout
+  after a visible warning. Installing the whole repo without `--subdir` is guarded
   by a confirmation prompt above 20 skills. Entries cherry-picked from
   the same repo each keep their own clone, but `list` shows a **SOURCE** column
   (the origin `owner/repo`) so same-origin entries are easy to spot.
