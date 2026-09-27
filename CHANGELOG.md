@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-27
+
 **2026-09-27 · Fixed · 修正两版 README 本地测试的 overlay 路径指引：统一改为相对锚定写法 `'./lib/index.js'`，删除「盘符前必须加 `/`」说明**
 
 - **背景**：两版 README 此前指引 Windows 把 `name` 写成 `'/C:/...'`——该写法在本文件 2026-08-22 条目记录的语境下正确（当时裸 `C:/...` 报 `ERR_UNSUPPORTED_ESM_URL_SCHEME`，故在盘符前加 `/`）；但当前 dsh（本机 0.1.5-rc.3，2026-09-23 更新）的 `dsh-app-boot` 改按路径语义解析 insert 条目（`anchorInsertedPluginNames`：`pathToFileURL(path.resolve(base, name))`），`'/C:/...'` 被解析成 `C:\C:\...`，`dsh web --patch overlay.yml` 冷启动必报 `Cannot find module 'C:\C:\...'`（插件树加载失败）。属文档随宿主语义演进而过期，非用户操作问题。
