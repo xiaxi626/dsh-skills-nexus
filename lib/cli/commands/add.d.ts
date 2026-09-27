@@ -9,6 +9,9 @@
  * `--subdir <path>` installs a single subdirectory of the clone (collection
  * repos): the subdir is the skill root, the entry gets a `subdir` field, and
  * the clone directory is dedicated to that entry (independent-clone design).
+ * Such a clone is sparse when Git and the remote allow it (partial clone +
+ * cone-mode sparse-checkout), so unrelated directories are normally not
+ * materialized; the command reports which mode was used.
  *
  * Multiple specs are installed left-to-right and independently: a failure on
  * one repo does not abort the rest, and the exit code is non-zero if any repo

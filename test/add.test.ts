@@ -1,9 +1,9 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, lstat, readFile, readlink, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
 /**
@@ -245,4 +245,306 @@ test('add continues past a per-repo failure and reports it in the exit code', as
   const m = await manifest.readManifest()
   assert.ok(m.skills.find((s) => s.name === 'src-part-b')) // B added despite A failing
   assert.equal(m.skills.filter((s) => s.name === 'src-part-a').length, 1) // A not duplicated
+})
+
+/* ------------------------------------------------------------------ */
+/* Sparse install reporting, junction targets, and the C --name hint   */
+/* ------------------------------------------------------------------ */
+
+/** Capture everything `fn()` writes to stdout / stderr while it runs. */
+async function captureOutput<T>(
+  fn: () => Promise<T>,
+): Promise<{ stdout: string; stderr: string; result: T }> {
+  const origOut = process.stdout.write
+  const origErr = process.stderr.write
+  let stdout = ''
+  let stderr = ''
+  process.stdout.write = ((chunk: string): boolean => {
+    stdout += chunk
+    return true
+  }) as unknown as typeof process.stdout.write
+  process.stderr.write = ((chunk: string): boolean => {
+    stderr += chunk
+    return true
+  }) as unknown as typeof process.stderr.write
+  try {
+    const result = await fn()
+    return { stdout, stderr, result }
+  } finally {
+    process.stdout.write = origOut
+    process.stderr.write = origErr
+  }
+}
+
+/** Number of times the redundant-`--name` hint is printed in stdout. */
+function countHints(out: string): number {
+  return (out.match(/提示：--name 与默认条目名/g) ?? []).length
+}
+
+/** Collection repo whose single skill lives at the literal path `subdir`. */
+async function makeSubdirRepo(dir: string, subdir: string): Promise<void> {
+  await mkdir(dir, { recursive: true })
+  await git(dir, ['init'])
+  await git(dir, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  await git(dir, ['config', 'user.email', 'test@example.com'])
+  await git(dir, ['config', 'user.name', 'Nexus Test'])
+  const abs = join(dir, ...subdir.split('/'))
+  await mkdir(abs, { recursive: true })
+  await writeFile(
+    join(abs, 'SKILL.md'),
+    '---\nname: x\ndescription: test skill\n---\nbody\n',
+    'utf8',
+  )
+  await git(dir, ['add', '.'])
+  await git(dir, ['commit', '-m', 'skill'])
+}
+
+async function headSha(dir: string): Promise<string> {
+  const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: dir })
+  return stdout.trim()
+}
+
+/* --- C: the hint fires exactly when --name repeats the default --- */
+
+test('C: hint appears exactly once when --name repeats the default (space form)', async () => {
+  const src = join(home, 'src-nh-1')
+  await makeSubdirRepo(src, 'skills/daily-hot-news')
+  const { stdout, result } = await captureOutput(() =>
+    add.add([`${fileUrl(src)}#main`, '--subdir', 'skills/daily-hot-news', '--name', 'daily-hot-news']),
+  )
+  assert.equal(result, 0)
+  assert.equal(countHints(stdout), 1)
+  assert.match(stdout, /提示：--name 与默认条目名 "daily-hot-news" 相同，可省略。/)
+})
+
+test('C: no hint without an explicit --name', async () => {
+  const src = join(home, 'src-nh-2')
+  await makeSubdirRepo(src, 'skills/nh2-daily')
+  const { stdout, result } = await captureOutput(() =>
+    add.add([`${fileUrl(src)}#main`, '--subdir', 'skills/nh2-daily']),
+  )
+  assert.equal(result, 0)
+  assert.equal(countHints(stdout), 0)
+})
+
+test('C: both sides are compared after sanitizing', async () => {
+  // --name spelled differently but sanitizing to the same default…
+  const a = join(home, 'src-nh-3')
+  await makeSubdirRepo(a, 'skills/nh3-hot-news')
+  const r1 = await captureOutput(() =>
+    add.add([`${fileUrl(a)}#main`, '--subdir', 'skills/nh3-hot-news', '--name', 'Nh3_Hot.News']),
+  )
+  assert.equal(r1.result, 0)
+  assert.equal(countHints(r1.stdout), 1)
+
+  // …and a subdir leaf that itself needs sanitizing, matched cleanly.
+  const b = join(home, 'src-nh-4')
+  await makeSubdirRepo(b, 'skills/NH4_Hot.News')
+  const r2 = await captureOutput(() =>
+    add.add([`${fileUrl(b)}#main`, '--subdir', 'skills/NH4_Hot.News', '--name', 'nh4-hot-news']),
+  )
+  assert.equal(r2.result, 0)
+  assert.equal(countHints(r2.stdout), 1)
+})
+
+test('C: separator merging and dash trimming both match', async () => {
+  const a = join(home, 'src-nh-5')
+  await makeSubdirRepo(a, 'skills/nh5-a!!b')
+  const r1 = await captureOutput(() =>
+    add.add([`${fileUrl(a)}#main`, '--subdir', 'skills/nh5-a!!b', '--name', 'nh5-a-b']),
+  )
+  assert.equal(r1.result, 0)
+  assert.equal(countHints(r1.stdout), 1)
+
+  const b = join(home, 'src-nh-6')
+  await makeSubdirRepo(b, 'skills/nh6--foo-')
+  const r2 = await captureOutput(() =>
+    add.add([`${fileUrl(b)}#main`, '--subdir', 'skills/nh6--foo-', '--name', 'nh6-foo']),
+  )
+  assert.equal(r2.result, 0)
+  assert.equal(countHints(r2.stdout), 1)
+})
+
+test('C: "skill" fallback matches on both sides (--name=--- form)', async () => {
+  const src = join(home, 'src-nh-7')
+  await makeSubdirRepo(src, 'skills/中文')
+  const { stdout, result } = await captureOutput(() =>
+    add.add([`${fileUrl(src)}#main`, '--subdir', 'skills/中文', '--name=---']),
+  )
+  assert.equal(result, 0)
+  assert.equal(countHints(stdout), 1)
+})
+
+test('C: --name=value equals the space form', async () => {
+  const src = join(home, 'src-nh-8')
+  await makeSubdirRepo(src, 'skills/nh8-news')
+  const { stdout, result } = await captureOutput(() =>
+    add.add([`${fileUrl(src)}#main`, '--subdir', 'skills/nh8-news', '--name=nh8-news']),
+  )
+  assert.equal(result, 0)
+  assert.equal(countHints(stdout), 1)
+})
+
+test('C: no hint when --name picks a different alias', async () => {
+  const src = join(home, 'src-nh-9')
+  await makeSubdirRepo(src, 'skills/nh9-news')
+  const { stdout, result } = await captureOutput(() =>
+    add.add([`${fileUrl(src)}#main`, '--subdir', 'skills/nh9-news', '--name=nh9-alias']),
+  )
+  assert.equal(result, 0)
+  assert.equal(countHints(stdout), 0)
+  const m = await manifest.readManifest()
+  assert.equal(m.skills.find((s) => s.name === 'nh9-alias')?.subdir, 'skills/nh9-news')
+})
+
+test('C: no hint for a matching --name without --subdir', async () => {
+  const src = join(home, 'src-nh-10')
+  await makeSkillRepo(src)
+  const { stdout, result } = await captureOutput(() =>
+    add.add([`${fileUrl(src)}#main`, '--name', 'src-nh-10']),
+  )
+  assert.equal(result, 0)
+  assert.equal(countHints(stdout), 0)
+})
+
+test('C: no hint on failed installs', async () => {
+  // (a) duplicate registration
+  const dup = join(home, 'src-nh-11')
+  await makeSubdirRepo(dup, 'skills/nh11-dup')
+  const url = `${fileUrl(dup)}#main`
+  assert.equal(await add.add([url, '--subdir', 'skills/nh11-dup', '--name', 'nh11-dup']), 0)
+  const r1 = await captureOutput(() =>
+    add.add([url, '--subdir', 'skills/nh11-dup', '--name', 'nh11-dup']),
+  )
+  assert.equal(r1.result, 1)
+  assert.equal(countHints(r1.stdout), 0)
+
+  // (b) target subdir does not exist
+  const missing = join(home, 'src-nh-12')
+  await makeSubdirRepo(missing, 'skills/nh12-present')
+  const r2 = await captureOutput(() =>
+    add.add([`${fileUrl(missing)}#main`, '--subdir', 'skills/nh12-missing', '--name', 'nh12-missing']),
+  )
+  assert.equal(r2.result, 1)
+  assert.equal(countHints(r2.stdout), 0)
+
+  // (c) invalid --subdir — rejected before any network-bound step
+  const r3 = await captureOutput(() =>
+    add.add([`${fileUrl(missing)}#main`, '--subdir', '../nh12x', '--name', 'nh12x']),
+  )
+  assert.equal(r3.result, 1)
+  assert.equal(countHints(r3.stdout), 0)
+  assert.match(r3.stderr, /Invalid --subdir/)
+  assert.doesNotMatch(r3.stdout, /Cloning /)
+
+  // (d) the subdir exists but yields zero installable skills
+  const empty = join(home, 'src-nh-13')
+  await mkdir(join(empty, 'skills', 'nh13-empty'), { recursive: true })
+  await git(empty, ['init'])
+  await git(empty, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  await git(empty, ['config', 'user.email', 'test@example.com'])
+  await git(empty, ['config', 'user.name', 'Nexus Test'])
+  await writeFile(join(empty, 'skills', 'nh13-empty', 'notes.md'), 'not a skill\n', 'utf8')
+  await git(empty, ['add', '.'])
+  await git(empty, ['commit', '-m', 'docs only'])
+  const r4 = await captureOutput(() =>
+    add.add([`${fileUrl(empty)}#main`, '--subdir', 'skills/nh13-empty', '--name', 'nh13-empty']),
+  )
+  assert.equal(r4.result, 1)
+  assert.equal(countHints(r4.stdout), 0)
+
+  // (e) clone failure
+  const r5 = await captureOutput(() =>
+    add.add([`${fileUrl(join(home, 'nope-does-not-exist'))}#main`, '--subdir', 'skills/nh14-x', '--name', 'nh14-x']),
+  )
+  assert.equal(r5.result, 1)
+  assert.equal(countHints(r5.stdout), 0)
+})
+
+test('C: no hint when a wrapped-skill install is aborted', async () => {
+  const src = join(home, 'src-nh-15')
+  await makeSubdirRepo(src, 'skills/nh15-alpha')
+  // A plugin marker at the clone root next to a subdir SKILL.md → wrapped-skill.
+  // The sparse clone keeps root files (cone), so classification still sees it…
+  await writeFile(join(src, 'cordis.patch.yml'), 'plugins: {}\n', 'utf8')
+  await git(src, ['add', '.'])
+  await git(src, ['commit', '-m', 'wrapper'])
+
+  // …and the non-TTY confirm defaults to "no" → aborted, with no hint.
+  const { stdout, result } = await captureOutput(() =>
+    add.add([`${fileUrl(src)}#main`, '--subdir', 'skills/nh15-alpha', '--name', 'nh15-alpha']),
+  )
+  assert.equal(result, 0) // skipped, not failed
+  assert.equal(countHints(stdout), 0)
+  assert.match(stdout, /Aborted/)
+  const m = await manifest.readManifest()
+  assert.equal(m.skills.filter((s) => s.path.startsWith('src-nh-15')).length, 0)
+})
+
+/* --- Sparse reporting and junction targets --- */
+
+test('--subdir reports the checkout mode and links the junction to the subdir', async () => {
+  const src = join(home, 'src-jx')
+  await makeSubdirRepo(src, 'skills/jx-alpha')
+  const { stdout, result } = await captureOutput(() =>
+    add.add([`${fileUrl(src)}#main`, '--subdir', 'skills/jx-alpha']),
+  )
+  assert.equal(result, 0)
+  assert.match(stdout, /checkout: sparse/)
+  assert.match(stdout, /only this subdir is materialized/)
+  // file:// remotes ignore the blob filter — the warning must be visible.
+  assert.match(stdout, /the remote ignored the blob filter/)
+
+  const m = await manifest.readManifest()
+  const e = m.skills.find((s) => s.name === 'jx-alpha')!
+  const link = paths.skillLinkPath('jx-alpha')
+  assert.ok((await lstat(link)).isSymbolicLink())
+  const expected = join(paths.repoDir(e.path), 'skills', 'jx-alpha')
+  assert.equal(resolve(await readlink(link)), resolve(expected))
+  // The junction exposes the subdir's resources, not just the directory.
+  assert.match(await readFile(join(link, 'SKILL.md'), 'utf8'), /name: x/)
+})
+
+test('a plain install prints no checkout-mode line', async () => {
+  const src = join(home, 'src-plain')
+  await makeSkillRepo(src)
+  const { stdout, result } = await captureOutput(() => add.add([`${fileUrl(src)}#main`]))
+  assert.equal(result, 0)
+  assert.doesNotMatch(stdout, /checkout: /)
+})
+
+test('two subdirs of one repo install as independent clones', async () => {
+  const src = join(home, 'src-pair')
+  await mkdir(join(src, 'skills', 'pair-a'), { recursive: true })
+  await mkdir(join(src, 'skills', 'pair-b'), { recursive: true })
+  await git(src, ['init'])
+  await git(src, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  await git(src, ['config', 'user.email', 'test@example.com'])
+  await git(src, ['config', 'user.name', 'Nexus Test'])
+  await writeFile(join(src, 'skills', 'pair-a', 'SKILL.md'), '---\nname: pair-a\ndescription: a\n---\nv1\n', 'utf8')
+  await writeFile(join(src, 'skills', 'pair-b', 'SKILL.md'), '---\nname: pair-b\ndescription: b\n---\nv1\n', 'utf8')
+  await git(src, ['add', '.'])
+  await git(src, ['commit', '-m', 'collection'])
+
+  const url = `${fileUrl(src)}#main`
+  assert.equal(await add.add([url, '--subdir', 'skills/pair-a']), 0)
+  assert.equal(await add.add([url, '--subdir', 'skills/pair-b']), 0)
+
+  const m = await manifest.readManifest()
+  const a = m.skills.find((s) => s.name === 'pair-a')!
+  const b = m.skills.find((s) => s.name === 'pair-b')!
+  assert.equal(a.path, 'src-pair-pair-a')
+  assert.equal(b.path, 'src-pair-pair-b')
+  const destA = paths.repoDir(a.path)
+  const destB = paths.repoDir(b.path)
+  // Independent git state: each clone carries its own .git and HEAD…
+  await stat(join(destA, '.git'))
+  await stat(join(destB, '.git'))
+  assert.equal(await headSha(destA), await headSha(destB))
+  // …each junction points at its own subdir…
+  assert.equal(resolve(await readlink(paths.skillLinkPath('pair-a'))), resolve(join(destA, 'skills', 'pair-a')))
+  assert.equal(resolve(await readlink(paths.skillLinkPath('pair-b'))), resolve(join(destB, 'skills', 'pair-b')))
+  // …and each clone materializes only its own subdir.
+  await assert.rejects(stat(join(destA, 'skills', 'pair-b')), { code: 'ENOENT' })
+  await assert.rejects(stat(join(destB, 'skills', 'pair-a')), { code: 'ENOENT' })
 })

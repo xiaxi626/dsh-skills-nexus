@@ -7,10 +7,12 @@ import {
   cloneRepo,
   getDefaultBranch,
   getHeadCommit,
+  normalizeSubdir,
   parseGitSpec,
   repoSlug,
   sanitizeName,
 } from '../../git.js'
+import type { CloneResult } from '../../git.js'
 import { classifyRepo } from '../../repo-kind.js'
 import { locateSkillFiles } from '../../locator.js'
 import { previewSkills } from '../../resolve.js'
@@ -31,6 +33,9 @@ import { batchPrefix, withSpinner } from '../progress.js'
  * `--subdir <path>` installs a single subdirectory of the clone (collection
  * repos): the subdir is the skill root, the entry gets a `subdir` field, and
  * the clone directory is dedicated to that entry (independent-clone design).
+ * Such a clone is sparse when Git and the remote allow it (partial clone +
+ * cone-mode sparse-checkout), so unrelated directories are normally not
+ * materialized; the command reports which mode was used.
  *
  * Multiple specs are installed left-to-right and independently: a failure on
  * one repo does not abort the rest, and the exit code is non-zero if any repo
@@ -109,6 +114,18 @@ async function addOne(
 ): Promise<AddResult> {
   const { name, ref, subdir, yes } = opts
 
+  // `--subdir` is validated before anything network-bound: it must be a
+  // repository-relative directory, never an escape hatch out of the clone.
+  let normalizedSubdir: string | undefined
+  if (subdir !== undefined) {
+    try {
+      normalizedSubdir = normalizeSubdir(subdir)
+    } catch (err) {
+      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+      return { status: 'failed' }
+    }
+  }
+
   // Parse once to get the URL; we'll refine the ref below if needed.
   let gitSpec = parseGitSpec(spec, ref ?? 'main')
 
@@ -125,22 +142,11 @@ async function addOne(
     gitSpec = { ...gitSpec, ref: detected }
   }
 
-  // `--subdir` must be a repo-relative path: no absolute paths, no `..`.
-  if (
-    subdir &&
-    (/^[\\/]/.test(subdir) || subdir.split(/[\\/]/).includes('..'))
-  ) {
-    process.stderr.write(
-      `Invalid --subdir "${subdir}": must be a repo-relative path (no leading "/", no "..").\n`,
-    )
-    return { status: 'failed' }
-  }
-
   const repoBase = sanitizeName(repoSlug(gitSpec))
-  const subdirLeaf = subdir
-    ? sanitizeName(subdir.split(/[\\/]/).filter(Boolean).pop() ?? 'skill')
+  const subdirLeaf = normalizedSubdir
+    ? sanitizeName(normalizedSubdir.split('/').filter(Boolean).pop() ?? 'skill')
     : undefined
-  const path = subdir ? `${repoBase}-${subdirLeaf}` : repoBase
+  const path = normalizedSubdir ? `${repoBase}-${subdirLeaf}` : repoBase
   const skillName = sanitizeName(name ?? subdirLeaf ?? repoBase)
 
   // Reject re-registration *before* touching the filesystem.
@@ -169,14 +175,28 @@ async function addOne(
   await rm(dest, { recursive: true, force: true })
 
   process.stdout.write(`Cloning ${gitSpec.url} (ref: ${gitSpec.ref}) → ${dest}\n`)
+  let clone: CloneResult
   try {
-    await withSpinner(`cloning (${gitSpec.ref})`, () =>
-      cloneRepo(gitSpec, dest),
+    clone = await withSpinner(`cloning (${gitSpec.ref})`, () =>
+      cloneRepo(gitSpec, dest, { subdir: normalizedSubdir }),
     )
   } catch (err) {
     // Clean up any partially-created directory so a retry starts clean.
     await rm(dest, { recursive: true, force: true })
     throw err
+  }
+
+  // Say how much of the repository actually landed on disk: a larger clone than
+  // the user asked for must never be a silent surprise.
+  if (normalizedSubdir !== undefined) {
+    process.stdout.write(
+      clone.mode === 'sparse'
+        ? `  checkout: sparse — only this subdir is materialized\n`
+        : `  checkout: full — the whole repository is materialized\n`,
+    )
+  }
+  for (const warning of clone.warnings) {
+    process.stdout.write(`  ⚠ ${warning}\n`)
   }
 
   // Record the exact commit we installed — the "lockfile-lite".
@@ -189,8 +209,8 @@ async function addOne(
 
   // With `--subdir`, the skill root is the subdirectory; the clone root still
   // owns the git state (HEAD, pull) and the DSH plugin markers.
-  const skillRoot = subdir ? join(dest, subdir) : dest
-  if (subdir) {
+  const skillRoot = normalizedSubdir ? join(dest, normalizedSubdir) : dest
+  if (normalizedSubdir) {
     let st
     try {
       st = await stat(skillRoot)
@@ -199,7 +219,7 @@ async function addOne(
     }
     if (!st?.isDirectory()) {
       process.stderr.write(
-        `Subdirectory "${subdir}" does not exist in the cloned repository.\n`,
+        `Subdirectory "${normalizedSubdir}" does not exist in the cloned repository.\n`,
       )
       await rm(dest, { recursive: true, force: true })
       return { status: 'failed' }
@@ -251,7 +271,7 @@ async function addOne(
   const preview = await previewSkills(skillRoot)
   if (preview.length === 0) {
     process.stderr.write(
-      `\nNo installable SKILL.md content was found at "${subdir ?? 'the repository root'}".\n` +
+      `\nNo installable SKILL.md content was found at "${normalizedSubdir ?? 'the repository root'}".\n` +
       `dsh-skills-nexus can only install files that qualify as skills.\n` +
       (await nestedHint(dest)),
     )
@@ -260,7 +280,7 @@ async function addOne(
   }
 
   // Guard against accidental full installs of large collections.
-  if (preview.length > LARGE_COLLECTION_THRESHOLD && !subdir && !yes) {
+  if (preview.length > LARGE_COLLECTION_THRESHOLD && !normalizedSubdir && !yes) {
     const proceed = await confirm(
       `This repository yields ${preview.length} skills.\n` +
       `Do you want to install all of them? (Use --subdir <path> to install a single subdirectory instead.)`,
@@ -305,7 +325,7 @@ async function addOne(
     gitUrl: gitSpec.url,
     ref: gitSpec.ref,
     commit,
-    subdir,
+    subdir: normalizedSubdir,
     path,
     addedAt: new Date().toISOString(),
   }
@@ -331,13 +351,21 @@ async function addOne(
     }
   }
 
+  // A `--name` that only repeats the default is worth one plain hint — it is
+  // not an error, and leaving the option out changes nothing.
+  const nameHint =
+    name !== undefined && subdirLeaf !== undefined && sanitizeName(name) === subdirLeaf
+      ? `  提示：--name 与默认条目名 "${subdirLeaf}" 相同，可省略。\n`
+      : ''
+
   process.stdout.write(
     `Added skill "${skillName}" from ${spec}\n` +
-      (subdir ? `  subdir: ${subdir}\n` : '') +
+      (normalizedSubdir ? `  subdir: ${normalizedSubdir}\n` : '') +
       `  repo dir: ${dest}\n` +
       `  symlinks: ${linkedCount} skill(s) linked to ~/.dsh/skills/\n` +
       (normalizedCount > 0 ? `  normalized: ${normalizedCount} frontmatter field(s)\n` : '') +
-      `  The skill(s) will appear in the DSH catalog on next reload.\n`,
+      `  The skill(s) will appear in the DSH catalog on next reload.\n` +
+      nameHint,
   )
   return { status: 'added', skillName }
 }

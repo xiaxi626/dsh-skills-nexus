@@ -9,7 +9,7 @@
  *   └── skills-nexus/
  *       ├── manifest.json                 # state backend
  *       └── repos/
- *           ├── repo-a/                   # full git clone
+ *           ├── repo-a/                   # git clone (full; sparse when --subdir was used)
  *           │   ├── SKILL.md
  *           │   └── references/…
  *           └── repo-b/
@@ -22,7 +22,7 @@ export declare const NEXUS_HOME: string;
 /** Official DSH user skills root — symlinks are created here so the
  *  filesystem provider discovers them automatically. */
 export declare const OFFICIAL_SKILLS_DIR: string;
-/** Where nexus stores full git clones. */
+/** Where nexus stores git clones: full, or sparse for `--subdir` entries. */
 export declare const REPOS_DIR: string;
 export declare const MANIFEST_PATH: string;
 /** Absolute path to a registered repo's cloned directory. */

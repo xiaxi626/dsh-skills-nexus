@@ -12,7 +12,7 @@ import { join } from 'node:path'
  *   └── skills-nexus/
  *       ├── manifest.json                 # state backend
  *       └── repos/
- *           ├── repo-a/                   # full git clone
+ *           ├── repo-a/                   # git clone (full; sparse when --subdir was used)
  *           │   ├── SKILL.md
  *           │   └── references/…
  *           └── repo-b/
@@ -30,7 +30,7 @@ export const NEXUS_HOME: string =
  *  filesystem provider discovers them automatically. */
 export const OFFICIAL_SKILLS_DIR: string = join(DSH_HOME, 'skills')
 
-/** Where nexus stores full git clones. */
+/** Where nexus stores git clones: full, or sparse for `--subdir` entries. */
 export const REPOS_DIR: string = join(NEXUS_HOME, 'repos')
 
 export const MANIFEST_PATH: string = join(NEXUS_HOME, 'manifest.json')

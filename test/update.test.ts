@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -228,4 +228,148 @@ test('update restores a drifted tag pin even when the clone is dirty', async () 
   // a no-op here: the test repo has no frontmatter to fix).
   // (normalize line endings — git checks out with CRLF on some platforms)
   assert.equal((await readFile(join(dest, 'SKILL.md'), 'utf8')).replace(/\r\n/g, '\n'), '# test skill\n')
+})
+
+/* ------------------------------------------------------------------ */
+/* Sparse clones — update keeps the sparse scope and restores pins     */
+/* ------------------------------------------------------------------ */
+
+/** Collection repo with skills/alpha + skills/beta on `main`. */
+async function makeCollectionRepo(dir: string): Promise<void> {
+  await mkdir(join(dir, 'skills', 'alpha'), { recursive: true })
+  await mkdir(join(dir, 'skills', 'beta'), { recursive: true })
+  await git(dir, ['init'])
+  await git(dir, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  await git(dir, ['config', 'user.email', 'test@example.com'])
+  await git(dir, ['config', 'user.name', 'Nexus Test'])
+  await writeFile(join(dir, 'skills', 'alpha', 'SKILL.md'), '---\nname: alpha-skill\ndescription: a\n---\nv1\n', 'utf8')
+  await writeFile(join(dir, 'skills', 'beta', 'SKILL.md'), '---\nname: beta-skill\ndescription: b\n---\nv1\n', 'utf8')
+  await git(dir, ['add', '.'])
+  await git(dir, ['commit', '-m', 'collection'])
+}
+
+/** Register a sparse subdir clone in the manifest, mirroring `add`'s entry. */
+async function addSparseEntry(name: string, src: string, ref: string, commit: string, subdir: string): Promise<void> {
+  await manifest.addEntry({
+    name,
+    url: fileUrl(src),
+    gitUrl: fileUrl(src),
+    ref,
+    commit,
+    subdir,
+    path: name,
+    addedAt: new Date().toISOString(),
+  })
+}
+
+test('update fast-forwards a sparse branch clone and keeps the sparse scope', async () => {
+  const src = join(home, 'src-sparse-branch')
+  await mkdir(src, { recursive: true })
+  await makeCollectionRepo(src)
+  await git(src, ['config', 'uploadpack.allowFilter', 'true'])
+  const before = await getHeadCommit(src)
+
+  const dest = paths.skillDir('sparse-branch')
+  await cloneRepo(parseGitSpec(`${fileUrl(src)}#main`), dest, { subdir: 'skills/alpha' })
+  await addSparseEntry('sparse-branch', src, 'main', before, 'skills/alpha')
+
+  // Upstream edits the tracked skill.
+  await writeFile(join(src, 'skills', 'alpha', 'SKILL.md'), '---\nname: alpha-skill\ndescription: a\n---\nv2\n', 'utf8')
+  await git(src, ['add', '.'])
+  await git(src, ['commit', '-m', 'second'])
+  const upstream = await getHeadCommit(src)
+
+  assert.equal(await update.update(['sparse-branch']), 0)
+  assert.equal(await getHeadCommit(dest), upstream)
+  assert.match(await readFile(join(dest, 'skills', 'alpha', 'SKILL.md'), 'utf8'), /v2/)
+  // The sibling dir was never materialized and still is not.
+  await assert.rejects(stat(join(dest, 'skills', 'beta')), { code: 'ENOENT' })
+  const m = await manifest.readManifest()
+  assert.equal(m.skills.find((s) => s.name === 'sparse-branch')!.commit, upstream)
+})
+
+test('update restores a drifted sparse tag clone', async () => {
+  const src = join(home, 'src-sparse-tag')
+  await mkdir(src, { recursive: true })
+  await makeCollectionRepo(src)
+  await git(src, ['tag', 'v1.0.0'])
+  await git(src, ['config', 'uploadpack.allowFilter', 'true'])
+  const tagSha = await getHeadCommit(src)
+
+  const dest = paths.skillDir('sparse-tag')
+  await cloneRepo(parseGitSpec(`${fileUrl(src)}#v1.0.0`), dest, { subdir: 'skills/alpha' })
+  assert.equal(await isDetachedHead(dest), true)
+  await addSparseEntry('sparse-tag', src, 'v1.0.0', tagSha, 'skills/alpha')
+
+  // Upstream moves forward; drift the clone to it (as a manual checkout would).
+  await writeFile(join(src, 'skills', 'alpha', 'SKILL.md'), '---\nname: alpha-skill\ndescription: a\n---\nv2\n', 'utf8')
+  await git(src, ['add', '.'])
+  await git(src, ['commit', '-m', 'second'])
+  const newer = await getHeadCommit(src)
+  await git(dest, ['fetch', '--depth', '1', 'origin', 'main'])
+  await git(dest, ['checkout', 'FETCH_HEAD'])
+  assert.equal(await getHeadCommit(dest), newer)
+
+  assert.equal(await update.update(['sparse-tag']), 0)
+  assert.equal(await getHeadCommit(dest), tagSha)
+  assert.match(await readFile(join(dest, 'skills', 'alpha', 'SKILL.md'), 'utf8'), /v1/)
+  await assert.rejects(stat(join(dest, 'skills', 'beta')), { code: 'ENOENT' })
+})
+
+test('update discards local edits in a sparse clone then fast-forwards', async () => {
+  const src = join(home, 'src-sparse-dirty')
+  await mkdir(src, { recursive: true })
+  await makeCollectionRepo(src)
+  await git(src, ['config', 'uploadpack.allowFilter', 'true'])
+  const before = await getHeadCommit(src)
+
+  const dest = paths.skillDir('sparse-dirty')
+  await cloneRepo(parseGitSpec(`${fileUrl(src)}#main`), dest, { subdir: 'skills/alpha' })
+  await addSparseEntry('sparse-dirty', src, 'main', before, 'skills/alpha')
+
+  // Normalization-like edit inside the materialized subdir.
+  await writeFile(join(dest, 'skills', 'alpha', 'SKILL.md'), 'edited\n', 'utf8')
+
+  await writeFile(join(src, 'skills', 'alpha', 'SKILL.md'), '---\nname: alpha-skill\ndescription: a\n---\nv2\n', 'utf8')
+  await git(src, ['add', '.'])
+  await git(src, ['commit', '-m', 'second'])
+  const upstream = await getHeadCommit(src)
+
+  assert.equal(await update.update(['sparse-dirty']), 0)
+  assert.equal(await getHeadCommit(dest), upstream)
+  assert.match(await readFile(join(dest, 'skills', 'alpha', 'SKILL.md'), 'utf8'), /v2/)
+  await assert.rejects(stat(join(dest, 'skills', 'beta')), { code: 'ENOENT' })
+})
+
+test('updating one subdir clone leaves its sibling subdir clone untouched', async () => {
+  const src = join(home, 'src-sparse-pair')
+  await mkdir(src, { recursive: true })
+  await makeCollectionRepo(src)
+  await git(src, ['config', 'uploadpack.allowFilter', 'true'])
+  const base = await getHeadCommit(src)
+
+  const destA = paths.skillDir('pair-alpha')
+  const destB = paths.skillDir('pair-beta')
+  await cloneRepo(parseGitSpec(`${fileUrl(src)}#main`), destA, { subdir: 'skills/alpha' })
+  await cloneRepo(parseGitSpec(`${fileUrl(src)}#main`), destB, { subdir: 'skills/beta' })
+  await addSparseEntry('pair-alpha', src, 'main', base, 'skills/alpha')
+  await addSparseEntry('pair-beta', src, 'main', base, 'skills/beta')
+
+  // Upstream moves both dirs forward.
+  await writeFile(join(src, 'skills', 'alpha', 'SKILL.md'), '---\nname: alpha-skill\ndescription: a\n---\nv2\n', 'utf8')
+  await writeFile(join(src, 'skills', 'beta', 'SKILL.md'), '---\nname: beta-skill\ndescription: b\n---\nv2\n', 'utf8')
+  await git(src, ['add', '.'])
+  await git(src, ['commit', '-m', 'second'])
+  const upstream = await getHeadCommit(src)
+
+  assert.equal(await update.update(['pair-alpha']), 0)
+  assert.equal(await getHeadCommit(destA), upstream)
+  assert.match(await readFile(join(destA, 'skills', 'alpha', 'SKILL.md'), 'utf8'), /v2/)
+
+  // The sibling is untouched: same commit, same content, still sparse.
+  assert.equal(await getHeadCommit(destB), base)
+  assert.match(await readFile(join(destB, 'skills', 'beta', 'SKILL.md'), 'utf8'), /v1/)
+  await assert.rejects(stat(join(destB, 'skills', 'alpha')), { code: 'ENOENT' })
+  const m = await manifest.readManifest()
+  assert.equal(m.skills.find((s) => s.name === 'pair-beta')!.commit, base)
 })

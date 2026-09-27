@@ -52,8 +52,55 @@ export declare function parseGitSpec(input: string, refFallback?: string): GitSp
  * Returns e.g. `main` or `master`. Falls back to `main` on any failure.
  */
 export declare function getDefaultBranch(url: string): Promise<string>;
-/** Shallow-clone a repo at `ref` into `dest`, retrying transient network failures. */
-export declare function cloneRepo(spec: GitSpec, dest: string): Promise<void>;
+/**
+ * Normalize a `--subdir` value into a repository-relative path.
+ *
+ * Separators are unified to `/` and empty / `.` segments dropped, but every
+ * remaining segment keeps its literal meaning — the value is never interpreted
+ * as a glob pattern. Absolute paths, drive and UNC prefixes, `..` segments and
+ * control characters are rejected so the path can never escape the clone.
+ * Returns `.` when the value normalizes to the repository root.
+ */
+export declare function normalizeSubdir(raw: string): string;
+/** Outcome of {@link cloneRepo}: how much of the repository landed on disk. */
+export interface CloneResult {
+    /**
+     * `sparse` — cone-mode patterns restricted the checkout to the requested
+     * subdirectory (plus files Git keeps beside it in ancestor directories);
+     * `full` — the entire worktree was materialized.
+     */
+    mode: 'full' | 'sparse';
+    /** Non-fatal caveats to show the user (degraded or ignored optimizations). */
+    warnings: string[];
+}
+/** This Git cannot run the sparse step, so the clone is simply complete. */
+export declare const SPARSE_UNSUPPORTED_WARNING = "sparse checkout is unavailable in this Git \u2014 the whole repository was materialized";
+/**
+ * Reported when the remote ignores `--filter`: the worktree is still sparse,
+ * but the object database may hold every blob, so no download saving is claimed.
+ */
+export declare const FILTER_IGNORED_WARNING = "the remote ignored the blob filter \u2014 this clone may have downloaded the whole repository";
+/**
+ * Shallow-clone `spec` into `dest`.
+ *
+ * Without `options.subdir` this is the original whole-repository clone. With a
+ * subdir it uses a partial clone plus cone-mode sparse-checkout, so only the
+ * requested directory tree — plus the files Git keeps directly inside the
+ * repository root and the target's ancestor directories — is materialized:
+ *
+ *   git clone --depth 1 --filter=blob:none --no-checkout --branch <ref> <url> <dest>
+ *   git sparse-checkout set --cone [--skip-checks] -- <subdir>
+ *   git checkout <ref>
+ *
+ * The rules are always installed *before* the first checkout: a repository is
+ * never materialized in full and then pruned. Capabilities are probed rather
+ * than assumed (see the two helpers above): a Git without `sparse-checkout`
+ * falls back to a normal clone, and a worktree-less clone that turns out to
+ * lack `--cone` is completed in place instead of being downloaded twice.
+ */
+export declare function cloneRepo(spec: GitSpec, dest: string, options?: {
+    subdir?: string;
+}): Promise<CloneResult>;
 /**
  * Resolve the commit SHA a remote currently advertises for `ref`, via
  * `git ls-remote`. Returns `undefined` on any failure (offline, private repo,

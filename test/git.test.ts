@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -9,9 +9,11 @@ import {
   checkoutRef,
   cloneRepo,
   discardLocalChanges,
+  FILTER_IGNORED_WARNING,
   getHeadCommit,
   isDetachedHead,
   isDirtyWorktree,
+  normalizeSubdir,
   parseGitSpec,
   repoSlug,
   resolveRefCommit,
@@ -321,4 +323,256 @@ test('retry succeeds on second attempt', async () => {
   }, { retries: 2, minDelay: 1 })
   assert.equal(result, 'recovered')
   assert.equal(calls, 2)
+})
+
+/* ------------------------------------------------------------------ */
+/* normalizeSubdir — --subdir value → repository-relative path         */
+/* ------------------------------------------------------------------ */
+
+test('normalizeSubdir keeps already-normalized paths untouched', () => {
+  assert.equal(normalizeSubdir('skills/foo'), 'skills/foo')
+  assert.equal(normalizeSubdir('skills/a b/c-d_e'), 'skills/a b/c-d_e')
+})
+
+test('normalizeSubdir unifies separators and drops empty / "." segments', () => {
+  assert.equal(normalizeSubdir('skills\\foo'), 'skills/foo')
+  assert.equal(normalizeSubdir('./skills//foo/'), 'skills/foo')
+  assert.equal(normalizeSubdir('.'), '.')
+  assert.equal(normalizeSubdir('./'), '.')
+})
+
+test('normalizeSubdir rejects absolute, drive, UNC and escaping paths', () => {
+  const bad = ['', '/abs/path', '\\abs', 'C:/x', 'c:x', '..', 'a/../b', 'a\\..\\b', '..\\b']
+  for (const value of bad) {
+    assert.throws(
+      () => normalizeSubdir(value),
+      /Invalid --subdir/,
+      `expected ${JSON.stringify(value)} to be rejected`,
+    )
+  }
+})
+
+test('normalizeSubdir rejects control characters', () => {
+  assert.throws(() => normalizeSubdir('a\u0000b'), /Invalid --subdir/)
+  assert.throws(() => normalizeSubdir('a\nb'), /Invalid --subdir/)
+})
+
+test('normalizeSubdir keeps glob characters and dots as literal names', () => {
+  // These are directory names, never patterns — no glob interpretation.
+  assert.equal(normalizeSubdir('skills/[draft]'), 'skills/[draft]')
+  assert.equal(normalizeSubdir('skills/..foo'), 'skills/..foo')
+  assert.equal(normalizeSubdir('skills/中文名'), 'skills/中文名')
+})
+
+/* ------------------------------------------------------------------ */
+/* Sparse installs — partial clone + cone-mode sparse-checkout         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Collection repo for the sparse tests: two sibling skills, a direct file
+ * under the ancestor directory, a root doc, and an unrelated assets/ tree
+ * (covering the cone-mode keep/exclude boundary).
+ */
+async function makeSparseRepo(dir: string): Promise<void> {
+  await mkdir(join(dir, 'skills', 'alpha', 'references'), { recursive: true })
+  await mkdir(join(dir, 'skills', 'beta'), { recursive: true })
+  await mkdir(join(dir, 'assets'), { recursive: true })
+  await git(dir, ['init'])
+  await git(dir, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  await git(dir, ['config', 'user.email', 'test@example.com'])
+  await git(dir, ['config', 'user.name', 'Nexus Test'])
+  await writeFile(join(dir, 'skills', 'alpha', 'SKILL.md'), '# alpha\n', 'utf8')
+  await writeFile(join(dir, 'skills', 'alpha', 'references', 'ref.md'), 'ref\n', 'utf8')
+  await writeFile(join(dir, 'skills', 'beta', 'SKILL.md'), '# beta\n', 'utf8')
+  await writeFile(join(dir, 'skills', 'index.md'), '# index\n', 'utf8')
+  await writeFile(join(dir, 'assets', 'large.bin'), 'x'.repeat(2048), 'utf8')
+  await writeFile(join(dir, 'README.md'), '# root doc\n', 'utf8')
+  await git(dir, ['add', '.'])
+  await git(dir, ['commit', '-m', 'collection'])
+}
+
+/** All object ids in a clone's local object database (no lazy fetches). */
+async function objectIds(dir: string): Promise<string> {
+  const { stdout } = await execFileAsync(
+    'git',
+    ['cat-file', '--batch-all-objects', '--batch-check=%(objectname)'],
+    { cwd: dir },
+  )
+  return stdout
+}
+
+test('sparse clone materializes the target tree only (branch, filter honored)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nexus-git-'))
+  const src = join(root, 'src')
+  const dest = join(root, 'clone')
+  try {
+    await mkdir(src, { recursive: true })
+    await makeSparseRepo(src)
+    await git(src, ['config', 'uploadpack.allowFilter', 'true'])
+
+    const res = await cloneRepo(parseGitSpec(`${fileUrl(src)}#main`), dest, { subdir: 'skills/alpha' })
+
+    assert.equal(res.mode, 'sparse')
+    assert.deepEqual(res.warnings, [])
+    assert.equal(await isDetachedHead(dest), false)
+
+    // The target's whole subtree is on disk…
+    // (normalize line endings — git checks out with CRLF on some platforms)
+    assert.equal((await readFile(join(dest, 'skills', 'alpha', 'SKILL.md'), 'utf8')).replace(/\r\n/g, '\n'), '# alpha\n')
+    await stat(join(dest, 'skills', 'alpha', 'references', 'ref.md'))
+    // …as are the files cone keeps beside it (repo root + ancestor dirs)…
+    await stat(join(dest, 'README.md'))
+    await stat(join(dest, 'skills', 'index.md'))
+    // …while unrelated trees are not materialized.
+    await assert.rejects(stat(join(dest, 'skills', 'beta')), { code: 'ENOENT' })
+    await assert.rejects(stat(join(dest, 'assets')), { code: 'ENOENT' })
+
+    // The blob filter really kept beta's content out of the object database.
+    const betaBlob = (await execFileAsync('git', ['rev-parse', 'HEAD:skills/beta/SKILL.md'], { cwd: src })).stdout.trim()
+    const alphaBlob = (await execFileAsync('git', ['rev-parse', 'HEAD:skills/alpha/SKILL.md'], { cwd: src })).stdout.trim()
+    const objects = await objectIds(dest)
+    assert.ok(!objects.includes(betaBlob), 'beta blob must not be in the sparse clone')
+    assert.ok(objects.includes(alphaBlob), 'alpha blob must be present')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('sparse clone warns when the remote ignores the blob filter', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nexus-git-'))
+  const src = join(root, 'src')
+  const dest = join(root, 'clone')
+  try {
+    await mkdir(src, { recursive: true })
+    await makeSparseRepo(src)
+    // file:// remotes refuse filters unless uploadpack.allowFilter is set —
+    // exactly the "remote ignored --filter" case.
+    const res = await cloneRepo(parseGitSpec(`${fileUrl(src)}#main`), dest, { subdir: 'skills/alpha' })
+    assert.equal(res.mode, 'sparse')
+    assert.deepEqual(res.warnings, [FILTER_IGNORED_WARNING])
+    // The worktree is still sparse even though the objects were not filtered.
+    await assert.rejects(stat(join(dest, 'skills', 'beta')), { code: 'ENOENT' })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('sparse clone at a tag stays detached and materializes only the subdir', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nexus-git-'))
+  const src = join(root, 'src')
+  const dest = join(root, 'clone')
+  try {
+    await mkdir(src, { recursive: true })
+    await makeSparseRepo(src)
+    await git(src, ['tag', 'v1.0.0'])
+    await git(src, ['config', 'uploadpack.allowFilter', 'true'])
+    const sha = await getHeadCommit(src)
+
+    const res = await cloneRepo(parseGitSpec(`${fileUrl(src)}#v1.0.0`), dest, { subdir: 'skills/alpha' })
+    assert.equal(res.mode, 'sparse')
+    assert.equal(await isDetachedHead(dest), true)
+    assert.equal(await getHeadCommit(dest), sha)
+    await assert.rejects(stat(join(dest, 'skills', 'beta')), { code: 'ENOENT' })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('sparse clone at a fixed old commit materializes a directory that no longer exists on main', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nexus-git-'))
+  const src = join(root, 'src')
+  const dest = join(root, 'clone')
+  try {
+    await mkdir(src, { recursive: true })
+    await makeSparseRepo(src)
+    await mkdir(join(src, 'skills', 'legacy'))
+    await writeFile(join(src, 'skills', 'legacy', 'SKILL.md'), '# legacy\n', 'utf8')
+    await git(src, ['add', '.'])
+    await git(src, ['commit', '-m', 'add legacy'])
+    const withLegacy = await getHeadCommit(src)
+    await git(src, ['rm', '-r', 'skills/legacy'])
+    await git(src, ['commit', '-m', 'drop legacy'])
+    await git(src, ['config', 'uploadpack.allowFilter', 'true'])
+    await git(src, ['config', 'uploadpack.allowAnySHA1InWant', 'true'])
+
+    const res = await cloneRepo(parseGitSpec(`${fileUrl(src)}#${withLegacy}`), dest, { subdir: 'skills/legacy' })
+    assert.equal(res.mode, 'sparse')
+    assert.equal(await isDetachedHead(dest), true)
+    assert.equal(await getHeadCommit(dest), withLegacy)
+    assert.equal((await readFile(join(dest, 'skills', 'legacy', 'SKILL.md'), 'utf8')).replace(/\r\n/g, '\n'), '# legacy\n')
+    await assert.rejects(stat(join(dest, 'skills', 'beta')), { code: 'ENOENT' })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('sparse clone accepts a hex-looking branch name', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nexus-git-'))
+  const src = join(root, 'src')
+  const dest = join(root, 'clone')
+  try {
+    await mkdir(src, { recursive: true })
+    await makeSparseRepo(src)
+    await git(src, ['branch', 'deadbeef'])
+    await git(src, ['config', 'uploadpack.allowFilter', 'true'])
+    const head = await getHeadCommit(src)
+
+    const res = await cloneRepo(parseGitSpec(`${fileUrl(src)}#deadbeef`), dest, { subdir: 'skills/alpha' })
+    assert.equal(res.mode, 'sparse')
+    assert.equal(await isDetachedHead(dest), false)
+    assert.equal(await getHeadCommit(dest), head)
+    await assert.rejects(stat(join(dest, 'skills', 'beta')), { code: 'ENOENT' })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('the sparse flow works when the process cwd is not a repository', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nexus-git-'))
+  const src = join(root, 'src')
+  const dest = join(root, 'clone')
+  const outside = join(root, 'outside')
+  const prev = process.cwd()
+  try {
+    await mkdir(src, { recursive: true })
+    await mkdir(outside, { recursive: true })
+    await makeSparseRepo(src)
+    await git(src, ['config', 'uploadpack.allowFilter', 'true'])
+    // The first capability probe runs in the *current* directory, which here
+    // is not a Git repository — the probe must still work there.
+    process.chdir(outside)
+    const res = await cloneRepo(parseGitSpec(`${fileUrl(src)}#main`), dest, { subdir: 'skills/alpha' })
+    assert.equal(res.mode, 'sparse')
+  } finally {
+    process.chdir(prev)
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('a failed sparse clone reports the error and leaves no directory behind', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nexus-git-'))
+  const dest = join(root, 'clone')
+  try {
+    await assert.rejects(
+      cloneRepo(parseGitSpec(`${fileUrl(join(root, 'missing'))}#main`), dest, { subdir: 'skills/alpha' }),
+      /fatal|does not appear|not found/i,
+    )
+    await assert.rejects(stat(dest), { code: 'ENOENT' })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('sparse clone refuses to reuse an existing target path', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nexus-git-'))
+  const dest = join(root, 'clone')
+  try {
+    await mkdir(dest)
+    await assert.rejects(
+      cloneRepo(parseGitSpec('file:///nonexistent/src#main'), dest, { subdir: 'skills/alpha' }),
+      /Refusing to clone into an existing path/,
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
