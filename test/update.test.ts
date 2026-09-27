@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { cloneRepo, getHeadCommit, isDetachedHead, parseGitSpec } from '../src/git.js'
+import { SPARSE_SKIP } from './sparse-capability.js'
 
 /**
  * Integration tests for the `update` command against local `file://` remotes
@@ -262,7 +263,7 @@ async function addSparseEntry(name: string, src: string, ref: string, commit: st
   })
 }
 
-test('update fast-forwards a sparse branch clone and keeps the sparse scope', async () => {
+test('update fast-forwards a sparse branch clone and keeps the sparse scope', { skip: SPARSE_SKIP }, async () => {
   const src = join(home, 'src-sparse-branch')
   await mkdir(src, { recursive: true })
   await makeCollectionRepo(src)
@@ -288,7 +289,7 @@ test('update fast-forwards a sparse branch clone and keeps the sparse scope', as
   assert.equal(m.skills.find((s) => s.name === 'sparse-branch')!.commit, upstream)
 })
 
-test('update restores a drifted sparse tag clone', async () => {
+test('update restores a drifted sparse tag clone', { skip: SPARSE_SKIP }, async () => {
   const src = join(home, 'src-sparse-tag')
   await mkdir(src, { recursive: true })
   await makeCollectionRepo(src)
@@ -316,7 +317,7 @@ test('update restores a drifted sparse tag clone', async () => {
   await assert.rejects(stat(join(dest, 'skills', 'beta')), { code: 'ENOENT' })
 })
 
-test('update discards local edits in a sparse clone then fast-forwards', async () => {
+test('update discards local edits in a sparse clone then fast-forwards', { skip: SPARSE_SKIP }, async () => {
   const src = join(home, 'src-sparse-dirty')
   await mkdir(src, { recursive: true })
   await makeCollectionRepo(src)
@@ -341,7 +342,7 @@ test('update discards local edits in a sparse clone then fast-forwards', async (
   await assert.rejects(stat(join(dest, 'skills', 'beta')), { code: 'ENOENT' })
 })
 
-test('updating one subdir clone leaves its sibling subdir clone untouched', async () => {
+test('updating one subdir clone leaves its sibling subdir clone untouched', { skip: SPARSE_SKIP }, async () => {
   const src = join(home, 'src-sparse-pair')
   await mkdir(src, { recursive: true })
   await makeCollectionRepo(src)

@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, lstat, readFile, readlink, rm, stat, writeFile } from '
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
+import { SPARSE_SKIP } from './sparse-capability.js'
 
 /**
  * Integration tests for the `add` command against a local `file://` repo.
@@ -483,7 +484,7 @@ test('C: no hint when a wrapped-skill install is aborted', async () => {
 
 /* --- Sparse reporting and junction targets --- */
 
-test('--subdir reports the checkout mode and links the junction to the subdir', async () => {
+test('--subdir reports the checkout mode and links the junction to the subdir', { skip: SPARSE_SKIP }, async () => {
   const src = join(home, 'src-jx')
   await makeSubdirRepo(src, 'skills/jx-alpha')
   const { stdout, result } = await captureOutput(() =>
@@ -513,7 +514,7 @@ test('a plain install prints no checkout-mode line', async () => {
   assert.doesNotMatch(stdout, /checkout: /)
 })
 
-test('two subdirs of one repo install as independent clones', async () => {
+test('two subdirs of one repo install as independent clones', { skip: SPARSE_SKIP }, async () => {
   const src = join(home, 'src-pair')
   await mkdir(join(src, 'skills', 'pair-a'), { recursive: true })
   await mkdir(join(src, 'skills', 'pair-b'), { recursive: true })

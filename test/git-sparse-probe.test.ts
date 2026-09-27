@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { sparseSetAdvertisesCone } from './sparse-capability.js'
 
 /**
  * Capability-probe and degradation branches of `cloneRepo`, driven through a
@@ -316,4 +317,16 @@ test('a failed branch clone is retried once and the partial directory is discard
   assert.equal(calls.filter((c) => c.args[0] === 'clone').length, 2)
   // …and the partial directory is gone afterwards.
   await assert.rejects(stat(dest), { code: 'ENOENT' })
+})
+
+test('the test-side capability probe reads the same help output the module does', () => {
+  // The two shapes the real world hands to the probe: Git 2.35+ advertises
+  // --cone on `set`; the older `set` usage (verbatim from the Git 2.34
+  // source) has no such option.
+  assert.equal(sparseSetAdvertisesCone(USAGE_SET_CONE), true)
+  assert.equal(sparseSetAdvertisesCone(USAGE_SET_NO_CONE), false)
+  assert.equal(
+    sparseSetAdvertisesCone('usage: git sparse-checkout (set|add) (--stdin | <patterns>)\n'),
+    false,
+  )
 })

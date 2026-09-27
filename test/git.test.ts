@@ -22,6 +22,7 @@ import {
   retry,
   sanitizeName,
 } from '../src/git.js'
+import { SPARSE_SKIP } from './sparse-capability.js'
 
 /* ------------------------------------------------------------------ */
 /* parseGitSpec — spec → cloneable URL + ref                           */
@@ -476,7 +477,7 @@ async function objectIds(dir: string): Promise<string> {
   return stdout
 }
 
-test('sparse clone materializes the target tree only (branch, filter honored)', async () => {
+test('sparse clone materializes the target tree only (branch, filter honored)', { skip: SPARSE_SKIP }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'nexus-git-'))
   const src = join(root, 'src')
   const dest = join(root, 'clone')
@@ -513,7 +514,7 @@ test('sparse clone materializes the target tree only (branch, filter honored)', 
   }
 })
 
-test('sparse clone warns when the remote ignores the blob filter', async () => {
+test('sparse clone warns when the remote ignores the blob filter', { skip: SPARSE_SKIP }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'nexus-git-'))
   const src = join(root, 'src')
   const dest = join(root, 'clone')
@@ -532,7 +533,7 @@ test('sparse clone warns when the remote ignores the blob filter', async () => {
   }
 })
 
-test('sparse clone at a tag stays detached and materializes only the subdir', async () => {
+test('sparse clone at a tag stays detached and materializes only the subdir', { skip: SPARSE_SKIP }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'nexus-git-'))
   const src = join(root, 'src')
   const dest = join(root, 'clone')
@@ -553,7 +554,7 @@ test('sparse clone at a tag stays detached and materializes only the subdir', as
   }
 })
 
-test('sparse clone at a fixed old commit materializes a directory that no longer exists on main', async () => {
+test('sparse clone at a fixed old commit materializes a directory that no longer exists on main', { skip: SPARSE_SKIP }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'nexus-git-'))
   const src = join(root, 'src')
   const dest = join(root, 'clone')
@@ -581,7 +582,7 @@ test('sparse clone at a fixed old commit materializes a directory that no longer
   }
 })
 
-test('sparse clone accepts a hex-looking branch name', async () => {
+test('sparse clone accepts a hex-looking branch name', { skip: SPARSE_SKIP }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'nexus-git-'))
   const src = join(root, 'src')
   const dest = join(root, 'clone')
@@ -602,7 +603,7 @@ test('sparse clone accepts a hex-looking branch name', async () => {
   }
 })
 
-test('the sparse flow works when the process cwd is not a repository', async () => {
+test('the sparse flow works when the process cwd is not a repository', { skip: SPARSE_SKIP }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'nexus-git-'))
   const src = join(root, 'src')
   const dest = join(root, 'clone')

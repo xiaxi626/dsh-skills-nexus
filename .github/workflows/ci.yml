@@ -61,3 +61,37 @@ jobs:
             exit 1
           fi
           echo "lib/ is up to date"
+
+  legacy-git:
+    # The sparse integration tests need `sparse-checkout set --cone` (Git 2.35+,
+    # Jan 2022). This job pins the other half of that contract: on the Git
+    # Ubuntu 22.04 LTS still ships — 2.34.1, a supported release into 2027 —
+    # the gated tests must skip, the CLI must degrade to a full clone, and
+    # everything else must pass. The full suite runs on purpose: anything that
+    # silently needs a newer Git fails here instead of on a user's machine.
+    name: unit tests on Ubuntu 22.04's legacy Git 2.34
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    steps:
+      - name: Install Git (absent from the minimal container image)
+        run: apt-get update -qq && apt-get install -y -qq git ca-certificates
+
+      - name: Confirm the legacy Git under test
+        run: |
+          git --version
+          git --version | grep -q '2\.34\.' || {
+            echo "::error::expected Ubuntu 22.04's Git 2.34.x in this container"
+            exit 1
+          }
+
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
