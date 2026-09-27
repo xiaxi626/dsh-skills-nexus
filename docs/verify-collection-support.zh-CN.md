@@ -30,7 +30,10 @@ npm run test:build  # 可选：把 src+test 编译到 test-dist/，无 loader �
 
 | 测试文件 | 验证内容 |
 |---|---|
-| `test/add.test.ts` | `--subdir` 安装（name/path 规则）、子目录缺失失败并清理、嵌套集合不带 `--subdir` 被拒绝、非法 subdir 值、大集合防呆 |
+| `test/add.test.ts` | `--subdir` 安装（name/path 规则）、子目录缺失失败并清理、嵌套集合不带 `--subdir` 被拒绝、非法 subdir 值、大集合防呆；稀疏报告（`checkout: sparse`）、冗余 `--name` 提示矩阵、junction 指向 subdir、条目间互不影响 |
+| `test/git.test.ts` | 稀疏克隆端到端：`subdir` 路径规则、filter 生效/被忽略警告、分支/tag/SHA 流程、对象库探测（filter 生效时无关 blob 不入库）、失败清理 |
+| `test/git-sparse-probe.test.ts` | 注入 `execFile` mock 覆盖能力探测分支：缺 `sparse-checkout`、缺 `--cone`、帮助输出异常、spawn 错误、SHA 回退链、重试/清理 |
+| `test/update.test.ts` | 稀疏快进、tag 漂移恢复、dirty 清理——`update` 后稀疏检出保持稀疏 |
 | `test/locator.test.ts` | 文档变体（`README.zh-CN.md`、`CONTRIBUTING.md`、`CODE_OF_CONDUCT.md` 等）按前缀模式跳过 |
 | `test/resolve.test.ts` | 无 frontmatter 的平铺 md 不是 skill；条目 `subdir` 解析；`previewSkills` |
 | `test/args.test.ts` | `--subdir` 解析 + 缺值报错 |
@@ -42,7 +45,7 @@ npm run test:build  # 可选：把 src+test 编译到 test-dist/，无 loader �
 ## 第二部分 — 端到端验证
 
 每个平台一个可整体复制的命令块。把 `PROJECT` 换成你的仓库路径。
-步骤 `[a]`–`[h]` 覆盖本次改动的全部行为面。
+步骤 `[a]`–`[i]` 覆盖本次改动的全部行为面。
 
 ### Windows（Git Bash / MINGW64）
 
@@ -120,6 +123,17 @@ dsh-skills-nexus list
 # 检查 symlink 是否创建
 ls -la "$DSH_HOME/skills/"
 # 期望：with-name 和 sub-skill 出现，plain.md 不出现
+
+echo "--- [i] 稀疏观测：用显式 git -C 在隔离目录里检查克隆 ---"
+SPARSE_CLONE="$DSH_HOME/skills-nexus/repos/nexus-col-beta"   # 克隆目录 = <仓库名>-<subdir 末段>
+git -C "$SPARSE_CLONE" sparse-checkout list                    # → skills/beta（cone 规则）
+ls "$SPARSE_CLONE"                                             # → CONTRIBUTING.md README.zh-CN.md community-leaderboard.md skills（cone 保留的根目录文件）
+ls "$SPARSE_CLONE/skills"                                      # → 只有 beta；alpha 未检出
+# 退出稀疏：获取并检出剩余全部内容（单向；update 不会重新开启）
+git -C "$SPARSE_CLONE" sparse-checkout disable
+ls "$SPARSE_CLONE/skills"                                      # → alpha beta（整仓已落盘；再 list 会报 "not sparse"）
+# 完事后卸载——删除条目、克隆和 symlink
+node lib/cli/index.js remove beta
 
 # ---- 清理 ----
 rm -rf "$COLL" "$DEMO" "$LARGE" "$MIX"
@@ -204,6 +218,17 @@ dsh-skills-nexus list
 ls -la "$DSH_HOME/skills/"
 # 期望：with-name 和 sub-skill 出现，plain.md 不出现
 
+echo "--- [i] 稀疏观测：用显式 git -C 在隔离目录里检查克隆 ---"
+SPARSE_CLONE="$DSH_HOME/skills-nexus/repos/nexus-col-beta"   # 克隆目录 = <仓库名>-<subdir 末段>
+git -C "$SPARSE_CLONE" sparse-checkout list                    # → skills/beta（cone 规则）
+ls "$SPARSE_CLONE"                                             # → CONTRIBUTING.md README.zh-CN.md community-leaderboard.md skills（cone 保留的根目录文件）
+ls "$SPARSE_CLONE/skills"                                      # → 只有 beta；alpha 未检出
+# 退出稀疏：获取并检出剩余全部内容（单向；update 不会重新开启）
+git -C "$SPARSE_CLONE" sparse-checkout disable
+ls "$SPARSE_CLONE/skills"                                      # → alpha beta（整仓已落盘；再 list 会报 "not sparse"）
+# 完事后卸载——删除条目、克隆和 symlink
+node lib/cli/index.js remove beta
+
 # ---- 清理 ----
 rm -rf "$COLL" "$DEMO" "$LARGE" "$MIX"
 unset DSH_HOME
@@ -216,7 +241,7 @@ unset DSH_HOME
 | 步骤 | 期望输出 | 含义 |
 |---|---|---|
 | `[a]` 全量 add | `No installable SKILL.md content…` + `--subdir <path>` 提示，exit 1 | 嵌套集合被拒绝，而不是"假装安装" |
-| `[b]` subdir add | `Added skill "alpha"` 且 `subdir: skills/alpha`，克隆在 `…-alpha` | 每个 subdir 独立克隆；name 取末段 |
+| `[b]` subdir add | `Added skill "alpha"` 且 `subdir: skills/alpha`、`checkout: sparse — only this subdir is materialized`，克隆在 `…-alpha`；`file://` 下还会出现 `⚠ the remote ignored the blob filter …`（见「坑」10） | 每个 subdir 独立克隆、默认稀疏；name 取末段 |
 | `[c]` list | SUBDIR 列显示 `skills/alpha` / `skills/beta` | 条目记录了 subdir |
 | `[d]` dsh-skills-nexus list + ls symlinks | 只有 `alpha-skill` + `beta-skill` | 根目录文档（README.zh-CN.md 等）不是 skill |
 | `[e]` disable/enable | `beta` 单独 off/on，`alpha` 不受影响 | 按条目（=按 subdir）可见性 |
@@ -224,6 +249,7 @@ unset DSH_HOME
 | `[g]` 大集合防呆 | 不带 `--yes`：提示后中止；带 `--yes`：21 个 skill 注册，`list` 行首为 `on` | 双向都正确；多 skill 条目状态按链接目标反查 |
 | `[g2]` 多 skill 条目开关 | disable 后 `off nexus-large` 且 21 个链接全部删除；enable 后恢复 `on` | 状态反查与开关对多 skill 条目生效 |
 | `[h]` 平铺 md 规则 | `with-name` + `sub-skill` 出现，`plain.md` 不出现 | 无 frontmatter 的平铺 md ≠ skill；SKILL.md 永远算 |
+| `[i]` 稀疏观测 | `sparse-checkout list` → `skills/beta`；`ls` 只见三个根文件 + `skills/beta`；`sparse-checkout disable` 后 `alpha` 出现 | cone 保留根/祖先文件；稀疏按克隆独立、可用 `git -C` 显式退出 |
 
 注意：`dsh-skills-nexus list` 会列出当前 `$DSH_HOME` 里**所有**已注册条目，所以 `[g]` 之后会看到 21 个 `skill-*`——这是预期行为。
 
@@ -257,6 +283,14 @@ unset DSH_HOME
    直接跑不带管道的 `node lib/cli/index.js list` 看全量输出，或先重定向到文件再过滤：
    `node lib/cli/index.js list > /tmp/l.txt && grep nexus-large /tmp/l.txt`。
    MSYS 原生程序（如 `ls | grep`）不受影响。
+10. **`[b]`/`[i]` 可能见到的稀疏警告** —— (a) `file://` 远端出现
+    `⚠ the remote ignored the blob filter …` 属正常：本地远端默认
+    `uploadpack.allowFilter` 关闭，git 照样下载对象——检出仍是稀疏的
+    （`[i]` 可验证），支持过滤的远端（如 GitHub）不会打印该行；(b) 本机
+    Git 无法运行稀疏流程时，`add --subdir` 打印 `sparse checkout is
+    unavailable in this Git — the whole repository was materialized`，并把
+    同一克隆补成整仓检出（不重复下载）——现代 Git 下无法复现，由 mock 套件
+    `test/git-sparse-probe.test.ts` 覆盖。
 
 ---
 
@@ -267,5 +301,9 @@ unset DSH_HOME
   下，根目录文档被过滤）。
 - **P2 共享克隆设计** —— 未实现（v1 是独立克隆）；权衡与两个隐藏坑
   （共享判定键、锁的归属）见 [docs/subdir-design.md](docs/subdir-design.md)。
+- **稀疏降级** —— 「本机 Git 缺 `sparse-checkout`」在现代 Git 下无法复现；
+  降级分支（整仓回退、警告可见性、重试/清理）由注入 mock 的
+  `test/git-sparse-probe.test.ts` 覆盖；filter 被忽略的警告则由本指南每个
+  `file://` 安装真实触发。
 - **DSH 运行时集成** —— Skills 通过 ~/.dsh/skills/ 中的 symlink 暴露，由官方 filesystem provider 发现。不再需要自定义 provider。`subdir` 是新增的可选 manifest 字段（旧 manifest 正常加载）。
 - **Node 20 / 22 / 24 矩阵** —— CI 在 push/PR 时跑完整质量门禁。

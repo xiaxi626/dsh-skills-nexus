@@ -319,46 +319,31 @@ it's for local development only):
 # overlay.yml
 - insert:
     - id: dsh-skills-nexus
-      # Windows: '/C:/your/path/dsh-skills-nexus/lib/index.js'
-      # macOS:   '/Users/your/path/dsh-skills-nexus/lib/index.js'
-      # Linux:   '/home/your/path/dsh-skills-nexus/lib/index.js'
-      name: '/your/absolute/path/dsh-skills-nexus/lib/index.js'
+      # relative paths are anchored to the directory containing overlay.yml
+      name: './lib/index.js'
 ```
 
-> `name` should be the **absolute path** to `lib/index.js`. On Windows, prefix
-> the drive letter with `/`, e.g. `'/C:/dev/dsh-skills-nexus/lib/index.js'`;
-> on macOS / Linux, use a standard absolute path, e.g.
-> `'/home/user/dsh-skills-nexus/lib/index.js'`.
+> With `overlay.yml` in the project root, `'./lib/index.js'` points at
+> `<project>/lib/index.js` — relative paths are anchored to the directory
+> containing `overlay.yml`, so the same form works on Windows, macOS and
+> Linux. If you need an absolute path, use a `file:///` URL instead, e.g.
+> `'file:///C:/dev/dsh-skills-nexus/lib/index.js'`; the older `'/C:/...'`
+> form (leading `/` before the drive letter) no longer works on current
+> dsh — it is resolved into `C:\C:\...`.
 
-**Or generate it with a one-liner** (make sure you've cd'd into the project dir):
-
-**Windows (Git Bash / MINGW):**
+**Or generate it with a one-liner** (make sure you've cd'd into the project dir;
+works the same in Git Bash, macOS and Linux shells):
 
 ```bash
 cat > overlay.yml <<EOF
 - insert:
     - id: dsh-skills-nexus
-      name: '/$(pwd -W)/lib/index.js'
+      name: './lib/index.js'
 EOF
 ```
 
-> `pwd -W` outputs a Windows-style absolute path (e.g. `C:/Users/xxx/dsh-skills-nexus`).
-> You must prefix it with `/`, resulting in `/C:/Users/xxx/dsh-skills-nexus/lib/index.js`.
-> Node.js ESM loader doesn't accept bare `C:/...` paths on Windows (treats `c:` as a
-> protocol) — it must be `/C:/...` or `file:///C:/...`.
-
-**macOS / Linux:**
-
-```bash
-cat > overlay.yml <<EOF
-- insert:
-    - id: dsh-skills-nexus
-      name: '$(pwd)/lib/index.js'
-EOF
-```
-
-> `pwd` outputs a Unix-style absolute path (e.g. `/Users/xxx/dsh-skills-nexus`),
-> which already starts with `/`, resulting in `/Users/xxx/dsh-skills-nexus/lib/index.js`.
+> No absolute path is embedded — `pwd` / `pwd -W` are not needed, and the file
+> stays valid if you later move the project folder.
 
 ### Step 3 — start DSH in patch mode
 
@@ -488,8 +473,19 @@ ls -la ~/.dsh/skills/
   subdirectories, e.g. `trae-community/trae-skills`) are installed piecemeal
   with `--subdir <path>` — each install is its own entry with its own clone
   (independent-clone design, see [docs/subdir-design.md](docs/subdir-design.md)
-  for the P1/P2 trade-off). Installing the whole repo without `--subdir` is
-  guarded by a confirmation prompt above 20 skills. Entries cherry-picked from
+  for the P1/P2 trade-off). New `--subdir` installs are **sparse checkouts**
+  where Git and the remote allow it: a partial clone plus cone-mode
+  `sparse-checkout` (the install reports `checkout: sparse`), so unrelated
+  skill directories are not materialized — when the remote supports blob
+  filtering this usually means less to download, though the exact saving
+  depends on the repo layout (no strict download cap: cone keeps the repo
+  root's and ancestor directories' own files, and a remote that ignores the
+  filter may hand over the whole repository — nexus warns when that happens).
+  To leave sparse mode, run `git -C <clone> sparse-checkout disable` (fetches
+  everything else; `update` will not re-enable it); if this Git cannot run
+  the sparse flow, the same clone is completed as a full checkout after a
+  visible warning. Installing the whole repo without `--subdir` is guarded
+  by a confirmation prompt above 20 skills. Entries cherry-picked from
   the same repo each keep their own clone, but `list` shows a **SOURCE** column
   (the origin `owner/repo`) so same-origin entries are easy to spot.
 - **Flat-markdown filter**: a flat `*.md` file without frontmatter `name` AND
@@ -499,8 +495,11 @@ ls -la ~/.dsh/skills/
   `changelog*`, `code-of-conduct*`, `security*`) are skipped at discovery.
 - **Name collisions**: DSH indexes skills by name; a later install with the
   same name overwrites. Use `--name` to distinguish entries, or `--subdir` to
-  install only what you need. enable/disable work per entry, `remove` deletes
-  the whole entry's clone and all its symlinks.
+  install only what you need. For `--subdir` installs, an explicit `--name`
+  that normalizes to the same value as the default entry name prints a
+  one-time hint after a successful install that the flag can be omitted.
+  enable/disable work per entry, `remove` deletes the whole entry's clone
+  and all its symlinks.
 - **Skill name validation**: DSH requires lowercase kebab-case skill names
   (`[a-z0-9]+` segments separated by single `-`). nexus normalizes invalid
   frontmatter names at `add` time (converted to kebab-case) and warns with `⚠`.

@@ -1,6 +1,6 @@
 # --subdir 设计备忘（集合仓库的"挑着装"）
 
-> 状态：设计决策记录 · 2026-08-23
+> 状态：设计决策记录 · 2026-08-23 · 2026-09-26 增补：独立稀疏安装（A）+ 冗余 `--name` 提示（C），见文末「增补」节
 > 动机：`trae-community/trae-skills` 等集合仓库（`skills/<name>/SKILL.md` 嵌套布局）
 > 无法用 `add <repo>` 直接安装：要么被当作 unknown 拒绝，要么误装仓库根目录的
 > 文档文件而漏掉全部真 skill（见 CHANGELOG 的 Observed 记录）。
@@ -70,8 +70,8 @@ manifest 视角（两条目同 path、不同 subdir）：
 
 | 维度 | P1 独立克隆 | P2 共享克隆 |
 |---|---|---|
-| 克隆数 / 磁盘 | N 个 skill = N 份克隆 | 永远 1 份 |
-| 第二次 `add` | 完整重新 clone（慢、费流量） | 检测复用，几乎瞬时 |
+| 克隆数 / 磁盘 | N 个 skill = N 份克隆（现为稀疏检出，见增补） | 永远 1 份 |
+| 第二次 `add` | 重新 clone（filtered + 稀疏检出，减少无关内容） | 检测复用，几乎瞬时 |
 | `remove` 一个 | 删自己的克隆，零连坐 | 需要引用计数（非最后一个只删条目） |
 | `update`（全部） | 每个条目各自 pull（同仓库拉 N 次） | 按 path 去重，pull 1 次，多条一起盖章 |
 | ref/commit 锁 | 每个条目独立锁 | 共享同一把锁 |
@@ -104,3 +104,30 @@ manifest 视角（两条目同 path、不同 subdir）：
 - 全量装的集合只能整组开关（条目级 enable/disable）；想单独控制用 `--subdir` 挑着装。
 - 平铺扫描保守化（A1/A2）：跳过 `readme*`/`contributing*`/`changelog*`/`license*`/
   `code-of-conduct*`/`security*`；平铺 md 无 frontmatter（name 且 description 均无）不再成为 skill。
+
+## 增补（2026-09-26）：独立稀疏安装（A）+ 冗余 --name 提示（C）
+
+v1 之上的两项追加改动，不改变条目语义与命令接口：
+
+### A：`--subdir` 改走稀疏检出
+
+- `cloneRepo()` 增加可选第三参 `{ subdir }`；有 `subdir` 时改用
+  **partial clone + cone 模式 sparse-checkout**：
+  `clone --depth 1 --filter=blob:none --no-checkout` →
+  `sparse-checkout set --cone -- <subdir>`（在首次显式 checkout 前建立规则）→
+  `checkout <ref>`。返回实际工作树模式（`full`/`sparse`）与警告，供 CLI 展示。
+- 检出范围 = 目标目录完整子树 + cone 规则保留的仓库根及各祖先目录直属文件；
+  无关 skill 目录不检出；根插件标记（`cordis.patch.yml` 等）仍可读，分类行为不变。
+- 兼容降级按**命令能力**探测（不按版本号）：顶层 `git sparse-checkout -h` 判命令
+  存在性，克隆内 `set -h` 判 `--cone`/`--skip-checks`。明确缺能力 → 复用本次
+  未检出的克隆补成整仓浅检出并警告（不重复下载）；远端忽略 filter → 仍稀疏检出
+  并警告「可能已下载整仓对象」；网络/认证/ref/磁盘失败 → 按原失败语义处理，
+  不转整仓回退。
+- 退出稀疏（手动、单向）：`git -C <克隆目录> sparse-checkout disable`——
+  获取并检出剩余全部内容；后续 `update` 不会重新强制稀疏。旧整仓克隆不自动迁移。
+
+### C：冗余 `--name` 提示
+
+- `--subdir` 安装成功、且显式 `--name` 经 `sanitizeName` 归一后等于默认条目名
+  （subdir 末段）时，追加一次提示 `提示：--name 与默认条目名 "x" 相同，可省略。`；
+  未传 `--name`、名称不同、失败或中止均为 0 次。只加提示，不改命名规则与机器接口。

@@ -16,7 +16,7 @@ flowchart TD
     subgraph NEXUS["dsh-skills-nexus  (~/.dsh/skills-nexus/)"]
         A["CLI<br/><i>add · update · remove</i>"]
         M["manifest.json<br/><i>state backend</i>"]
-        R["repos/<br/><i>full git clones</i>"]
+        R["repos/<br/><i>git clones (sparse for subdir)</i>"]
     end
 
     subgraph DSH["Official DSH root  (~/.dsh/skills/)"]
@@ -51,6 +51,8 @@ flowchart TD
 ```
 dsh-skills-nexus add github:owner/repo
    └─ git clone --depth 1 →  ~/.dsh/skills-nexus/repos/<name>/
+                              (with --subdir: partial clone + cone sparse-checkout,
+                               so unrelated directories are not materialized)
    └─ normalize frontmatter  (fix invalid names to kebab-case, add missing description)
    └─ create symlink     →  ~/.dsh/skills/<skill-name>/  →  points to repos/<name>/
    └─ append entry       →  ~/.dsh/skills-nexus/manifest.json
@@ -105,11 +107,11 @@ Required: `name`, `description`. Optional, respected by the provider:
 │
 └── skills-nexus/
     ├── manifest.json                 # state backend: CLI writes
-    └── repos/                        # full git clones live here
+    └── repos/                        # git clones live here (sparse for subdir installs)
         ├── repo-a/                  # full git clone (nexus-managed)
         │   ├── SKILL.md
         │   └── references/…
-        └── repo-b/
+        └── repo-b/                  # sparse clone: only skills/foo checked out
             └── skills/
                 └── foo/
                     └── SKILL.md

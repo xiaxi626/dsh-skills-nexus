@@ -40,7 +40,10 @@ New coverage in this change:
 
 | test file | what it verifies |
 |---|---|
-| `test/add.test.ts` | `--subdir` install (name/path rules), missing subdir fails + cleans up, nested collection without `--subdir` rejected, invalid subdir values, large-collection guard |
+| `test/add.test.ts` | `--subdir` install (name/path rules), missing subdir fails + cleans up, nested collection without `--subdir` rejected, invalid subdir values, large-collection guard; sparse report (`checkout: sparse`), redundant `--name` hint matrix, junction targets the subdir, per-entry isolation |
+| `test/git.test.ts` | sparse clone end-to-end: `subdir` path rules, filter honored / ignored-warning, branch/tag/SHA flows, object-database probe (unrelated blobs absent when filtering works), failure cleanup |
+| `test/git-sparse-probe.test.ts` | capability-probe branches via an injected `execFile`: missing `sparse-checkout`, missing `--cone`, abnormal help output, spawn errors, SHA fallback chain, retry/cleanup |
+| `test/update.test.ts` | sparse fast-forward, tag-drift restore, dirty cleanup — the sparse live checkout survives `update` |
 | `test/locator.test.ts` | doc variants (`README.zh-CN.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, …) skipped by prefix pattern |
 | `test/resolve.test.ts` | flat md without frontmatter is not a skill; entry `subdir` resolution; `previewSkills` |
 | `test/args.test.ts` | `--subdir` parsing + missing-value error |
@@ -52,7 +55,7 @@ New coverage in this change:
 ## Part 2 — end-to-end walkthrough
 
 One copy-paste block per platform. Replace `PROJECT` with your checkout path.
-Steps `[a]`–`[h]` are the full behavior surface of this change.
+Steps `[a]`–`[i]` are the full behavior surface of this change.
 
 ### Windows (Git Bash / MINGW64)
 
@@ -130,6 +133,17 @@ dsh-skills-nexus list
 # check that symlinks were created
 ls -la "$DSH_HOME/skills/"
 # expected: with-name + sub-skill present, plain.md absent
+
+echo "--- [i] sparse checkout: inspect a clone in isolation (explicit git -C) ---"
+SPARSE_CLONE="$DSH_HOME/skills-nexus/repos/nexus-col-beta"   # clone dir = <repo>-<subdir leaf>
+git -C "$SPARSE_CLONE" sparse-checkout list                    # → skills/beta (the cone rule)
+ls "$SPARSE_CLONE"                                             # → CONTRIBUTING.md README.zh-CN.md community-leaderboard.md skills (root files kept by cone)
+ls "$SPARSE_CLONE/skills"                                      # → beta only; alpha is not checked out
+# leave sparse mode: fetches and checks out everything else (one-way; update never re-enables it)
+git -C "$SPARSE_CLONE" sparse-checkout disable
+ls "$SPARSE_CLONE/skills"                                      # → alpha beta (whole repo now on disk; list then says "not sparse")
+# uninstall when done — removes the entry, its clone and its symlinks
+node lib/cli/index.js remove beta
 
 # ---- cleanup ----
 rm -rf "$COLL" "$DEMO" "$LARGE" "$MIX"
@@ -214,6 +228,17 @@ dsh-skills-nexus list
 ls -la "$DSH_HOME/skills/"
 # expected: with-name + sub-skill present, plain.md absent
 
+echo "--- [i] sparse checkout: inspect a clone in isolation (explicit git -C) ---"
+SPARSE_CLONE="$DSH_HOME/skills-nexus/repos/nexus-col-beta"   # clone dir = <repo>-<subdir leaf>
+git -C "$SPARSE_CLONE" sparse-checkout list                    # → skills/beta (the cone rule)
+ls "$SPARSE_CLONE"                                             # → CONTRIBUTING.md README.zh-CN.md community-leaderboard.md skills (root files kept by cone)
+ls "$SPARSE_CLONE/skills"                                      # → beta only; alpha is not checked out
+# leave sparse mode: fetches and checks out everything else (one-way; update never re-enables it)
+git -C "$SPARSE_CLONE" sparse-checkout disable
+ls "$SPARSE_CLONE/skills"                                      # → alpha beta (whole repo now on disk; list then says "not sparse")
+# uninstall when done — removes the entry, its clone and its symlinks
+node lib/cli/index.js remove beta
+
 # ---- cleanup ----
 rm -rf "$COLL" "$DEMO" "$LARGE" "$MIX"
 unset DSH_HOME
@@ -226,7 +251,7 @@ unset DSH_HOME
 | step | expected output | meaning |
 |---|---|---|
 | `[a]` whole-repo add | `No installable SKILL.md content…` + `--subdir <path>` hint, exit 1 | nested collection rejected, not "fake-installed" |
-| `[b]` subdir add | `Added skill "alpha"` with `subdir: skills/alpha`, clone at `…-alpha` | independent clone per subdir, name = last segment |
+| `[b]` subdir add | `Added skill "alpha"` with `subdir: skills/alpha`, `checkout: sparse — only this subdir is materialized`, clone at `…-alpha`; with `file://` a `⚠ the remote ignored the blob filter …` line is also expected (pitfall 10) | independent clone per subdir, sparse by default, name = last segment |
 | `[c]` list | `SUBDIR` column shows `skills/alpha` / `skills/beta` | entry records its subdir |
 | `[d]` dsh-skills-nexus list + ls symlinks | only `alpha-skill` + `beta-skill` | root docs (README.zh-CN.md etc.) are not skills |
 | `[e]` disable/enable | `beta` flips off/on, `alpha` unaffected | per-entry (= per-subdir) visibility |
@@ -234,6 +259,7 @@ unset DSH_HOME
 | `[g]` large guard | without `--yes`: prompt then abort; with `--yes`: 21 skills registered and the `list` row starts with `on` | guard works in both directions; multi-skill state resolved by link target |
 | `[g2]` multi-skill toggle | after disable: `off nexus-large` and all 21 links gone; after enable: back to `on` | state lookup and toggling work for multi-skill entries |
 | `[h]` flat-md rules | `with-name` + `sub-skill` listed, `plain.md` absent | no frontmatter flat md ≠ skill; SKILL.md always counts |
+| `[i]` sparse inspection | `sparse-checkout list` → `skills/beta`; `ls` shows the three root files + `skills/beta` only; after `sparse-checkout disable`, `alpha` appears too | cone keeps root/ancestor files; sparse mode is per-clone and can be left explicitly |
 
 Note: `dsh-skills-nexus list` lists *all* entries registered in the current `$DSH_HOME`,
 so after `[g]` you will also see the 21 `skill-*` entries — that is expected.
@@ -273,6 +299,16 @@ so after `[g]` you will also see the 21 `skill-*` entries — that is expected.
    output, or redirect first: `node lib/cli/index.js list > /tmp/l.txt &&
    grep nexus-large /tmp/l.txt`. MSYS-native programs (e.g. `ls | grep`)
    are unaffected.
+10. **Sparse warnings you may see in `[b]`/`[i]`** — (a) `⚠ the remote
+    ignored the blob filter …` is normal for `file://` remotes: local
+    remotes have `uploadpack.allowFilter` off by default, so git downloads
+    the objects anyway — the checkout stays sparse (as `[i]` shows), and a
+    remote that supports filtering (e.g. GitHub) won't print it; (b) on a
+    Git that cannot run the sparse flow, `add --subdir` prints `sparse
+    checkout is unavailable in this Git — the whole repository was
+    materialized` and completes the same clone as a full checkout (no
+    second download) — not reproducible with a modern Git, covered by the
+    mocked `test/git-sparse-probe.test.ts`.
 
 ---
 
@@ -285,5 +321,10 @@ so after `[g]` you will also see the 21 `skill-*` entries — that is expected.
 - **P2 shared-clone design** — not implemented (v1 is independent clones);
   see [docs/subdir-design.md](docs/subdir-design.md) for the trade-off and the
   two hidden pitfalls (shared-ref identity, lock ownership).
+- **Sparse degradation** — "Git lacks `sparse-checkout`" can't be reproduced
+  with a modern Git on this machine; the fallback branches (full-checkout
+  fallback, warning visibility, retry/cleanup) are covered by the
+  injected-mock suite `test/git-sparse-probe.test.ts`, and the filter-ignored
+  warning is exercised for real by every `file://` install in this walkthrough.
 - **DSH runtime integration** — Skills are now exposed via symlinks in ~/.dsh/skills/ and discovered by the official filesystem provider. No custom provider registration is needed. `subdir` is a new optional manifest field (old manifests load fine).
 - **Node 20 / 22 / 24 matrix** — CI runs the full gate set on push/PR.

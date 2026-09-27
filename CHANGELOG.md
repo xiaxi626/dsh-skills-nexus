@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+**2026-09-27 · Fixed · 修正两版 README 本地测试的 overlay 路径指引：统一改为相对锚定写法 `'./lib/index.js'`，删除「盘符前必须加 `/`」说明**
+
+- **背景**：两版 README 此前指引 Windows 把 `name` 写成 `'/C:/...'`——该写法在本文件 2026-08-22 条目记录的语境下正确（当时裸 `C:/...` 报 `ERR_UNSUPPORTED_ESM_URL_SCHEME`，故在盘符前加 `/`）；但当前 dsh（本机 0.1.5-rc.3，2026-09-23 更新）的 `dsh-app-boot` 改按路径语义解析 insert 条目（`anchorInsertedPluginNames`：`pathToFileURL(path.resolve(base, name))`），`'/C:/...'` 被解析成 `C:\C:\...`，`dsh web --patch overlay.yml` 冷启动必报 `Cannot find module 'C:\C:\...'`（插件树加载失败）。属文档随宿主语义演进而过期，非用户操作问题。
+- **变更**：`README.md` / `README_CN.md` 双语成对——本地测试第二步的 overlay 模板与一键生成命令统一为与平台无关的 `'./lib/index.js'`（相对路径以 overlay.yml 所在目录为锚；Windows / macOS / Linux 同一写法，不再需要 `pwd` / `pwd -W`）；删除 Windows 特判段与「盘符前必须加 `/`」说明；`file:///…` 保留为绝对路径备选；两版文末生成说明同步。
+- **验证方式**：本机实测（Windows、dsh 0.1.5-rc.3）：`name: './lib/index.js'` 下 `npx @deepseek-ai/dsh web --patch overlay.yml` 冷启动成功（`dsh web: http://127.0.0.1:3080/`，无 loader 报错）；对照复现 `'/C:/...'` 报 `Cannot find module 'C:\C:\...'`。纯文档改动，不涉及四步门禁。
+- **如何辨识改动**：本条改动 `README.md` / `README_CN.md` 两版（`CHANGELOG.md` 为记录本身）；两版 README 第二步的平台分栏（Windows 与 macOS / Linux 两段）合并为一段，`grep -n "pwd -W" README.md README_CN.md` 零命中。
+
+**2026-09-27 · Docs · 修正 `docs/verify-collection-support` 两版 [i] 步骤的根文件清单：示例仓库根目录实为 3 个文件（补 `community-leaderboard.md`）**
+
+- **背景**：[i] 段的代码块注释与汇总表此前按「两个根文件」（`CONTRIBUTING.md`、`README.zh-CN.md`）描述 `ls` 预期输出；示例仓库脚本实际创建 3 个根文件（另有 `community-leaderboard.md`，服务于「文档型平铺 md 不算 skill」用例），注释与汇总未随之同步。
+- **变更**：`docs/verify-collection-support.md` 与 `.zh-CN.md` 双语成对——[i] 段代码注释（两处平台段）与汇总表 `[i]` 行由「两个根文件」修正为 3 个（补 `community-leaderboard.md`）。
+- **验证方式**：纯文档改动；依据 [i] 段端到端实跑输出修正（`ls "$SPARSE_CLONE"` 实测为 3 个根文件 + `skills`，与示例仓库脚本创建的根文件一致）。
+
 **2026-09-26 · Changed · `--subdir` 安装改为独立稀疏检出（partial clone + cone sparse-checkout，含能力探测与降级）；显式 `--name` 与默认条目名相同时打印省略提示**
 
 - **背景**：`--subdir` 挑装此前是「整仓文件的浅克隆」——`--depth 1` 只压缩历史深度，同仓库装多个子目录仍会重复下载整仓内容。本次落地已批准方案的 A+C：A 把新装路径改为 partial clone（`--filter=blob:none`）加 cone 模式 sparse-checkout，只物化目标子目录（及 cone 规则保留的仓库根/祖先目录直属文件）；C 在显式 `--name` 冗余时给一次提示。两者都不改变条目语义、manifest schema 与命令接口。
@@ -13,6 +26,12 @@
 - **测试**：`test/git.test.ts` 扩至 **45 条**（`normalizeSubdir` 路径规则 5 条 + 稀疏集成 8 条：filter 生效时对象库不含无关 blob、filter 被忽略警告、tag/SHA/hex 分支名、非仓库 cwd 探测、失败清理、拒绝已存在路径）；`test/add.test.ts` 扩至 **23 条**（`checkout: sparse` 输出、junction 实际指向 subdir、双 subdir 独立、失败/中止零提示、C 命名提示矩阵）；`test/update.test.ts` 扩至 **9 条**（稀疏快进、tag 漂移恢复、dirty 清理后稀疏保持、同源独立性）；新建 `test/git-sparse-probe.test.ts`（**7 条**）：经 `createRequire` 注入 `execFile` mock 覆盖能力探测分支——缺 `sparse-checkout`、缺 `--cone`、帮助输出异常、spawn 错误、SHA 回退链参数、分支重试与失败清理。
 - **验证方式**：四步门禁 `npm run typecheck` / `npm run lint`（全仓 `eslint .`，删掉一处无效 `eslint-disable` 后零告警）/ `npm test` / `npm run build` 退出码均为 0；全量 `npm test` **283 条 · 280 通过 · 0 失败 · 3 跳过**（跳过为 completions 的 bash/zsh/fish 真实 shell 用例——本次在 PowerShell 环境运行、三者不在 PATH，CI 中真实执行，与本次改动无关；基线 246 条）。真实产物端到端实测（Git 2.50.1，隔离 `DSH_HOME` + 本地 `file://` 上游）：`add --subdir skills/beta` 输出 `checkout: sparse — only this subdir is materialized` 与 `⚠ the remote ignored the blob filter…`（`file://` 远端默认 `uploadpack.allowFilter=false`，属预期）；克隆工作树只有 `skills/beta` 和 cone 保留的根文件（`README.zh-CN.md`/`CONTRIBUTING.md`），`git -C <clone> sparse-checkout list` → `skills/beta`；`sparse-checkout disable` 后 `alpha` 落盘、再 `list` 报 `not sparse`（exit 128），`remove beta` 正常删净。`lib/` 随源码重建（CI 在 ubuntu 用 `git diff --exit-code -- lib/` 校验同步）。
 - **如何辨识改动**：`git status --short` 仅 31 个条目——源码 4（`src/git.ts`、`src/cli/commands/add.ts`、`src/cli/index.ts`、`src/paths.ts`）+ 测试 4（`test/git.test.ts`、`test/add.test.ts`、`test/update.test.ts` 改，`test/git-sparse-probe.test.ts` 新）+ `package.json` 1 + 文档 8（本 CHANGELOG、`README.md` 两版、`docs/subdir-design.md`、`docs/verify-collection-support.md` 两版、`docs/ARCHITECTURE.md` 两版）+ `lib/` 14 个构建产物随 `npm run build` 重建；无其他文件被触及。
+
+**2026-09-26 · Docs · README 安装章节适配 npm 12 的 Git 依赖策略：`EALLOWGIT` 排障与一次性 `--allow-git=all` 说明；补注册 DSH 插件的可选步骤；「待发布」占位改为 registry 安装命令**
+
+- **背景**：npm 12 起 `allow-git` 默认从允许改为 `none`，而 `github:owner/repo` 属于 Git 依赖——原安装命令 `npm install -g github:xiaxi626/dsh-skills-nexus` 在 npm 12 下会在下载前被策略拦截并报 `EALLOWGIT`（`Fetching packages of type "git" have been disabled`）；README 安装章节此前未覆盖该策略。另有两处待更新：`lib/` 说明后的「Once the package is published to npm…」占位已过期（包已发布 registry、当前 `0.3.0`），且 `dsh plugin add` 与 CLI 全局安装的关系（前者非后者前置条件）在安装段未展开。本次仅为文档修复，不改任何代码或包配置。
+- **变更**：`README.md` / `README_CN.md` 双语成对——安装章节拆为「Optional: register as a DSH plugin / 可选：注册为 DSH 插件」（`dsh plugin --profile web add "github:xiaxi626/dsh-skills-nexus"`：只由 pnpm 把包装进 profile 的 `node_modules`，不提供全局 CLI、也非 CLI 安装的前置条件）与「Install the CLI globally / 全局安装 CLI」两节；CLI 安装按 npm 版本分两条命令——npm 12 在确认信任仓库及其依赖后显式放行 Git 依赖（`npm install -g --allow-git=all github:xiaxi626/dsh-skills-nexus`），较旧 npm 沿用原命令；新增「Troubleshooting `EALLOWGIT` / 遇到 `EALLOWGIT` 怎么办？」小节（错误样例、根因、`npm --version` 与 `npm config get allow-git` 自查、明确「不代表 npm 检测到恶意代码、不表示与 npm 12 不兼容、无需重装插件或降级 npm」，并以引用块警示 `--allow-git=all` 仅对本次调用生效、会放行含传递依赖在内的全部 Git 依赖、不认证其安全、避免全局永久设置、`dsh plugin add` 走 pnpm 配置相互独立）；`lib/` 说明后补 registry 路由 `npm install -g dsh-skills-nexus`（registry 包非 Git 依赖、无需 `--allow-git`，发布版可能与 GitHub 最新代码不同）；插件层提示块精简；卸载/切换远端提示从「再 `npm install -g github:<owner>/<repo>`」改为指向 [Install nexus](#install-nexus) 的版本与策略说明（npm 12 需显式 `--allow-git=all`）。
+- **验证方式**：纯文档改动——`git show --stat 903eb22` 仅 `README.md` 与 `README_CN.md` 两文件（共 +126/−20），`src/`、`lib/`、`test/`、`package.json` 零变化，不涉及四步门禁；两版安装章节逐节对照（小节标题、命令、错误样例、`--allow-git=all` 警示、registry 路由一一对应，唯语言不同）。
 
 **2026-09-22 · Docs · CLI `--help` 的「Accepted repo forms」补齐 SSH（`git@` / `ssh://`）与 `git+https://` 写法，并澄清 `/tree` 子路径被忽略（装子目录须显式 `--subdir`）**
 

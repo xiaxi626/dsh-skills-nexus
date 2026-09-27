@@ -15,7 +15,7 @@ flowchart TD
     subgraph NEXUS["dsh-skills-nexus（~/.dsh/skills-nexus/）"]
         A["CLI<br/><i>add · update · remove</i>"]
         M["manifest.json<br/><i>状态后端</i>"]
-        R["repos/<br/><i>完整 git 克隆</i>"]
+        R["repos/<br/><i>git 克隆（subdir 安装为稀疏）</i>"]
     end
 
     subgraph DSH["DSH 官方根目录（~/.dsh/skills/）"]
@@ -50,6 +50,8 @@ flowchart TD
 ```
 dsh-skills-nexus add github:owner/repo
    └─ git clone --depth 1 →  ~/.dsh/skills-nexus/repos/<name>/
+                              （带 --subdir 时：partial clone + cone sparse-checkout，
+                               无关目录不检出）
    └─ 归一化 frontmatter     （修正不合法名称为 kebab-case，补全缺失的 description）
    └─ 创建 symlink        →  ~/.dsh/skills/<skill-name>/  →  指向 repos/<name>/
    └─ 追加条目              →  ~/.dsh/skills-nexus/manifest.json
@@ -93,11 +95,11 @@ DSH filesystem provider（官方内置）
 │
 └── skills-nexus/
     ├── manifest.json                 # 状态后端：CLI 写
-    └── repos/                        # 完整 git 克隆存放处
+    └── repos/                        # git 克隆存放处（subdir 安装为稀疏）
         ├── repo-a/                  # 完整 git 克隆（nexus 管理）
         │   ├── SKILL.md
         │   └── references/…
-        └── repo-b/
+        └── repo-b/                  # 稀疏克隆：只检出 skills/foo
             └── skills/
                 └── foo/
                     └── SKILL.md

@@ -248,42 +248,25 @@ npm run build      # 生成 lib/ 目录
 # overlay.yml
 - insert:
     - id: dsh-skills-nexus
-      # Windows: '/C:/你的路径/dsh-skills-nexus/lib/index.js'
-      # macOS:   '/Users/你的路径/dsh-skills-nexus/lib/index.js'
-      # Linux:   '/home/你的路径/dsh-skills-nexus/lib/index.js'
-      name: '/你的/绝对/路径/dsh-skills-nexus/lib/index.js'
+      # 相对路径以 overlay.yml 所在目录为锚
+      name: './lib/index.js'
 ```
 
-> `name` 填 `lib/index.js` 的**绝对路径**。Windows 必须在盘符前加 `/`，例如 `'/C:/dev/dsh-skills-nexus/lib/index.js'`；macOS / Linux 直接用绝对路径，例如 `'/home/user/dsh-skills-nexus/lib/index.js'`。
+> `overlay.yml` 放在项目根目录时，`'./lib/index.js'` 即 `<项目>/lib/index.js`——相对路径以 overlay.yml 所在目录为锚，Windows / macOS / Linux 通用同一写法。如需绝对路径，请改用 `file:///` 形式，例如 `'file:///C:/dev/dsh-skills-nexus/lib/index.js'`；旧写法 `'/C:/...'`（盘符前加 `/`）在当前 dsh 上不再可用——会被解析成 `C:\C:\...`。
 
-**也可以用命令一键生成**（确保已 cd 到项目目录）：
-
-**Windows (Git Bash / MINGW)：**
+**也可以用命令一键生成**（确保已 cd 到项目目录；Git Bash / macOS / Linux 通用）：
 
 ```bash
 cat > overlay.yml <<EOF
 - insert:
     - id: dsh-skills-nexus
-      name: '/$(pwd -W)/lib/index.js'
+      name: './lib/index.js'
 EOF
 ```
 
-> `pwd -W` 输出 Windows 风格绝对路径（如 `C:/Users/xxx/dsh-skills-nexus`），前面必须加 `/`，拼接后得到 `/C:/Users/xxx/dsh-skills-nexus/lib/index.js`。
-> Node.js ESM loader 在 Windows 上不认裸 `C:/...` 路径（会被当成 `c:` 协议），必须写成 `/C:/...` 或 `file:///C:/...`。
+> 生成的文件不嵌入任何本机绝对路径——不需要 `pwd` / `pwd -W`，之后移动项目文件夹也依然有效。
 
-**macOS / Linux：**
-
-```bash
-cat > overlay.yml <<EOF
-- insert:
-    - id: dsh-skills-nexus
-      name: '$(pwd)/lib/index.js'
-EOF
-```
-
-> `pwd` 输出 Unix 风格绝对路径（如 `/Users/xxx/dsh-skills-nexus`），本身已以 `/` 开头，拼接后得到 `/Users/xxx/dsh-skills-nexus/lib/index.js`。
-
-执行后项目根目录会自动生成正确的 `overlay.yml`，路径自动填充。
+执行后项目根目录会自动生成正确的 `overlay.yml`。
 
 ### 第三步：用 patch 模式启动 DSH
 
@@ -373,9 +356,9 @@ ls -la ~/.dsh/skills/
 - **add 后是否立即可见**：新添加的 skill 是否立即出现在目录中，取决于 DSH 是否重新扫描了 `~/.dsh/skills/`。如果 profile 在 add 之前已启动，重载一下即可——官方 filesystem provider 会重新扫描 skills 根目录，拾取新创建的 symlink。
 - **版本固定与更新**：用 `#分支名`、`#tag名` 或 `#commit-hash` 固定 ref。安装时 manifest 会记录实际解析到的 commit（`commit` 字段）——一个轻量锁，`list` 会显示它。`update` 只对**分支** pin 的 skill 做快进拉取（并打印 commit 变化）；**tag/commit** pin 的 skill 是固定点：只校验当前 checkout 是否仍等于 pin（漂移则自动恢复），不做 pull——被固定的版本永远不会静默漂移。不加 `#ref` 时，CLI 会通过 `git ls-remote --symref` 自动探测远程默认分支（探测失败回落到 `main`）。
 - **仅用于 skill 内容仓库**：这不是 `dsh plugin add` 的替代品。如果仓库本身就有 `dsh.bundle.patch`，请用正常方式安装——nexus 是给那些没有封装的仓库用的。完整决策指南见 [nexus 与 `dsh plugin`——什么时候用哪个](docs/nexus-vs-plugin.zh-CN.md)。
-- **集合仓库与 `--subdir`**：skill 藏在子目录的集合仓库用 `--subdir <path>` 按需安装——每次安装是一个独立条目、独立克隆（独立克隆设计，P1/P2 权衡见 [docs/subdir-design.md](docs/subdir-design.md)）。不带 `--subdir` 全量安装时，根目录无可用 skill 会被拒绝；超过 20 个 skill 会弹确认提示。从同一仓库挑装的多个条目各自保留独立克隆，但 `list` 会显示 **SOURCE** 列（来源 `owner/repo`），同一仓库挑出的条目一眼可辨。
+- **集合仓库与 `--subdir`**：skill 藏在子目录的集合仓库用 `--subdir <path>` 按需安装——每次安装是一个独立条目、独立克隆（独立克隆设计，P1/P2 权衡见 [docs/subdir-design.md](docs/subdir-design.md)）。新装的 `--subdir` 条目在 Git 和远端支持时为**稀疏检出**：部分克隆加 cone 模式 `sparse-checkout`（安装输出里报 `checkout: sparse`），无关 skill 目录不落盘——远端支持 blob 过滤时通常可减少下载与磁盘占用，实际收益取决于仓库布局（无硬性流量上限：cone 会保留仓库根与祖先目录的直属文件；远端忽略 filter 时可能整仓下载，nexus 会给出可见警告）。想退出稀疏：`git -C <克隆目录> sparse-checkout disable`（会把剩余内容全部拉取检出；后续 `update` 不会重新强制稀疏）；本机 Git 缺少所需能力时，会在警告后把同一克隆补成整仓检出，不重复下载。不带 `--subdir` 全量安装时，根目录无可用 skill 会被拒绝；超过 20 个 skill 会弹确认提示。从同一仓库挑装的多个条目各自保留独立克隆，但 `list` 会显示 **SOURCE** 列（来源 `owner/repo`），同一仓库挑出的条目一眼可辨。
 - **平铺 md 过滤**：没有 frontmatter `name` **且**没有 `description` 的平铺 `*.md` 不会被当作 skill——集合仓库的文档（`README.zh-CN.md`、`CONTRIBUTING.md`、`community-leaderboard.md` 等）永远不会被"假装安装"。发现阶段的跳过名单也按前缀模式覆盖 `readme*`、`contributing*`、`license*`、`changelog*`、`code-of-conduct*`、`security*`。
-- **同名不消歧**：DSH 按名称索引 skill，后安装的同名 skill 会覆盖前者。用 `--name` 区分条目，或用 `--subdir` 只装需要的。enable/disable 按条目（即按安装的 subdir）生效，`remove` 删除整个条目的克隆及其所有 symlink。
+- **同名不消歧**：DSH 按名称索引 skill，后安装的同名 skill 会覆盖前者。用 `--name` 区分条目，或用 `--subdir` 只装需要的。`--subdir` 安装时显式传入的 `--name` 若归一化后与默认条目名（subdir 末段）相同，安装成功后会提示可省略该参数。enable/disable 按条目（即按安装的 subdir）生效，`remove` 删除整个条目的克隆及其所有 symlink。
 - **skill 名校验**：DSH 要求 skill 名是小写 kebab-case（`[a-z0-9]+` 段，用单个 `-` 分隔）。frontmatter `name` 不合法（如 `CurriculumDesigner`）会导致 DSH 拒绝该 skill，因此 nexus 会在安装时归一化这类名称（转为 kebab-case），并在 `add` 时以 `⚠` 警告。
 - **构建脚本**：由于 nexus 自己 clone 内容仓库（不走 pnpm），它完全绕开了 pnpm 的 `allowBuilds` 拦截。
 - **Windows 链接**：nexus 在 Windows 上创建目录联接（junction，`symlink(..., 'junction')`）、在其他平台上创建普通目录软链——均不需要开发者模式或管理员权限。
