@@ -24,9 +24,18 @@ export async function isLinked(skillName: string): Promise<boolean> {
   }
 }
 
+/** One symlink that belongs to an entry: its name and resolved target path. */
+export interface EntryLink {
+  /** Symlink name under the official skills root. */
+  name: string
+  /** Absolute resolved target — inside the entry's clone (or one of its subdirs). */
+  target: string
+}
+
 /**
- * True when the entry is enabled — i.e. at least one symlink in the official
- * skills root points inside its clone.
+ * All symlinks in the official skills root whose target resolves inside the
+ * entry's clone (or one of its subdirs) — the entry↔link one-to-many
+ * relation (§6.4).
  *
  * State is looked up by link *target*, not by name: multi-skill repos create
  * one symlink per discovered skill (named after each skill's frontmatter),
@@ -36,21 +45,32 @@ export async function isLinked(skillName: string): Promise<boolean> {
  * `update` target filter. Scanning targets works for single- and multi-skill
  * repos alike and does not require the clone to be present.
  */
-export async function isEntryEnabled(entry: SkillEntry): Promise<boolean> {
+export async function entryLinks(entry: SkillEntry): Promise<EntryLink[]> {
   const base = resolve(repoDir(entry.path)) + sep
   let names: string[] = []
   try {
     names = await readdir(OFFICIAL_SKILLS_DIR)
   } catch {
-    return false
+    return []
   }
+  const links: EntryLink[] = []
   for (const name of names) {
     const target = await readLinkTarget(name)
     if (target === undefined) continue
     const resolved = resolve(OFFICIAL_SKILLS_DIR, target)
-    if (resolved === base.slice(0, -1) || resolved.startsWith(base)) return true
+    if (resolved === base.slice(0, -1) || resolved.startsWith(base)) {
+      links.push({ name, target: resolved })
+    }
   }
-  return false
+  return links
+}
+
+/**
+ * True when the entry is enabled — at least one symlink points into its
+ * clone. Thin wrapper over `entryLinks`, the single target-ownership scanner.
+ */
+export async function isEntryEnabled(entry: SkillEntry): Promise<boolean> {
+  return (await entryLinks(entry)).length > 0
 }
 
 /**

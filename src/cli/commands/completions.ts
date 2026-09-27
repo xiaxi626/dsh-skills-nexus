@@ -2,6 +2,8 @@ import { bashTemplate } from './completions/bash.js'
 import { fishTemplate } from './completions/fish.js'
 import { powershellTemplate } from './completions/powershell.js'
 import { zshTemplate } from './completions/zsh.js'
+import { cliIO } from '../../ops-io.js'
+import type { OpsIO } from '../../ops-io.js'
 
 /**
  * `completions --shell <bash|zsh|fish|powershell>` - print a shell completion
@@ -83,7 +85,7 @@ export function parseCompletionsArgs(argv: string[]): CompletionsOptions {
   return { shell: shell as Shell }
 }
 
-export function completions(argv: string[]): number {
+export function completions(argv: string[], io: OpsIO = cliIO): number {
   let opts: CompletionsOptions
   try {
     opts = parseCompletionsArgs(argv)
@@ -92,6 +94,6 @@ export function completions(argv: string[]): number {
     return 2
   }
 
-  process.stdout.write(TEMPLATES[opts.shell])
+  io.emit(TEMPLATES[opts.shell])
   return 0
 }

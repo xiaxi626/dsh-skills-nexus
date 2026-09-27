@@ -1,1 +1,1 @@
-{"version":3,"file":"toggle.d.ts","sourceRoot":"","sources":["../../../src/cli/commands/toggle.ts"],"names":[],"mappings":"AAQA;;;;;;GAMG;AACH,wBAAsB,MAAM,CAAC,IAAI,EAAE,MAAM,EAAE,EAAE,OAAO,EAAE,OAAO,GAAG,OAAO,CAAC,MAAM,CAAC,CAgE9E"}
+{"version":3,"file":"toggle.d.ts","sourceRoot":"","sources":["../../../src/cli/commands/toggle.ts"],"names":[],"mappings":"AAOA,OAAO,KAAK,EAAE,KAAK,EAAE,MAAM,iBAAiB,CAAA;AAG5C;;;;;;GAMG;AACH,wBAAsB,MAAM,CAAC,IAAI,EAAE,MAAM,EAAE,EAAE,OAAO,EAAE,OAAO,EAAE,EAAE,GAAE,KAAa,GAAG,OAAO,CAAC,MAAM,CAAC,CAgEjG"}

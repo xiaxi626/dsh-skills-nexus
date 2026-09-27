@@ -4,7 +4,8 @@ import { repoDir } from '../../paths.js'
 import { unlinkSkill } from '../../link.js'
 import { previewSkills } from '../../resolve.js'
 import { sanitizeName } from '../../git.js'
-import { confirm } from '../prompt.js'
+import { cliIO } from '../../ops-io.js'
+import type { OpsIO } from '../../ops-io.js'
 import { hasMeta, matchNames } from '../glob.js'
 import { parseRemoveArgs } from '../args.js'
 
@@ -25,7 +26,7 @@ import { parseRemoveArgs } from '../args.js'
  * refuses with exit code 2 rather than silently deleting everything matched.
  * Exact single names are unaffected — they remove immediately, as before.
  */
-export async function remove(argv: string[]): Promise<number> {
+export async function remove(argv: string[], io: OpsIO = cliIO): Promise<number> {
   const { patterns, yes } = parseRemoveArgs(argv)
   if (patterns.length === 0) {
     process.stderr.write('Usage: dsh-skills-nexus remove <name-or-pattern>...\n')
@@ -65,7 +66,7 @@ export async function remove(argv: string[]): Promise<number> {
   // exactly what goes. On a non-TTY we cannot prompt, so refuse (exit 2).
   if (broadGlobToken !== undefined && !yes) {
     const list = resolved.join(', ')
-    if (!process.stdin.isTTY) {
+    if (!io.interactive) {
       process.stderr.write(
         `Pattern "${broadGlobToken}" matches ${resolved.length} skills: ${list}.\n` +
           `Refusing to remove multiple skills without confirmation in a non-interactive shell.\n` +
@@ -73,13 +74,13 @@ export async function remove(argv: string[]): Promise<number> {
       )
       return 2
     }
-    const ok = await confirm(
+    const ok = await io.confirm(
       `This will remove ${resolved.length} skill(s): ${list}.\n` +
         `Continue?`,
       false,
     )
     if (!ok) {
-      process.stdout.write('Aborted — nothing removed.\n')
+      io.emit('Aborted — nothing removed.\n')
       return 0
     }
   }
@@ -93,7 +94,7 @@ export async function remove(argv: string[]): Promise<number> {
   for (const name of resolved) {
     if (await removeOne(name)) {
       removedCount++
-      process.stdout.write(`Removed "${name}" — symlink(s) deleted, repo dir removed.\n`)
+      io.emit(`Removed "${name}" — symlink(s) deleted, repo dir removed.\n`)
     } else {
       failures++
       process.stderr.write(`No skill named "${name}".\n`)
@@ -101,7 +102,7 @@ export async function remove(argv: string[]): Promise<number> {
   }
 
   if (resolved.length > 1) {
-    process.stdout.write(
+    io.emit(
       `\n${removedCount}/${resolved.length} skill(s) removed` +
         (failures > 0 ? `, ${failures} not found / failed` : '') +
         `.\n`,

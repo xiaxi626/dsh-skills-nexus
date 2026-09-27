@@ -1,3 +1,4 @@
+import type { OpsIO } from '../../ops-io.js';
 /**
  * `doctor [--json] [--updates] [--quiet]` — a proactive, read-only full checkup
  * of nexus state. Reports problems and how to fix them; changes nothing.
@@ -47,10 +48,11 @@ export interface DoctorOptions {
 export declare function parseDoctorArgs(argv: string[]): DoctorOptions;
 /**
  * Run every check and assemble the report. `includeUpdates` adds the network
- * `updates` check (P2). Order matches the human-readable report.
+ * `updates` check (P2); `io` receives its progress lines. Order matches the
+ * human-readable report.
  */
-export declare function runChecks(includeUpdates: boolean): Promise<DoctorReport>;
+export declare function runChecks(includeUpdates: boolean, io?: OpsIO): Promise<DoctorReport>;
 /** Render the report as the aligned, human-readable report (stdout). */
 export declare function formatHuman(report: DoctorReport): string;
-export declare function doctor(argv: string[]): Promise<number>;
+export declare function doctor(argv: string[], io?: OpsIO): Promise<number>;
 //# sourceMappingURL=doctor.d.ts.map

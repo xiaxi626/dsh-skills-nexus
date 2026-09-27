@@ -2,6 +2,8 @@ import { readManifest } from '../../manifest.js'
 import { REPOS_DIR, OFFICIAL_SKILLS_DIR, repoDir } from '../../paths.js'
 import { stat } from 'node:fs/promises'
 import { isEntryEnabled } from '../../link.js'
+import { cliIO } from '../../ops-io.js'
+import type { OpsIO } from '../../ops-io.js'
 import { parseListArgs } from '../args.js'
 
 /**
@@ -18,7 +20,7 @@ import { parseListArgs } from '../args.js'
  *
  * Exit codes: 0 = listed, 1 = manifest unreadable, 2 = usage error.
  */
-export async function list(argv: string[]): Promise<number> {
+export async function list(argv: string[], io: OpsIO = cliIO): Promise<number> {
   let names: boolean
   try {
     names = parseListArgs(argv).names
@@ -30,12 +32,12 @@ export async function list(argv: string[]): Promise<number> {
   const manifest = await readManifest()
 
   if (names) {
-    for (const s of manifest.skills) process.stdout.write(`${s.name}\n`)
+    for (const s of manifest.skills) io.emit(`${s.name}\n`)
     return 0
   }
 
   if (manifest.skills.length === 0) {
-    process.stdout.write('No skills registered. Add one with: dsh-skills-nexus add github:owner/repo\n')
+    io.emit('No skills registered. Add one with: dsh-skills-nexus add github:owner/repo\n')
     return 0
   }
 
@@ -68,15 +70,15 @@ export async function list(argv: string[]): Promise<number> {
   const nameW = Math.max(4, ...rows.map((r) => r[1]!.length))
   const srcW = Math.max(6, ...rows.map((r) => r[2]!.length))
   const subW = Math.max(6, ...rows.map((r) => r[3]!.length))
-  process.stdout.write(
+  io.emit(
     `    ${'NAME'.padEnd(nameW)}  ${'SOURCE'.padEnd(srcW)}  ${'SUBDIR'.padEnd(subW)}  REF           COMMIT    DIR      UPDATED\n`,
   )
   for (const r of rows) {
-    process.stdout.write(
+    io.emit(
       `${r[0]}  ${r[1]!.padEnd(nameW)}  ${r[2]!.padEnd(srcW)}  ${r[3]!.padEnd(subW)}  ${r[4]!.padEnd(13)}${r[5]!.padEnd(9)}${r[6]!.padEnd(9)}${r[7]}\n`,
     )
   }
-  process.stdout.write(
+  io.emit(
     `\n${rows.length} skill(s) · repos: ${REPOS_DIR}\n` +
     `  Symlinks in: ${OFFICIAL_SKILLS_DIR} (on = linked to catalog)\n`,
   )

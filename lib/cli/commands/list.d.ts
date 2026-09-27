@@ -1,3 +1,4 @@
+import type { OpsIO } from '../../ops-io.js';
 /**
  * `list [--names]` — show registered skills and their status.
  *
@@ -12,7 +13,7 @@
  *
  * Exit codes: 0 = listed, 1 = manifest unreadable, 2 = usage error.
  */
-export declare function list(argv: string[]): Promise<number>;
+export declare function list(argv: string[], io?: OpsIO): Promise<number>;
 /**
  * Derive a canonical `owner/repo` source label from a normalized git URL, so
  * entries added via different spec forms (`github:o/r`, `https://…/o/r.git`,

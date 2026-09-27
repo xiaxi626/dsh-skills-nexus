@@ -11,9 +11,17 @@ import type { SkillEntry } from './types.js';
  */
 /** True if a symlink (or directory) exists at the official skill path. */
 export declare function isLinked(skillName: string): Promise<boolean>;
+/** One symlink that belongs to an entry: its name and resolved target path. */
+export interface EntryLink {
+    /** Symlink name under the official skills root. */
+    name: string;
+    /** Absolute resolved target — inside the entry's clone (or one of its subdirs). */
+    target: string;
+}
 /**
- * True when the entry is enabled — i.e. at least one symlink in the official
- * skills root points inside its clone.
+ * All symlinks in the official skills root whose target resolves inside the
+ * entry's clone (or one of its subdirs) — the entry↔link one-to-many
+ * relation (§6.4).
  *
  * State is looked up by link *target*, not by name: multi-skill repos create
  * one symlink per discovered skill (named after each skill's frontmatter),
@@ -22,6 +30,11 @@ export declare function isLinked(skillName: string): Promise<boolean>;
  * linked — breaking `list`, the `disable` early-return, and the default
  * `update` target filter. Scanning targets works for single- and multi-skill
  * repos alike and does not require the clone to be present.
+ */
+export declare function entryLinks(entry: SkillEntry): Promise<EntryLink[]>;
+/**
+ * True when the entry is enabled — at least one symlink points into its
+ * clone. Thin wrapper over `entryLinks`, the single target-ownership scanner.
  */
 export declare function isEntryEnabled(entry: SkillEntry): Promise<boolean>;
 /**

@@ -596,3 +596,159 @@ export async function discardLocalChanges(dest: string): Promise<void> {
   await execFileAsync('git', ['reset', '--hard', 'HEAD'], { cwd: dest })
   await execFileAsync('git', ['clean', '-fd'], { cwd: dest })
 }
+
+/* ------------------------------------------------------------------ */
+/* Version switching (switch-version, §8.2)                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Fetch `ref` from `origin` so the target commit becomes resolvable locally.
+ *
+ * A `--depth 1` clone holds no history, so switching to a branch or tag the
+ * clone has never seen requires a fetch first — without it `git checkout
+ * <tag>` fails because the tag object is absent (the real bug the v1 design
+ * missed).
+ *
+ * Explicitly-mapped refspecs are the only form whose result outlives the
+ * command: a bare-name fetch (`git fetch origin <ref>`) writes FETCH_HEAD and
+ * creates *no* local ref — verified against branches, lightweight tags and
+ * annotated tags — so `rev-parse <ref>^{commit}` still fails afterwards. The
+ * two mapped attempts cover the two namespaces; a third unmapped fetch
+ * covers raw commit SHAs (fetched as objects, resolvable by SHA without any
+ * ref).
+ *
+ * Attempts stop at the first success — the namespaces are mutually
+ * exclusive, and a mismatched attempt fails deterministically ('couldn't
+ * find remote ref', exit 128) after a wasted round-trip. Failures are
+ * silent: the returned outcome tells the caller which namespace landed, and
+ * the caller resolves the target afterwards (see
+ * {@link resolveSwitchTarget}) — reporting `ref-not-found` when nothing
+ * matches. That also covers an offline switch to a ref that is already
+ * present locally: all three fetches fail, resolution still succeeds.
+ */
+export async function fetchRepo(dest: string, ref: string): Promise<FetchOutcome> {
+  assertSafeRef(ref)
+  // Branch → remote-tracking ref (`origin/<ref>`).
+  const branch = await runGit(
+    ['fetch', '--depth', '1', 'origin', `+refs/heads/${ref}:refs/remotes/origin/${ref}`],
+    dest,
+  )
+  if (branch.ok) return 'branch'
+  // Tag → local tag ref (`refs/tags/<ref>`).
+  const tag = await runGit(
+    ['fetch', '--depth', '1', 'origin', `+refs/tags/${ref}:refs/tags/${ref}`],
+    dest,
+  )
+  if (tag.ok) return 'tag'
+  // Raw commit SHA (writes FETCH_HEAD only; a mapping cannot apply).
+  const sha = await runGit(['fetch', '--depth', '1', 'origin', ref], dest)
+  return sha.ok ? 'sha' : 'none'
+}
+
+/** What {@link fetchRepo} managed to land locally — the input to
+ *  {@link resolveSwitchTarget}. */
+export type FetchOutcome = 'branch' | 'tag' | 'sha' | 'none'
+
+/** Resolved switch target — see {@link resolveSwitchTarget}. */
+export interface SwitchTarget {
+  /** Commit SHA the target resolves to. */
+  commit: string
+  /**
+   * `branch` — attach a local branch aligned with `origin/<ref>`;
+   * `pin` — detached checkout of {@link commit} (tag / raw SHA).
+   */
+  kind: 'branch' | 'pin'
+}
+
+/**
+ * DWIM-resolve the ref passed to `switchVersion` into a concrete commit,
+ * guided by what {@link fetchRepo} landed.
+ *
+ * Resolution follows the landing namespace — a landed branch can only be the
+ * one just fetched into `origin/<ref>`, a landed tag the one just fetched
+ * into `refs/tags/<ref>`. That also keeps a stale `origin/<ref>` (left
+ * behind by a since-deleted remote branch) from being mistaken for a fresh
+ * fetch. When nothing landed (`none` — offline, or the remote has no such
+ * ref) every namespace is tried against the local clone so an already
+ * present ref can still be switched to; the caller's `refType` hint only
+ * orders that fallback (§8.2 — a hint, never persisted).
+ *
+ * Returns `undefined` when nothing resolves; the caller reports
+ * `ref-not-found` with zero changes.
+ */
+export async function resolveSwitchTarget(
+  dest: string,
+  ref: string,
+  landed: FetchOutcome,
+  hint?: 'branch' | 'tag' | 'commit',
+): Promise<SwitchTarget | undefined> {
+  const branchC = { name: `origin/${ref}`, kind: 'branch' as const }
+  const tagC = { name: `refs/tags/${ref}`, kind: 'pin' as const }
+  const shaC = isCommitLike(ref) ? [{ name: ref, kind: 'pin' as const }] : []
+
+  let order: Array<{ name: string; kind: 'branch' | 'pin' }>
+  switch (landed) {
+    case 'branch':
+      order = [branchC]
+      break
+    case 'tag':
+      order = [tagC]
+      break
+    case 'sha':
+      order = shaC
+      break
+    default:
+      // Nothing landed: try every namespace against the local clone, the
+      // hint first (branch is also the default preference).
+      order =
+        hint === 'commit' ? [...shaC, tagC, branchC]
+          : hint === 'tag' ? [tagC, ...shaC, branchC]
+            : [branchC, tagC, ...shaC]
+  }
+
+  for (const candidate of order) {
+    try {
+      return { commit: await resolveRefCommit(dest, candidate.name), kind: candidate.kind }
+    } catch {
+      // Not present locally — try the next namespace.
+    }
+  }
+  return undefined
+}
+
+/**
+ * Put the clone on a local branch aligned with `origin/<branch>`.
+ *
+ * `git checkout -B` alone is not enough after a switch: (a) it does not set
+ * up tracking (verified — a fresh `-B dev origin/dev` leaves `dev` without
+ * an upstream), and (b) the clone's configured fetch refspec still points at
+ * the *previous* ref — a tag clone keeps `+refs/tags/<tag>:refs/tags/<tag>`
+ * — so the fetch half of a later `git pull` would update the wrong ref and
+ * the merge would fail with "not possible to fast-forward" (or silently
+ * update nothing). The refspec is normalized first: `branch
+ * --set-upstream-to` refuses to run while `origin/<branch>` is not
+ * recognised through the remote's refspec ("starting point ... is not a
+ * branch"), and the upstream is what `pullRepo` needs.
+ *
+ * The caller must have fetched `branch` (see {@link fetchRepo}) so
+ * `origin/<branch>` exists.
+ */
+export async function checkoutBranch(dest: string, branch: string): Promise<void> {
+  assertSafeRef(branch)
+  const refspec = `+refs/heads/${branch}:refs/remotes/origin/${branch}`
+  await git(['config', '--replace-all', 'remote.origin.fetch', refspec], dest)
+  await git(['checkout', '-B', branch, `origin/${branch}`], dest)
+  await git(['branch', '--set-upstream-to', `origin/${branch}`, branch], dest)
+}
+
+/**
+ * Name of the branch HEAD is attached to, or `undefined` when HEAD is
+ * detached (tag / commit pin) or the name is not safe to reuse as a Git
+ * argument (see `isSafeRef`).
+ */
+export async function getCurrentBranch(dest: string): Promise<string | undefined> {
+  const { ok, text } = await runGit(['symbolic-ref', '--short', '-q', 'HEAD'], dest)
+  if (!ok) return undefined
+  const name = text.trim()
+  return name.length > 0 && isSafeRef(name) ? name : undefined
+}

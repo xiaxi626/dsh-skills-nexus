@@ -19,7 +19,8 @@ import { locateSkillFiles } from '../../locator.js'
 import { previewSkills } from '../../resolve.js'
 import { normalizeSkillName, ensureDescription } from '../../frontmatter.js'
 import { linkSkill, hasCollision } from '../../link.js'
-import { confirm } from '../prompt.js'
+import { cliIO } from '../../ops-io.js'
+import type { OpsIO } from '../../ops-io.js'
 import { parseAddArgs } from '../args.js'
 import { batchPrefix, withSpinner } from '../progress.js'
 
@@ -47,7 +48,7 @@ import { batchPrefix, withSpinner } from '../progress.js'
  * Before registering, each clone is *previewed* with the full skill rules, so
  * repos that yield zero installable skills are rejected.
  */
-export async function add(argv: string[]): Promise<number> {
+export async function add(argv: string[], io: OpsIO = cliIO): Promise<number> {
   const { specs, name, ref, subdir, yes } = parseAddArgs(argv)
 
   // --name/--ref/--subdir each refine a single repo; they cannot be spread
@@ -72,9 +73,9 @@ export async function add(argv: string[]): Promise<number> {
     const spec = specs[i]!
     // Batch counter: only meaningful for multi-repo runs; printed to stdout so
     // non-interactive logs also show which spec is in flight.
-    if (multi) process.stdout.write(`\n${batchPrefix(i + 1, specs.length)}${spec}\n`)
+    if (multi) io.emit(`\n${batchPrefix(i + 1, specs.length)}${spec}\n`)
     try {
-      const res = await addOne(spec, { name, ref, subdir, yes })
+      const res = await addOne(spec, { name, ref, subdir, yes }, io)
       if (res.status === 'failed') failures++
       else if (res.status === 'added') addedCount++
     } catch (err) {
@@ -88,7 +89,7 @@ export async function add(argv: string[]): Promise<number> {
   }
 
   if (multi) {
-    process.stdout.write(
+    io.emit(
       `\n${addedCount}/${specs.length} repo(s) added` +
         (failures > 0 ? `, ${failures} failed` : '') +
         `.\n`,
@@ -112,6 +113,7 @@ type AddResult =
 async function addOne(
   spec: string,
   opts: { name?: string; ref?: string; subdir?: string; yes?: boolean },
+  io: OpsIO,
 ): Promise<AddResult> {
   const { name, ref, subdir, yes } = opts
 
@@ -132,13 +134,13 @@ async function addOne(
 
   // If user didn't pin a ref, detect the remote's default branch.
   if (!ref && !spec.includes('#')) {
-    process.stdout.write(`Detecting default branch for ${gitSpec.url}…\n`)
+    io.emit(`Detecting default branch for ${gitSpec.url}…\n`)
     const detected = await withSpinner(
       'resolving default branch',
       () => getDefaultBranch(gitSpec.url),
     )
     if (detected !== gitSpec.ref) {
-      process.stdout.write(`  → using ${detected} (detected)\n`)
+      io.emit(`  → using ${detected} (detected)\n`)
     }
     gitSpec = { ...gitSpec, ref: detected }
   }
@@ -175,7 +177,7 @@ async function addOne(
   // Remove the empty dir we just created so clone can work
   await rm(dest, { recursive: true, force: true })
 
-  process.stdout.write(`Cloning ${gitSpec.url} (ref: ${gitSpec.ref}) → ${dest}\n`)
+  io.emit(`Cloning ${gitSpec.url} (ref: ${gitSpec.ref}) → ${dest}\n`)
   let clone: CloneResult
   try {
     clone = await withSpinner(`cloning (${gitSpec.ref})`, () =>
@@ -190,14 +192,14 @@ async function addOne(
   // Say how much of the repository actually landed on disk: a larger clone than
   // the user asked for must never be a silent surprise.
   if (normalizedSubdir !== undefined) {
-    process.stdout.write(
+    io.emit(
       clone.mode === 'sparse'
         ? `  checkout: sparse — only this subdir is materialized\n`
         : `  checkout: full — the whole repository is materialized\n`,
     )
   }
   for (const warning of clone.warnings) {
-    process.stdout.write(`  ⚠ ${warning}\n`)
+    io.emit(`  ⚠ ${warning}\n`)
   }
 
   // Record the exact commit we installed — the "lockfile-lite".
@@ -227,7 +229,7 @@ async function addOne(
   const repoKind = await classifyRepo(skillRoot, { markerDir: dest })
 
   if (repoKind.kind === 'dsh-plugin') {
-    process.stdout.write(
+    io.emit(
       `\nThis repository appears to be a DSH plugin rather than a SKILL.md repo.\n` +
       `It is not recommended to manage it with dsh-skills-nexus.\n` +
       `Please install it using that repository's own instructions, for example:\n` +
@@ -249,13 +251,13 @@ async function addOne(
 
   // SKILL.md + DSH 薄包装层：询问是否忽略包装层、按普通 SKILL.md 仓库管理。
   if (repoKind.kind === 'wrapped-skill') {
-    const proceed = yes || await confirm(
+    const proceed = yes || await io.confirm(
       `This repo has both SKILL.md and a DSH plugin wrapper (${repoKind.markers.join(', ')}).\n` +
       `Install as a plain SKILL.md repo via nexus? (y = ignore wrapper, n = abort and use dsh plugin add)`,
       false,
     )
     if (!proceed) {
-      process.stdout.write(
+      io.emit(
         `Aborted. This repo has a DSH plugin wrapper — consider installing it as a plugin instead:\n` +
         `  dsh plugin --profile <name> add "${spec}"\n`,
       )
@@ -278,13 +280,13 @@ async function addOne(
 
   // Guard against accidental full installs of large collections.
   if (preview.length > LARGE_COLLECTION_THRESHOLD && !normalizedSubdir && !yes) {
-    const proceed = await confirm(
+    const proceed = await io.confirm(
       `This repository yields ${preview.length} skills.\n` +
       `Do you want to install all of them? (Use --subdir <path> to install a single subdirectory instead.)`,
       false,
     )
     if (!proceed) {
-      process.stdout.write(`Aborted.\n`)
+      io.emit(`Aborted.\n`)
       await rm(dest, { recursive: true, force: true })
       return { status: 'skipped' }
     }
@@ -300,7 +302,7 @@ async function addOne(
 
     if (s.invalidName) {
       await normalizeSkillName(s.skillFile, validName)
-      process.stdout.write(
+      io.emit(
         `  ⚠ frontmatter name "${s.invalidName}" is not valid kebab-case ` +
         `— normalized to "${validName}"\n`,
       )
@@ -309,7 +311,7 @@ async function addOne(
 
     if (!s.description || s.description.trim().length === 0) {
       await ensureDescription(s.skillFile, validName)
-      process.stdout.write(
+      io.emit(
         `  ⚠ frontmatter description was missing — added fallback: "${validName}"\n`,
       )
       normalizedCount++
@@ -355,7 +357,7 @@ async function addOne(
       ? `  提示：--name 与默认条目名 "${subdirLeaf}" 相同，可省略。\n`
       : ''
 
-  process.stdout.write(
+  io.emit(
     `Added skill "${skillName}" from ${spec}\n` +
       (normalizedSubdir ? `  subdir: ${normalizedSubdir}\n` : '') +
       `  repo dir: ${dest}\n` +

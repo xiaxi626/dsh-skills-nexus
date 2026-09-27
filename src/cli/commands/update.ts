@@ -14,6 +14,8 @@ import {
 import { previewSkills } from '../../resolve.js'
 import { normalizeSkillName, ensureDescription } from '../../frontmatter.js'
 import { linkSkill, isEntryEnabled } from '../../link.js'
+import { cliIO } from '../../ops-io.js'
+import type { OpsIO } from '../../ops-io.js'
 import { positional } from '../args.js'
 import { batchPrefix, withSpinner } from '../progress.js'
 
@@ -33,7 +35,7 @@ import { batchPrefix, withSpinner } from '../progress.js'
  * clones are usually dirty. Local changes are therefore discarded (with a
  * warning) before pulling / restoring; normalization is re-applied after.
  */
-export async function update(argv: string[]): Promise<number> {
+export async function update(argv: string[], io: OpsIO = cliIO): Promise<number> {
   const manifest = await readManifest()
   const target = positional(argv)
 
@@ -49,7 +51,7 @@ export async function update(argv: string[]): Promise<number> {
     return 1
   }
   if (targets.length === 0) {
-    process.stdout.write('Nothing to update (no enabled skills).\n')
+    io.emit('Nothing to update (no enabled skills).\n')
     return 0
   }
 
@@ -58,7 +60,7 @@ export async function update(argv: string[]): Promise<number> {
   for (let i = 0; i < targets.length; i++) {
     const s = targets[i]!
     const dir = repoDir(s.path)
-    process.stdout.write(`${batchPrefix(i + 1, total)}Updating ${s.name} (${s.ref})…\n`)
+    io.emit(`${batchPrefix(i + 1, total)}Updating ${s.name} (${s.ref})…\n`)
     try {
       const before = await getHeadCommit(dir)
       let after: string
@@ -66,7 +68,7 @@ export async function update(argv: string[]): Promise<number> {
       // Clones are nexus-managed: discard local changes (warned) so the
       // pull / restore below cannot be blocked by a dirty worktree.
       if (await isDirtyWorktree(dir)) {
-        process.stdout.write('  ⚠ discarding local changes in nexus-managed clone\n')
+        io.emit('  ⚠ discarding local changes in nexus-managed clone\n')
         await discardLocalChanges(dir)
       }
 
@@ -76,17 +78,17 @@ export async function update(argv: string[]): Promise<number> {
         if (before !== want) {
           await checkoutRef(dir, s.ref)
           after = await getHeadCommit(dir)
-          process.stdout.write(`  ✓ restored to pinned ${short(after)}\n`)
+          io.emit(`  ✓ restored to pinned ${short(after)}\n`)
         } else {
           after = before
-          process.stdout.write(`  ✓ pinned at ${short(after)} — nothing to update\n`)
+          io.emit(`  ✓ pinned at ${short(after)} — nothing to update\n`)
         }
       } else {
         // Branch pin — fast-forward. `git pull` is the only network step in
         // `update`, so it's the one worth animating.
         await withSpinner(`pulling ${s.name}`, () => pullRepo(dir))
         after = await getHeadCommit(dir)
-        process.stdout.write(
+        io.emit(
           after === before
             ? `  ✓ up to date (${short(after)})\n`
             : `  ✓ ${short(before)} → ${short(after)}\n`,
@@ -100,11 +102,11 @@ export async function update(argv: string[]): Promise<number> {
         const validName = ps.invalidName ? sanitizeName(ps.invalidName) : (ps.name || s.name)
         if (ps.invalidName) {
           await normalizeSkillName(ps.skillFile, validName)
-          process.stdout.write(`  ⚠ re-normalized name: "${ps.invalidName}" → "${validName}"\n`)
+          io.emit(`  ⚠ re-normalized name: "${ps.invalidName}" → "${validName}"\n`)
         }
         if (!ps.description || ps.description.trim().length === 0) {
           await ensureDescription(ps.skillFile, validName)
-          process.stdout.write(`  ⚠ added missing description for "${validName}"\n`)
+          io.emit(`  ⚠ added missing description for "${validName}"\n`)
         }
       }
 

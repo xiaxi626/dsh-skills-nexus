@@ -1,3 +1,4 @@
+import type { OpsIO } from '../../ops-io.js';
 /**
  * `completions --shell <bash|zsh|fish|powershell>` - print a shell completion
  * script.
@@ -35,5 +36,5 @@ export interface CompletionsOptions {
  * that asked for it.
  */
 export declare function parseCompletionsArgs(argv: string[]): CompletionsOptions;
-export declare function completions(argv: string[]): number;
+export declare function completions(argv: string[], io?: OpsIO): number;
 //# sourceMappingURL=completions.d.ts.map

@@ -1,3 +1,4 @@
+import type { OpsIO } from '../../ops-io.js';
 /**
  * `add` — clone one or more GitHub SKILL.md repos and expose each via symlinks
  * in the official DSH skills root.
@@ -22,7 +23,7 @@
  * Before registering, each clone is *previewed* with the full skill rules, so
  * repos that yield zero installable skills are rejected.
  */
-export declare function add(argv: string[]): Promise<number>;
+export declare function add(argv: string[], io?: OpsIO): Promise<number>;
 /** Repos with > this many skills trigger the "install all?" guard (unless --subdir/--yes). */
 export declare const LARGE_COLLECTION_THRESHOLD = 20;
 //# sourceMappingURL=add.d.ts.map

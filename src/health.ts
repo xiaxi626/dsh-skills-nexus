@@ -1,12 +1,18 @@
 /**
- * Filesystem integrity checks for nexus-managed skills.
+ * Integrity checks for nexus-managed skills.
  *
  * Surfaced by the `doctor` CLI command — NOT from the plugin `apply()`, which
  * is an intentional no-op (a startup-time warning has no verified visible
  * output channel in DSH). Verifies that each manifest entry's symlinks in the
- * official skills root still point at valid target directories, and scans for
+ * official skills root still point at valid target directories, scans for
  * orphaned clones / links left behind when the manifest and the filesystem
- * drift apart. Purely filesystem-based — no git, no network.
+ * drift apart, and hosts `checkUpdates` — the network comparison behind
+ * `doctor --updates`, extracted here so the check-updates route can reuse the
+ * exact same implementation (§6.3).
+ *
+ * The diagnosis functions are purely filesystem-based; `checkUpdates` is the
+ * module's one git/network operation. It records its results in the runtime
+ * update cache (§5.2) and never persists anything to disk.
  *
  * Design constraints:
  *   - Must never throw (it runs inside a read-only diagnostic command).
@@ -18,6 +24,10 @@ import { readdir, readlink, lstat, stat } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
 import { OFFICIAL_SKILLS_DIR, REPOS_DIR, repoDir } from './paths.js'
 import { readManifest } from './manifest.js'
+import { isDetachedHead, lsRemoteCommit } from './git.js'
+import { setUpdateStatus } from './update-cache.js'
+import { cliIO } from './ops-io.js'
+import type { OpsIO } from './ops-io.js'
 import type { SkillEntry } from './types.js'
 
 /* ------------------------------------------------------------------ */
@@ -278,4 +288,100 @@ export async function findOrphanLinks(entries: SkillEntry[]): Promise<OrphanLink
     out.push({ name, code: exists ? 'orphan-link' : 'dangling-link', target: resolved })
   }
   return out
+}
+
+/* ------------------------------------------------------------------ */
+/* Update comparison (network) — `doctor --updates` core, extracted    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Per-entry outcome of one network comparison. `behind-remote` and `current`
+ * are based on a resolved remote; the rest are reasons an entry was left
+ * unchecked:
+ *   - `locked`         — detached HEAD (tag/commit pin), version-locked by design
+ *   - `absent`         — the clone directory does not exist (nothing to compare)
+ *   - `not-applicable` — zip entry: no git state, hence no remote (§5.3)
+ *   - `unresolved`     — ls-remote failed (offline / private repo / bad ref)
+ */
+export type UpdateCheckStatus =
+  | 'behind-remote'
+  | 'current'
+  | 'locked'
+  | 'absent'
+  | 'not-applicable'
+  | 'unresolved'
+
+export interface UpdateCheck {
+  name: string
+  status: UpdateCheckStatus
+  /** Commit recorded in the manifest (when present and a remote was resolved). */
+  local?: string
+  /** Commit resolved from the remote (only for `behind-remote` / `current`). */
+  remote?: string
+}
+
+/**
+ * Compare manifest entries against their remotes (network) and record every
+ * comparison in the runtime update cache (§5.2) — nothing is written to disk.
+ * Extracted from `doctor --updates` so the plugin's check-updates route can
+ * share one implementation (§6.3).
+ *
+ * `names` limits the check to those entry names (an empty array checks
+ * nothing); omitted checks every manifest entry, in manifest order. The
+ * returned array covers exactly the entries that were visited.
+ *
+ * Cache writes mirror the list route's `update` object (§7.2):
+ *   - `behind-remote` / `current` → `{ hasUpdate, latestCommit: remote }`
+ *   - `unresolved`                → `{ hasUpdate: false, latestCommit: null }`
+ *   - `locked` / `absent` / `not-applicable` → no write: pinned and non-git
+ *     entries stay `null` in the list response rather than "checked" (§7.2).
+ *
+ * Never throws: every filesystem/git failure degrades to a status.
+ */
+export async function checkUpdates(
+  names?: string[],
+  io: OpsIO = cliIO,
+): Promise<UpdateCheck[]> {
+  const manifest = await readManifest()
+  const wanted = names === undefined ? undefined : new Set(names)
+  const results: UpdateCheck[] = []
+  for (const entry of manifest.skills) {
+    if (wanted !== undefined && !wanted.has(entry.name)) continue
+    results.push(await checkEntryUpdate(entry, io))
+  }
+  return results
+}
+
+async function checkEntryUpdate(e: SkillEntry, io: OpsIO): Promise<UpdateCheck> {
+  // Zip entries carry no git state to compare against (§5.3).
+  if (e.source === 'zip' || e.gitUrl.length === 0) {
+    return { name: e.name, status: 'not-applicable' }
+  }
+
+  const dir = repoDir(e.path)
+  try {
+    await stat(dir)
+  } catch {
+    return { name: e.name, status: 'absent' }
+  }
+
+  // Detached HEAD = tag/commit pin — version-locked, never "behind" (§7.2).
+  const locked = await isDetachedHead(dir).catch(() => false)
+  if (locked) return { name: e.name, status: 'locked' }
+
+  io.progress('checking updates', e.name)
+  const remote = await lsRemoteCommit(e.gitUrl, e.ref)
+  const checkedAt = new Date().toISOString()
+
+  if (remote === undefined) {
+    setUpdateStatus(e.name, { hasUpdate: false, latestCommit: null, checkedAt })
+    return { name: e.name, status: 'unresolved' }
+  }
+
+  const local = e.commit ?? ''
+  const behind = local.length > 0 && remote !== local
+  setUpdateStatus(e.name, { hasUpdate: behind, latestCommit: remote, checkedAt })
+  return behind
+    ? { name: e.name, status: 'behind-remote', local, remote }
+    : { name: e.name, status: 'current', local: local.length > 0 ? local : undefined, remote }
 }

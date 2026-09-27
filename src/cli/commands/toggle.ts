@@ -4,6 +4,8 @@ import { repoDir } from '../../paths.js'
 import { linkSkill, unlinkSkill, isEntryEnabled } from '../../link.js'
 import { previewSkills } from '../../resolve.js'
 import { sanitizeName } from '../../git.js'
+import { cliIO } from '../../ops-io.js'
+import type { OpsIO } from '../../ops-io.js'
 import { positional } from '../args.js'
 
 /**
@@ -13,7 +15,7 @@ import { positional } from '../args.js'
  * The actual clone stays in ~/.dsh/skills-nexus/repos/. enable/disable just
  * controls whether symlinks exist in ~/.dsh/skills/ — lightweight and atomic.
  */
-export async function toggle(argv: string[], enabled: boolean): Promise<number> {
+export async function toggle(argv: string[], enabled: boolean, io: OpsIO = cliIO): Promise<number> {
   const name = positional(argv)
   if (!name) {
     process.stderr.write(`Usage: dsh-skills-nexus ${enabled ? 'enable' : 'disable'} <name>\n`)
@@ -29,11 +31,11 @@ export async function toggle(argv: string[], enabled: boolean): Promise<number> 
 
   const alreadyEnabled = await isEntryEnabled(entry)
   if (enabled && alreadyEnabled) {
-    process.stdout.write(`Skill "${name}" is already enabled.\n`)
+    io.emit(`Skill "${name}" is already enabled.\n`)
     return 0
   }
   if (!enabled && !alreadyEnabled) {
-    process.stdout.write(`Skill "${name}" is already disabled.\n`)
+    io.emit(`Skill "${name}" is already disabled.\n`)
     return 0
   }
 
@@ -56,7 +58,7 @@ export async function toggle(argv: string[], enabled: boolean): Promise<number> 
         )
       }
     }
-    process.stdout.write(`Enabled "${name}" — ${count} symlink(s) created in ~/.dsh/skills/\n`)
+    io.emit(`Enabled "${name}" — ${count} symlink(s) created in ~/.dsh/skills/\n`)
   } else {
     // Remove symlinks — we need to know which names to unlink.
     // For single-skill repos, it's just entry.name.
@@ -73,7 +75,7 @@ export async function toggle(argv: string[], enabled: boolean): Promise<number> 
     if (skills.length > 1) {
       await unlinkSkill(entry.name)
     }
-    process.stdout.write(`Disabled "${name}" — ${count} symlink(s) removed from ~/.dsh/skills/\n`)
+    io.emit(`Disabled "${name}" — ${count} symlink(s) removed from ~/.dsh/skills/\n`)
   }
 
   return 0

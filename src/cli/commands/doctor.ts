@@ -7,9 +7,15 @@ import {
   OFFICIAL_SKILLS_DIR,
   repoDir,
 } from '../../paths.js'
-import { diagnoseEntry, findOrphanRepos, findOrphanLinks } from '../../health.js'
-import type { OrphanLink } from '../../health.js'
-import { isDetachedHead, lsRemoteCommit } from '../../git.js'
+import {
+  checkUpdates as healthCheckUpdates,
+  diagnoseEntry,
+  findOrphanRepos,
+  findOrphanLinks,
+} from '../../health.js'
+import type { OrphanLink, UpdateCheck } from '../../health.js'
+import { cliIO } from '../../ops-io.js'
+import type { OpsIO } from '../../ops-io.js'
 import type { Manifest, SkillEntry } from '../../types.js'
 
 /**
@@ -97,9 +103,10 @@ export function parseDoctorArgs(argv: string[]): DoctorOptions {
 
 /**
  * Run every check and assemble the report. `includeUpdates` adds the network
- * `updates` check (P2). Order matches the human-readable report.
+ * `updates` check (P2); `io` receives its progress lines. Order matches the
+ * human-readable report.
  */
-export async function runChecks(includeUpdates: boolean): Promise<DoctorReport> {
+export async function runChecks(includeUpdates: boolean, io: OpsIO = cliIO): Promise<DoctorReport> {
   const { entries, trusted, check: manifestCheck } = await checkManifest()
   const checks: DoctorCheck[] = [manifestCheck, await checkRoots(), await checkSymlinks(entries)]
   // Orphan detection is FS-driven: with an unreadable manifest the entry set is
@@ -113,7 +120,7 @@ export async function runChecks(includeUpdates: boolean): Promise<DoctorReport> 
     checks.push(skippedOrphan('orphan-repo'), skippedOrphan('orphan-link'))
   }
   checks.push(await checkGitSanity(entries))
-  if (includeUpdates) checks.push(await checkUpdates(entries))
+  if (includeUpdates) checks.push(await checkUpdates(entries, io))
   return { version: 1, checks, summary: summarize(checks) }
 }
 
@@ -369,43 +376,34 @@ async function checkGitSanity(entries: SkillEntry[]): Promise<DoctorCheck> {
 }
 
 /**
- * `updates` (P2, network) — compare branch-pinned entries against their remote.
- * Tag/commit pins (detached HEAD) are intentionally version-locked and reported
- * as `locked` (info), never as "behind". Results never affect the exit code.
+ * `updates` (P2, network) — delegates the comparison to `health.checkUpdates`
+ * (the extracted §6.3 core, which also records results in the runtime cache,
+ * §5.2). Doctor keeps its issue semantics: tag/commit pins (detached HEAD) are
+ * intentionally version-locked and reported as `locked` (info), never as
+ * "behind". Results never affect the exit code.
  */
-async function checkUpdates(entries: SkillEntry[]): Promise<DoctorCheck> {
+async function checkUpdates(entries: SkillEntry[], io: OpsIO): Promise<DoctorCheck> {
+  const results = await healthCheckUpdates(entries.map((e) => e.name), io)
+  const byName = new Map<string, UpdateCheck>(results.map((r): [string, UpdateCheck] => [r.name, r]))
   const issues: DoctorIssue[] = []
-  for (const e of entries) {
-    const dir = repoDir(e.path)
-    try {
-      await stat(dir)
-    } catch {
-      continue // clone absent — git-sanity already flags it
-    }
 
-    let locked = false
-    try {
-      locked = await isDetachedHead(dir)
-    } catch {
-      locked = false
-    }
-    if (locked) {
+  for (const e of entries) {
+    const r = byName.get(e.name)
+    // 'absent' → git-sanity already flags it; 'current' / 'unresolved' /
+    // 'not-applicable' → nothing to report.
+    if (r?.status === 'locked') {
       issues.push({
         severity: 'info',
         code: 'locked',
         name: e.name,
         detail: `pinned at ${e.ref} — intentionally not tracking remote`,
       })
-      continue
-    }
-
-    const remote = await lsRemoteCommit(e.gitUrl, e.ref)
-    if (remote && e.commit && remote !== e.commit) {
+    } else if (r?.status === 'behind-remote') {
       issues.push({
         severity: 'info',
         code: 'behind-remote',
         name: e.name,
-        detail: `local ${short(e.commit)}, remote ${short(remote)}`,
+        detail: `local ${short(r.local ?? '')}, remote ${short(r.remote ?? '')}`,
         fix: `dsh-skills-nexus update ${e.name}`,
       })
     }
@@ -524,7 +522,7 @@ export function formatHuman(report: DoctorReport): string {
 /* Command entry                                                       */
 /* ------------------------------------------------------------------ */
 
-export async function doctor(argv: string[]): Promise<number> {
+export async function doctor(argv: string[], io: OpsIO = cliIO): Promise<number> {
   let opts: DoctorOptions
   try {
     opts = parseDoctorArgs(argv)
@@ -533,14 +531,14 @@ export async function doctor(argv: string[]): Promise<number> {
     return 2
   }
 
-  const report = await runChecks(opts.updates)
+  const report = await runChecks(opts.updates, io)
   const hasErrors = report.summary.errors > 0
 
   // --quiet: stay silent unless something is actually broken.
   if (opts.quiet && !hasErrors) return 0
 
-  if (opts.json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
-  else process.stdout.write(formatHuman(report))
+  if (opts.json) io.emit(`${JSON.stringify(report, null, 2)}\n`)
+  else io.emit(formatHuman(report))
 
   return hasErrors ? 1 : 0
 }

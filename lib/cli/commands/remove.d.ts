@@ -1,3 +1,4 @@
+import type { OpsIO } from '../../ops-io.js';
 /**
  * `remove <name-or-pattern>...` — delete cloned dirs, remove symlinks, and
  * unregister one or more skills.
@@ -15,5 +16,5 @@
  * refuses with exit code 2 rather than silently deleting everything matched.
  * Exact single names are unaffected — they remove immediately, as before.
  */
-export declare function remove(argv: string[]): Promise<number>;
+export declare function remove(argv: string[], io?: OpsIO): Promise<number>;
 //# sourceMappingURL=remove.d.ts.map
