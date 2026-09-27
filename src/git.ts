@@ -8,7 +8,11 @@ const execFileAsync = promisify(execFile)
  * Git operations for managing cloned skill repos.
  *
  * Uses `execFile` with argument arrays (no shell) so user-controlled refs/URLs
- * cannot trigger shell injection.
+ * cannot trigger shell injection — and, because argument arrays alone do not
+ * stop *argument injection*, the values themselves are validated where they
+ * enter: repo specs/refs are refused when they look like Git options, contain
+ * control characters or use the `<transport>::<address>` helper syntax, and
+ * `scheme://` URLs are restricted to an allowlist.
  */
 
 interface RetryOptions {
@@ -76,6 +80,63 @@ export function sanitizeName(raw: string): string {
     || 'skill'
 }
 
+/** URL schemes `nexus` may hand to Git; every other transport is refused. */
+const ALLOWED_URL_SCHEMES = new Set(['https', 'http', 'ssh', 'git', 'file'])
+
+/**
+ * A ref must never look like a Git option or a transport helper: refs end up
+ * in option-bearing argument positions (`--branch <ref>`, `fetch origin
+ * <ref>`, `checkout <ref>`) where a `--` separator is not always available —
+ * for `git checkout`, `--` already means "restore these paths" — so the value
+ * itself is validated instead.
+ */
+function isSafeRef(ref: string): boolean {
+  return (
+    ref.length > 0 &&
+    !ref.startsWith('-') &&
+    !ref.includes('::') &&
+    !/[\u0000-\u001f]/.test(ref)
+  )
+}
+
+/** Throw unless `ref` is safe to place in Git's argument list. */
+function assertSafeRef(ref: string): void {
+  if (!isSafeRef(ref)) {
+    throw new Error(
+      `Invalid ref ${JSON.stringify(ref)}: must not start with "-", ` +
+        `contain "::" or control characters.`,
+    )
+  }
+}
+
+/**
+ * Throw unless `url` (parsed from `input`) is safe to hand to Git:
+ * a leading `-` would be read as an option, `transport::address` (Git's
+ * remote-ext) can run local commands, control characters never belong in a
+ * URL, and `scheme://` URLs are allowlisted so unknown transports are
+ * unreachable. Bare local paths and `file://` URLs stay supported.
+ */
+function assertSafeUrl(url: string, input: string): void {
+  if (
+    url.startsWith('-') ||
+    /^[a-z0-9][a-z0-9+.-]*::/i.test(url) ||
+    /[\u0000-\u001f]/.test(url)
+  ) {
+    throw new Error(
+      `Invalid repo spec ${JSON.stringify(input)}: must not start with "-", ` +
+        `contain control characters, or use "transport::address" syntax ` +
+        `(e.g. "ext::").`,
+    )
+  }
+  const scheme = url.match(/^([a-z][a-z0-9+.-]*):\/\//i)?.[1]
+  if (scheme !== undefined && !ALLOWED_URL_SCHEMES.has(scheme.toLowerCase())) {
+    throw new Error(
+      `Unsupported URL scheme "${scheme}" in repo spec ${JSON.stringify(input)}: ` +
+        `use an https, http, ssh, git or file URL (or a local path).`,
+    )
+  }
+}
+
 /**
  * Normalize the many accepted input forms into a cloneable git URL + ref:
  *   github:owner/repo
@@ -115,8 +176,16 @@ export function parseGitSpec(input: string, refFallback = 'main'): GitSpec {
     // owner/repo shorthand → GitHub.
     url = `https://github.com/${raw}.git`
   } else {
+    // Anything else is a local path, or an explicit `scheme://` URL that
+    // `assertSafeUrl` allowlists below.
     url = raw
   }
+
+  // Whatever form the input had, only a safe URL and ref may reach Git: a
+  // spec such as `ext::sh -c …` would otherwise run local commands through
+  // Git's remote-ext helper, and a leading `-` would be read as an option.
+  assertSafeUrl(url, input)
+  assertSafeRef(ref)
 
   return { raw: input, url, ref }
 }
@@ -134,7 +203,9 @@ export async function getDefaultBranch(url: string): Promise<string> {
     //   ref: refs/heads/main	HEAD
     //   abc123...	HEAD
     const match = stdout.match(/^ref:\s+refs\/heads\/(\S+)\s+HEAD/m)
-    if (match && match[1]) return match[1]
+    // The branch name is chosen by the remote: treat a hostile-looking one as
+    // "unknown" rather than feeding it to later Git commands as a ref.
+    if (match && match[1] && isSafeRef(match[1])) return match[1]
   } catch {
     // Network issues, private repo, etc. — fall through to default.
   }
@@ -250,6 +321,24 @@ export function normalizeSubdir(raw: string): string {
       .filter((segment) => segment !== '' && segment !== '.')
       .join('/') || '.'
   )
+}
+
+/**
+ * True only for a *real* directory: a symlink (even one pointing at a
+ * directory) and a missing path both return false.
+ *
+ * Used on the resolved `--subdir` skill root. Git can materialize a committed
+ * symlink there, and following it would let a crafted repository point the
+ * DSH catalog at arbitrary local paths; ancestor components of a checked-out
+ * path are always real directories, so requiring the final component itself
+ * to be a real directory closes the escape.
+ */
+export async function isRealDirectory(dir: string): Promise<boolean> {
+  try {
+    return (await lstat(dir)).isDirectory()
+  } catch {
+    return false
+  }
 }
 
 /** Outcome of {@link cloneRepo}: how much of the repository landed on disk. */

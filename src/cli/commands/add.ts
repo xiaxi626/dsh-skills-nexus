@@ -1,4 +1,4 @@
-import { mkdir, readdir, rm, stat } from 'node:fs/promises'
+import { mkdir, readdir, rm } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
 import { join } from 'node:path'
 import { addEntry, hasEntry, readManifest } from '../../manifest.js'
@@ -7,6 +7,7 @@ import {
   cloneRepo,
   getDefaultBranch,
   getHeadCommit,
+  isRealDirectory,
   normalizeSubdir,
   parseGitSpec,
   repoSlug,
@@ -211,15 +212,11 @@ async function addOne(
   // owns the git state (HEAD, pull) and the DSH plugin markers.
   const skillRoot = normalizedSubdir ? join(dest, normalizedSubdir) : dest
   if (normalizedSubdir) {
-    let st
-    try {
-      st = await stat(skillRoot)
-    } catch {
-      st = undefined
-    }
-    if (!st?.isDirectory()) {
+    // Must be a real directory: Git can check out a committed symlink at this
+    // path, and following it would point the catalog outside the clone.
+    if (!(await isRealDirectory(skillRoot))) {
       process.stderr.write(
-        `Subdirectory "${normalizedSubdir}" does not exist in the cloned repository.\n`,
+        `Subdirectory "${normalizedSubdir}" does not exist as a real directory in the cloned repository.\n`,
       )
       await rm(dest, { recursive: true, force: true })
       return { status: 'failed' }

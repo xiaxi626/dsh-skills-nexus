@@ -2,7 +2,11 @@
  * Git operations for managing cloned skill repos.
  *
  * Uses `execFile` with argument arrays (no shell) so user-controlled refs/URLs
- * cannot trigger shell injection.
+ * cannot trigger shell injection — and, because argument arrays alone do not
+ * stop *argument injection*, the values themselves are validated where they
+ * enter: repo specs/refs are refused when they look like Git options, contain
+ * control characters or use the `<transport>::<address>` helper syntax, and
+ * `scheme://` URLs are restricted to an allowlist.
  */
 interface RetryOptions {
     /** Number of retries *after* the first attempt (retries: 1 → 2 attempts). */
@@ -62,6 +66,17 @@ export declare function getDefaultBranch(url: string): Promise<string>;
  * Returns `.` when the value normalizes to the repository root.
  */
 export declare function normalizeSubdir(raw: string): string;
+/**
+ * True only for a *real* directory: a symlink (even one pointing at a
+ * directory) and a missing path both return false.
+ *
+ * Used on the resolved `--subdir` skill root. Git can materialize a committed
+ * symlink there, and following it would let a crafted repository point the
+ * DSH catalog at arbitrary local paths; ancestor components of a checked-out
+ * path are always real directories, so requiring the final component itself
+ * to be a real directory closes the escape.
+ */
+export declare function isRealDirectory(dir: string): Promise<boolean>;
 /** Outcome of {@link cloneRepo}: how much of the repository landed on disk. */
 export interface CloneResult {
     /**

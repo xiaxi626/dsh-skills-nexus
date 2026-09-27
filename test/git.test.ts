@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -10,9 +10,11 @@ import {
   cloneRepo,
   discardLocalChanges,
   FILTER_IGNORED_WARNING,
+  getDefaultBranch,
   getHeadCommit,
   isDetachedHead,
   isDirtyWorktree,
+  isRealDirectory,
   normalizeSubdir,
   parseGitSpec,
   repoSlug,
@@ -110,6 +112,32 @@ test('whitespace is trimmed before parsing', () => {
 test('raw preserves the original input', () => {
   const input = 'github:owner/repo#dev'
   assert.equal(parseGitSpec(input).raw, input)
+})
+
+test('parseGitSpec rejects option-like, helper-syntax and control-character specs', () => {
+  const bad = ['-u', '--upload-pack=evil', 'ext::sh -c id', 'git+ext::sh', 'foo::bar', 'https://x\ny']
+  for (const value of bad) {
+    assert.throws(
+      () => parseGitSpec(value),
+      /Invalid repo spec/,
+      `expected ${JSON.stringify(value)} to be rejected`,
+    )
+  }
+})
+
+test('parseGitSpec rejects unsupported URL schemes but keeps file:// and local paths', () => {
+  assert.throws(() => parseGitSpec('ftp://host/repo'), /Unsupported URL scheme "ftp"/)
+  assert.throws(() => parseGitSpec('gopher://host/repo'), /Unsupported URL scheme "gopher"/)
+  // The offline verify flows clone over file:// and bare local paths.
+  assert.equal(parseGitSpec('file:///tmp/collection#main').url, 'file:///tmp/collection')
+  assert.equal(parseGitSpec('/tmp/local-repo#main').url, '/tmp/local-repo')
+})
+
+test('parseGitSpec rejects refs that would be read as git options or helpers', () => {
+  assert.throws(() => parseGitSpec('github:owner/repo#--upload-pack=evil'), /Invalid ref/)
+  assert.throws(() => parseGitSpec('github:owner/repo#-x'), /Invalid ref/)
+  assert.throws(() => parseGitSpec('github:owner/repo#a::b'), /Invalid ref/)
+  assert.throws(() => parseGitSpec('github:owner/repo', '--evil'), /Invalid ref/)
 })
 
 /* ------------------------------------------------------------------ */
@@ -214,6 +242,28 @@ test('resolveRefCommit dereferences branches and tags to commit SHAs', async () 
     assert.equal(await resolveRefCommit(dir, head), head)
   } finally {
     await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('getDefaultBranch returns the declared branch, falling back to "main" for hostile names', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nexus-git-'))
+  const src = join(root, 'src')
+  try {
+    await mkdir(src, { recursive: true })
+    await makeRepo(src)
+    const sha = await getHeadCommit(src)
+    await git(src, ['update-ref', 'refs/heads/stable', sha])
+    await git(src, ['symbolic-ref', 'HEAD', 'refs/heads/stable'])
+    // A normal declared name passes through (≠ the fallback, so it is visible).
+    assert.equal(await getDefaultBranch(fileUrl(src)), 'stable')
+    // A refname may start with a dash (only the CLI *shorthand* rejects it),
+    // so a remote can declare it as its default branch; it must never reach
+    // git's argument list as a ref.
+    await git(src, ['update-ref', 'refs/heads/-lead', sha])
+    await git(src, ['symbolic-ref', 'HEAD', 'refs/heads/-lead'])
+    assert.equal(await getDefaultBranch(fileUrl(src)), 'main')
+  } finally {
+    await rm(root, { recursive: true, force: true })
   }
 })
 
@@ -362,6 +412,31 @@ test('normalizeSubdir keeps glob characters and dots as literal names', () => {
   assert.equal(normalizeSubdir('skills/[draft]'), 'skills/[draft]')
   assert.equal(normalizeSubdir('skills/..foo'), 'skills/..foo')
   assert.equal(normalizeSubdir('skills/中文名'), 'skills/中文名')
+})
+
+/* ------------------------------------------------------------------ */
+/* isRealDirectory — symlinks are not directories                      */
+/* ------------------------------------------------------------------ */
+
+test('isRealDirectory accepts real directories and rejects files, symlinks and missing paths', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nexus-git-'))
+  const real = join(root, 'real')
+  const target = join(root, 'target')
+  const link = join(root, 'link')
+  const file = join(root, 'file.txt')
+  try {
+    await mkdir(real)
+    await mkdir(target)
+    await writeFile(file, 'x\n', 'utf8')
+    // Junctions need no elevation on Windows; POSIX uses a plain dir symlink.
+    await symlink(target, link, process.platform === 'win32' ? 'junction' : 'dir')
+    assert.equal(await isRealDirectory(real), true)
+    assert.equal(await isRealDirectory(link), false)
+    assert.equal(await isRealDirectory(file), false)
+    assert.equal(await isRealDirectory(join(root, 'missing')), false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 /* ------------------------------------------------------------------ */

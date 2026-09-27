@@ -6,6 +6,15 @@
 
 ## [0.4.0] - 2026-09-27
 
+**2026-09-27 · Security · 加固 repo spec / ref 与 `--subdir` 技能根的输入校验：拒绝 Git 选项注入（前导 `-`）、`transport::address` 辅助器语法（如 `ext::`）与控制字符；URL scheme 白名单（https/http/ssh/git/file）；远端默认分支名与符号链接技能根同样设防**
+
+- **背景**：L3 深度安全审查报告 1 条 high 级发现（CWE-88 参数注入）：新增 `--subdir` 稀疏安装路径把 CLI 可控的仓库/subdir 值传入 git 子进程、缺少参数注入防护。逐条对码核实：全部 git 调用已是 `execFile` + argv 数组（无 shell）、`sparse-checkout set` 已带 `--` 分隔、`normalizeSubdir` 已拒绝绝对路径/盘符/控制字符/`..`——报告四条建议中三条本已满足；真实缺口三处：① `parseGitSpec` 兜底分支把任意字符串直通 git——`ext::sh -c …` 可经 git remote-ext 在本机执行命令，前导 `-` 会落入 git 选项位；② `getDefaultBranch` 把远端 symref 声明的分支名未经校验即作为 ref 使用（`refs/heads/-lead` 是合法 refname）；③ `--subdir` 技能根用 `stat` 判定，会跟随仓库中提交的符号链接。
+- **变更**：`src/git.ts`——新增 `assertSafeUrl` / `assertSafeRef` 守卫：repo spec 归一化后统一校验（拒绝前导 `-`、控制字符、`^[a-z0-9][a-z0-9+.-]*::` 辅助器语法；`scheme://` URL 按白名单），裸本地路径与 `file://` 保持可用（离线验证流程依赖）；ref（`#ref` 与 `--ref`）拒绝前导 `-`、`::` 与控制字符（`git checkout` 的位置无法用 `--` 分隔——那里的 `--` 语义是路径恢复，故统一以「值校验」落实该建议）；`getDefaultBranch` 先校验远端分支名、不合格回退 `main`；新增 `isRealDirectory`（`lstat`，不跟随符号链接）。`src/cli/commands/add.ts`——`--subdir` 技能根检查改用 `isRealDirectory`（Git 树中祖先目录必为真实目录，末段校验即可封死逃逸）。
+- **不做**：不向 `clone`/`fetch`/`checkout` 调用前插 `--`（`checkout -- <x>` 语义为路径恢复、不可用；经值校验后已不可能呈选项形）；不改 manifest 既有条目的 ref/url（写入时已经校验，手改 manifest 不在威胁模型内）。
+- **测试**：`test/git.test.ts` 新增 5 条——parseGitSpec 拒绝矩阵（`-u`/`--upload-pack=evil`/`ext::sh -c id`/`git+ext::sh`/`foo::bar`/含换行的 https 均拒）；scheme 白名单拒绝（ftp/gopher）＋ `file://` 与裸本地路径保留断言；ref 拒绝矩阵（含 `--ref` 兜底值）；`getDefaultBranch` 远端 `-lead` 回退 `main` 而正常名 `stable` 直通；`isRealDirectory` 真目录/文件/符号链接/缺失四态（Windows junction / POSIX dir，跨平台可跑）。
+- **验证方式**：四步门禁 `npm run typecheck` / `npm run lint` / `npm test` / `npm run build` 退出码均为 0；全量 `npm test` **288 条 · 285 通过 · 0 失败 · 3 跳过**（跳过为 completions 真实 shell 用例，与本次无关）；CLI 端到端实测：`add 'ext::sh -c id'` / `add 'ftp://host/repo'` / `add 'github:owner/repo#--upload-pack=evil'` 均在联网前拒绝并 exit 1；`git show HEAD:src/git.ts` 对新守卫零命中（旧代码不含这些检查，新用例只能在本次改动后通过）；`lib/` 随构建重建。
+- **如何辨识改动**：除本 CHANGELOG 外，`git status --short` 仅 10 个条目——源码 2（`src/git.ts`、`src/cli/commands/add.ts`）+ 测试 1（`test/git.test.ts`）+ `lib/` 7 个构建产物；package.json、manifest schema、CLI 接口（flag 与输出格式）零变化。
+
 **2026-09-27 · Fixed · 修正两版 README 本地测试的 overlay 路径指引：统一改为相对锚定写法 `'./lib/index.js'`，删除「盘符前必须加 `/`」说明**
 
 - **背景**：两版 README 此前指引 Windows 把 `name` 写成 `'/C:/...'`——该写法在本文件 2026-08-22 条目记录的语境下正确（当时裸 `C:/...` 报 `ERR_UNSUPPORTED_ESM_URL_SCHEME`，故在盘符前加 `/`）；但当前 dsh（本机 0.1.5-rc.3，2026-09-23 更新）的 `dsh-app-boot` 改按路径语义解析 insert 条目（`anchorInsertedPluginNames`：`pathToFileURL(path.resolve(base, name))`），`'/C:/...'` 被解析成 `C:\C:\...`，`dsh web --patch overlay.yml` 冷启动必报 `Cannot find module 'C:\C:\...'`（插件树加载失败）。属文档随宿主语义演进而过期，非用户操作问题。
