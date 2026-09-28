@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -66,14 +66,14 @@ after(async () => {
   delete process.env.DSH_HOME
 })
 
-/** Create a repo that yields three skills (flat `<name>.md` with frontmatter). */
-async function makeMultiSkillRepo(dir: string): Promise<void> {
+/** Create a repo that yields one flat `<name>.md` skill per given name. */
+async function makeMultiSkillRepo(dir: string, names: string[] = ['one', 'two', 'three']): Promise<void> {
   await mkdir(dir, { recursive: true })
   await git(dir, ['init'])
   await git(dir, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
   await git(dir, ['config', 'user.email', 'test@example.com'])
   await git(dir, ['config', 'user.name', 'Nexus Test'])
-  for (const n of ['one', 'two', 'three']) {
+  for (const n of names) {
     await writeFile(join(dir, `skill-${n}.md`), `---\nname: skill-${n}\n---\nS`, 'utf8')
   }
   await git(dir, ['add', '.'])
@@ -156,4 +156,72 @@ test('list reports a multi-skill entry as on while its links exist', async () =>
   const row = output.split('\n').find((l) => l.includes('src-multi'))
   assert.ok(row, 'list shows the src-multi row')
   assert.match(row!, /^on\s/)
+})
+
+// §6.4 target attribution: disable removes links by readlink ownership, not
+// by the name rule. The three cases below are the boundary scenarios where
+// the old name-based implementation behaved differently.
+
+test('disable removes a manually renamed alias link by target attribution', async () => {
+  const src = join(home, 'src-alias')
+  // Distinct skill names: linkSkill replaces same-named links, so reusing
+  // one/two/three here would silently hijack the first test's links.
+  await makeMultiSkillRepo(src, ['a-one', 'a-two', 'a-three'])
+  assert.equal(await add.add([`${fileUrl(src)}#main`, '--yes']), 0)
+  const m = await manifest.readManifest()
+  const entry = m.skills.find((s) => s.path.startsWith('src-alias'))!
+
+  // Simulate a user renaming a link by hand: drop skill-a-one, re-create the
+  // link under a name no discovery rule would ever produce.
+  await link.unlinkSkill('skill-a-one')
+  await symlink(paths.repoDir(entry.path), paths.skillLinkPath('alias-one'), 'junction')
+  assert.equal(await link.isEntryEnabled(entry), true)
+
+  // Attribution disable: the alias dies with the regular links. The old
+  // name-based unlink left it behind (and isEntryEnabled stayed true).
+  assert.equal(await toggle.toggle(['src-alias'], false), 0)
+  assert.equal(await exists(paths.skillLinkPath('alias-one')), false)
+  for (const n of ['a-two', 'a-three']) {
+    assert.equal(await exists(paths.skillLinkPath(`skill-${n}`)), false)
+  }
+  assert.equal(await link.isEntryEnabled(entry), false)
+})
+
+test('disable cleans up remaining links even when the clone is gone', async () => {
+  const src = join(home, 'src-gone')
+  await makeMultiSkillRepo(src, ['g-one', 'g-two', 'g-three'])
+  assert.equal(await add.add([`${fileUrl(src)}#main`, '--yes']), 0)
+  const m = await manifest.readManifest()
+  const entry = m.skills.find((s) => s.path.startsWith('src-gone'))!
+  for (const n of ['g-one', 'g-two', 'g-three']) {
+    assert.equal(await exists(paths.skillLinkPath(`skill-${n}`)), true)
+  }
+
+  // The clone disappears (disk cleanup, user error) while the links stay.
+  await rm(paths.repoDir(entry.path), { recursive: true, force: true })
+
+  // The old name-based disable re-discovered skills from the clone here and
+  // silently removed 0 links while reporting success. Attribution needs no
+  // clone — the links still go away.
+  assert.equal(await toggle.toggle(['src-gone'], false), 0)
+  for (const n of ['g-one', 'g-two', 'g-three']) {
+    assert.equal(await exists(paths.skillLinkPath(`skill-${n}`)), false)
+  }
+  assert.equal(await link.isEntryEnabled(entry), false)
+})
+
+test("disable leaves another entry's links untouched", async () => {
+  const src = join(home, 'src-other')
+  await makeMultiSkillRepo(src, ['alpha'])
+  assert.equal(await add.add([`${fileUrl(src)}#main`, '--yes']), 0)
+  // Single-skill repo: the link carries the entry name.
+  assert.equal(await exists(paths.skillLinkPath('src-other')), true)
+
+  assert.equal(await toggle.toggle(['src-other'], false), 0)
+  assert.equal(await exists(paths.skillLinkPath('src-other')), false)
+  // The first test's entry keeps all of its links — attribution never
+  // crosses clone boundaries.
+  for (const n of ['one', 'two', 'three']) {
+    assert.equal(await exists(paths.skillLinkPath(`skill-${n}`)), true)
+  }
 })

@@ -1,5 +1,5 @@
 import { symlink, lstat, unlink, mkdir, readlink, readdir } from 'node:fs/promises'
-import { resolve, sep } from 'node:path'
+import { resolve, sep, dirname } from 'node:path'
 import { OFFICIAL_SKILLS_DIR, repoDir, skillLinkPath } from './paths.js'
 import type { SkillEntry } from './types.js'
 
@@ -33,6 +33,16 @@ export interface EntryLink {
 }
 
 /**
+ * §6.4 attribution predicate: `resolved` equals `base` or lies inside it.
+ * Single source for link ownership — shared by `entryLinks` (list/state
+ * derivation) and `unlinkIfPointsInto` (the attribution unlink), so both
+ * sides judge ownership identically.
+ */
+function pointsInto(resolved: string, base: string): boolean {
+  return resolved === base || resolved.startsWith(base + sep)
+}
+
+/**
  * All symlinks in the official skills root whose target resolves inside the
  * entry's clone (or one of its subdirs) — the entry↔link one-to-many
  * relation (§6.4).
@@ -46,7 +56,7 @@ export interface EntryLink {
  * repos alike and does not require the clone to be present.
  */
 export async function entryLinks(entry: SkillEntry): Promise<EntryLink[]> {
-  const base = resolve(repoDir(entry.path)) + sep
+  const base = resolve(repoDir(entry.path))
   let names: string[] = []
   try {
     names = await readdir(OFFICIAL_SKILLS_DIR)
@@ -58,7 +68,7 @@ export async function entryLinks(entry: SkillEntry): Promise<EntryLink[]> {
     const target = await readLinkTarget(name)
     if (target === undefined) continue
     const resolved = resolve(OFFICIAL_SKILLS_DIR, target)
-    if (resolved === base.slice(0, -1) || resolved.startsWith(base)) {
+    if (pointsInto(resolved, base)) {
       links.push({ name, target: resolved })
     }
   }
@@ -107,6 +117,29 @@ export async function unlinkSkill(skillName: string): Promise<void> {
   } catch {
     // not present — nothing to do
   }
+}
+
+/**
+ * Remove the symlink at `linkPath` when its readlink target resolves into
+ * `dir` (or equals it) — the §6.4 target-attribution unlink. Returns true
+ * iff a link was removed; a missing path, a non-symlink, or a link owned by
+ * another clone leaves the filesystem untouched. Attribution is judged by
+ * `pointsInto`, the same predicate `entryLinks` uses, so "which links belong
+ * to an entry" has one answer everywhere.
+ */
+export async function unlinkIfPointsInto(linkPath: string, dir: string): Promise<boolean> {
+  let target: string
+  try {
+    const st = await lstat(linkPath)
+    if (!st.isSymbolicLink()) return false
+    target = await readlink(linkPath)
+  } catch {
+    return false
+  }
+  const resolved = resolve(dirname(linkPath), target)
+  if (!pointsInto(resolved, resolve(dir))) return false
+  await unlink(linkPath)
+  return true
 }
 
 /**

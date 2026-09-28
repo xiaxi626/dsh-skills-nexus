@@ -47,6 +47,15 @@ export declare function linkSkill(skillName: string, targetDir: string): Promise
 /** Remove a skill's symlink from the official skills root. */
 export declare function unlinkSkill(skillName: string): Promise<void>;
 /**
+ * Remove the symlink at `linkPath` when its readlink target resolves into
+ * `dir` (or equals it) — the §6.4 target-attribution unlink. Returns true
+ * iff a link was removed; a missing path, a non-symlink, or a link owned by
+ * another clone leaves the filesystem untouched. Attribution is judged by
+ * `pointsInto`, the same predicate `entryLinks` uses, so "which links belong
+ * to an entry" has one answer everywhere.
+ */
+export declare function unlinkIfPointsInto(linkPath: string, dir: string): Promise<boolean>;
+/**
  * Resolve a skill symlink to its target path. Returns `undefined` if the
  * symlink does not exist or is not a symlink.
  */
