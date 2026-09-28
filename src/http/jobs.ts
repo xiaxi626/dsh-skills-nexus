@@ -1,0 +1,120 @@
+/**
+ * Long-operation job channel (§7.5): add / add-zip / update / switch-version
+ * are accepted as `202 { data: { jobId } }` and execute in the background;
+ * progress is polled via `GET /skills-nexus/job?id=`.
+ *
+ * Jobs live in an in-process Map — runtime data, never persisted (same rule
+ * as the update cache, §5.2). A process restart loses the records; the disk
+ * truth source remains manifest + doctor.
+ *
+ * Cancellation is best-effort (§7.5): the job's io checks the cancel flag at
+ * every progress/emit boundary and aborts between steps. A git child already
+ * running is not killed (no AbortSignal plumbing in the git layer); the add
+ * rollback standard (rm of partial clones) still applies on the way out.
+ */
+
+import { NeedsConfirm } from '../ops-io.js'
+import type { OpsIO } from '../ops-io.js'
+import { jobIO } from './io.js'
+
+export type JobKind = 'add' | 'add-zip' | 'update' | 'switch-version'
+export type JobStatus = 'running' | 'done' | 'error' | 'cancelled'
+
+/** §7.5 Job schema — polling contract for the UI; do not add fields lightly. */
+export interface Job {
+  id: string
+  kind: JobKind
+  name: string
+  status: JobStatus
+  stage?: string
+  detail?: string
+  output: string[]
+  error?: string
+  startedAt: string
+  endedAt?: string
+}
+
+export class JobCancelledError extends Error {
+  constructor(readonly jobId: string) {
+    super(`job ${jobId} was cancelled`)
+    this.name = 'JobCancelledError'
+  }
+}
+
+const jobs = new Map<string, Job>()
+const cancelFlags = new Set<string>()
+let seq = 0
+
+/* ------------------------------------------------------------------ */
+/* Registry                                                            */
+/* ------------------------------------------------------------------ */
+
+export function createJob(kind: JobKind, name: string): Job {
+  const job: Job = {
+    id: `job-${++seq}`,
+    kind,
+    name,
+    status: 'running',
+    output: [],
+    startedAt: new Date().toISOString(),
+  }
+  jobs.set(job.id, job)
+  return job
+}
+
+export function getJob(id: string): Job | undefined {
+  return jobs.get(id)
+}
+
+/**
+ * `POST /skills-nexus/job/cancel` (§7.5): flag a running job for best-effort
+ * cancellation; a job that already finished is a no-op. Returns the job, or
+ * `undefined` for an unknown id (route → 404).
+ */
+export function requestCancel(id: string): Job | undefined {
+  const job = jobs.get(id)
+  if (job === undefined) return undefined
+  if (job.status === 'running') cancelFlags.add(id)
+  return job
+}
+
+/** True once cancellation has been requested for a still-running job. */
+export function isCancelRequested(id: string): boolean {
+  return cancelFlags.has(id)
+}
+
+/* ------------------------------------------------------------------ */
+/* Runner                                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Execute `op` in the background under the job's already-held locks. The
+ * route acquired the per-skill flight + file lock at acceptance time (§7.5
+ * 受理即锁) and passes `release` (releases both, plus the flight slot) here;
+ * it runs exactly once in the `finally`.
+ */
+export function runJob(job: Job, release: () => Promise<void>, op: (io: OpsIO) => Promise<void>): void {
+  void (async () => {
+    try {
+      await op(jobIO(job))
+      if (job.status === 'running') {
+        job.status = 'done'
+        job.endedAt = new Date().toISOString()
+      }
+    } catch (err) {
+      job.endedAt = new Date().toISOString()
+      if (err instanceof JobCancelledError) {
+        job.status = 'cancelled'
+      } else if (err instanceof NeedsConfirm) {
+        job.status = 'error'
+        job.error = `confirmation required: ${err.question}`
+      } else {
+        job.status = 'error'
+        job.error = err instanceof Error ? err.message : String(err)
+      }
+    } finally {
+      cancelFlags.delete(job.id)
+      await release()
+    }
+  })()
+}

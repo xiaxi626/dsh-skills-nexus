@@ -6,6 +6,8 @@ import { previewSkills } from '../../resolve.js'
 import { sanitizeName } from '../../git.js'
 import { cliIO } from '../../ops-io.js'
 import type { OpsIO } from '../../ops-io.js'
+import { withSkillFileLock, SkillLockedError } from '../../locks.js'
+import type { SkillEntry } from '../../types.js'
 import { positional } from '../args.js'
 
 /**
@@ -39,6 +41,27 @@ export async function toggle(argv: string[], enabled: boolean, io: OpsIO = cliIO
     return 0
   }
 
+  try {
+    return await withSkillFileLock(name, () => toggleLinks(entry, name, enabled, io))
+  } catch (err) {
+    if (err instanceof SkillLockedError) {
+      process.stderr.write(`${err.message}\n`)
+      return 1
+    }
+    throw err
+  }
+}
+
+/**
+ * The symlink mutation behind enable/disable, extracted from `toggle` so it
+ * runs under the per-skill cross-process lock (§7.3 layer 3). Body unchanged.
+ */
+async function toggleLinks(
+  entry: SkillEntry,
+  name: string,
+  enabled: boolean,
+  io: OpsIO,
+): Promise<number> {
   const dir = repoDir(entry.path)
   const skillRoot = entry.subdir ? join(dir, entry.subdir) : dir
 

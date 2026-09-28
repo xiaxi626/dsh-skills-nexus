@@ -21,6 +21,7 @@ import { normalizeSkillName, ensureDescription } from '../../frontmatter.js'
 import { linkSkill, hasCollision } from '../../link.js'
 import { cliIO } from '../../ops-io.js'
 import type { OpsIO } from '../../ops-io.js'
+import { withSkillFileLock, SkillLockedError } from '../../locks.js'
 import { parseAddArgs } from '../args.js'
 import { batchPrefix, withSpinner } from '../progress.js'
 
@@ -104,6 +105,19 @@ type AddResult =
   | { status: 'skipped' }
   | { status: 'failed' }
 
+/** Parameters of the filesystem-mutating phase of `add` (see `installOne`). */
+interface InstallParams {
+  spec: string
+  gitSpec: ReturnType<typeof parseGitSpec>
+  normalizedSubdir: string | undefined
+  path: string
+  skillName: string
+  name: string | undefined
+  subdirLeaf: string | undefined
+  yes: boolean | undefined
+  io: OpsIO
+}
+
 /**
  * Install one repo spec. All user-facing messaging is preserved verbatim from
  * the original single-repo `add`; the former `return 0`/`return 1` exit codes
@@ -172,6 +186,28 @@ async function addOne(
     return { status: 'failed' }
   }
 
+  try {
+    return await withSkillFileLock(skillName, () =>
+      installOne({ spec, gitSpec, normalizedSubdir, path, skillName, name, subdirLeaf, yes, io }),
+    )
+  } catch (err) {
+    if (err instanceof SkillLockedError) {
+      process.stderr.write(`${err.message}\n`)
+      return { status: 'failed' }
+    }
+    throw err
+  }
+}
+
+/**
+ * The filesystem-mutating phase of `add` — clone → classify → normalize →
+ * register → link — extracted from `addOne` so it runs under the per-skill
+ * cross-process lock (§7.3 layer 3). Body unchanged from the former inline
+ * flow; the read-only preflight (subdir validation, default-branch detect,
+ * re-registration and collision checks) stays outside the lock.
+ */
+async function installOne(p: InstallParams): Promise<AddResult> {
+  const { spec, gitSpec, normalizedSubdir, path, skillName, name, subdirLeaf, yes, io } = p
   const dest = repoDir(path)
   await mkdir(dest, { recursive: true })
   // Remove the empty dir we just created so clone can work

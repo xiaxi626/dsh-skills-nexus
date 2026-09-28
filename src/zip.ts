@@ -34,8 +34,8 @@ import type { SkillEntry } from './types.js'
  * once moved — the destination (the add.ts rollback standard, §9.2).
  */
 
-/** Upload cap (§9.1). */
-const MAX_ARCHIVE_BYTES = 200 * 1024 * 1024
+/** Upload cap (§9.1) — also the add-zip route's request-body cap. */
+export const MAX_ARCHIVE_BYTES = 200 * 1024 * 1024
 /** Extracted-size caps (§9.1). */
 const MAX_TOTAL_UNCOMPRESSED_BYTES = 500 * 1024 * 1024
 const MAX_FILE_UNCOMPRESSED_BYTES = 100 * 1024 * 1024

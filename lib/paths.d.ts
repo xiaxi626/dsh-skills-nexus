@@ -8,6 +8,7 @@
  *   │
  *   └── skills-nexus/
  *       ├── manifest.json                 # state backend
+ *       ├── .locks/                       # cross-process write-op locks (<name>.lock)
  *       └── repos/
  *           ├── repo-a/                   # git clone (full; sparse when --subdir was used)
  *           │   ├── SKILL.md
@@ -25,6 +26,8 @@ export declare const OFFICIAL_SKILLS_DIR: string;
 /** Where nexus stores git clones: full, or sparse for `--subdir` entries. */
 export declare const REPOS_DIR: string;
 export declare const MANIFEST_PATH: string;
+/** Cross-process write-op lock files (§7.3 layer 3): one `<name>.lock` per entry. */
+export declare const LOCKS_DIR: string;
 /** Absolute path to a registered repo's cloned directory. */
 export declare function repoDir(path: string): string;
 /** Absolute path of a skill's symlink in the official root. */

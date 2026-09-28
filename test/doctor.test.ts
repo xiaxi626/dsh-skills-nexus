@@ -257,6 +257,130 @@ test('a clone missing .git is git-sanity warn', async () => {
 })
 
 /* ------------------------------------------------------------------ */
+/* Zip entries (§5.3 / §6.2 doctor 分流)                               */
+/* ------------------------------------------------------------------ */
+
+/** A zip entry per §5.3: empty git fields are structural, not corruption. */
+function makeZipEntry(overrides: Partial<SkillEntry> = {}): SkillEntry {
+  return {
+    name: 'zip-pack',
+    url: 'zip:pack.zip',
+    gitUrl: '',
+    ref: '',
+    path: 'zip-pack',
+    addedAt: new Date().toISOString(),
+    source: 'zip',
+    ...overrides,
+  }
+}
+
+test('a zip entry passes the manifest shape check (empty git fields are structural)', async () => {
+  const dir = await makeClone('zip-pack', { git: false })
+  await makeLink('zip-skill', dir)
+  await writeManifest([makeZipEntry({ name: 'zip-skill' })])
+  const report = await doctorMod.runChecks(false)
+  assert.equal(findCheck(report, 'manifest').status, 'ok')
+  assert.match(findCheck(report, 'manifest').detail ?? '', /1 entry/)
+  // Trusted manifest → orphan checks run instead of being skipped.
+  assert.equal(findCheck(report, 'orphan-repo').status, 'ok')
+  assert.equal(findCheck(report, 'orphan-link').status, 'ok')
+  assert.equal(findCheck(report, 'symlinks').status, 'ok')
+  assert.equal(report.summary.errors, 0)
+})
+
+test('git-sanity skips zip entries entirely (no missing-git, no tally)', async () => {
+  await makeClone('zip-pack', { git: false })
+  await writeManifest([makeZipEntry()])
+  const report = await doctorMod.runChecks(false)
+  const g = findCheck(report, 'git-sanity')
+  assert.equal(g.status, 'ok')
+  assert.equal(g.issues.length, 0)
+  assert.equal(g.detail, 'no clones')
+})
+
+test('git-sanity counts only git clones in a mixed manifest', async () => {
+  await makeClone('nogit-mix', { git: false })
+  await makeClone('zip-mix', { git: false })
+  await writeManifest([makeEntry('nogit-mix'), makeZipEntry({ name: 'zip-mix', path: 'zip-mix' })])
+  const report = await doctorMod.runChecks(false)
+  const g = findCheck(report, 'git-sanity')
+  assert.equal(g.issues.length, 1)
+  assert.equal(g.issues[0]!.name, 'nogit-mix')
+  assert.equal(g.detail, '0/1 clones have .git')
+})
+
+test('missing-target on a zip entry suggests reinstall, not update', async () => {
+  const dir = await makeClone('zip-broken', { git: false })
+  await makeLink('zip-broken-skill', dir)
+  await rm(dir, { recursive: true, force: true })
+  await writeManifest([makeZipEntry({ name: 'zip-broken-skill', path: 'zip-broken' })])
+  const report = await doctorMod.runChecks(false)
+  const sym = findCheck(report, 'symlinks')
+  assert.equal(sym.issues[0]!.code, 'missing-target')
+  assert.match(sym.issues[0]!.fix ?? '', /remove zip-broken-skill/)
+  assert.ok(!(sym.issues[0]!.fix ?? '').includes('update'))
+})
+
+test('doctor --updates stays silent for zip entries (not-applicable)', async () => {
+  await makeClone('zip-pack', { git: false })
+  await writeManifest([makeZipEntry()])
+  const report = await doctorMod.runChecks(true)
+  const u = findCheck(report, 'updates')
+  assert.equal(
+    u.issues.filter((i) => i.name === 'zip-pack').length,
+    0,
+  )
+})
+
+/* ------------------------------------------------------------------ */
+/* external-disabled check (§1.5 / §6.2)                               */
+/* ------------------------------------------------------------------ */
+
+test('external *.disabled markers are reported as external-disabled (warn)', async () => {
+  const dir = await makeClone('marked-repo')
+  await writeFile(join(dir, 'SKILL.md.disabled'), 'renamed by skill-hub\n', 'utf8')
+  await makeLink('marked-skill', dir)
+  await writeManifest([makeEntry('marked-repo', 'marked-skill')])
+  const report = await doctorMod.runChecks(false)
+  const ext = findCheck(report, 'external-disabled')
+  assert.equal(ext.status, 'warn')
+  assert.equal(ext.issues.length, 1)
+  assert.equal(ext.issues[0]!.code, 'external-disabled')
+  assert.match(ext.issues[0]!.detail ?? '', /SKILL\.md\.disabled/)
+  // Caution: no fix/delete hint — the marker belongs to the external tool.
+  assert.equal(ext.issues[0]!.fix, undefined)
+})
+
+test('external-disabled scans nested skill dirs but prunes .git', async () => {
+  const dir = await makeClone('nested-repo')
+  await mkdir(join(dir, 'sub', 'skill'), { recursive: true })
+  await writeFile(join(dir, 'sub', 'skill', 'SKILL.md.disabled'), 'x\n', 'utf8')
+  await mkdir(join(dir, '.git', 'hooks'), { recursive: true })
+  await writeFile(join(dir, '.git', 'hooks', 'pre-commit.disabled'), 'x\n', 'utf8')
+  await writeManifest([makeEntry('nested-repo')])
+  const report = await doctorMod.runChecks(false)
+  const ext = findCheck(report, 'external-disabled')
+  assert.equal(ext.issues.length, 1)
+  assert.match(ext.issues[0]!.detail ?? '', /sub\/skill\/SKILL\.md\.disabled/)
+  assert.ok(!(ext.issues[0]!.detail ?? '').includes('pre-commit'))
+})
+
+test('external-disabled is appended after the long-standing checks', async () => {
+  await writeManifest([])
+  const report = await doctorMod.runChecks(false)
+  const ids = report.checks.map((c) => c.id)
+  assert.deepEqual(ids, [
+    'manifest',
+    'roots',
+    'symlinks',
+    'orphan-repo',
+    'orphan-link',
+    'git-sanity',
+    'external-disabled',
+  ])
+})
+
+/* ------------------------------------------------------------------ */
 /* Output contract & usage                                             */
 /* ------------------------------------------------------------------ */
 

@@ -121,6 +121,9 @@ export async function runChecks(includeUpdates: boolean, io: OpsIO = cliIO): Pro
   }
   checks.push(await checkGitSanity(entries))
   if (includeUpdates) checks.push(await checkUpdates(entries, io))
+  // Appended last so the stable report contract (positions 1-6, updates at 7
+  // when present) is preserved (§6.2: 新 check 在既有结构内追加).
+  checks.push(await checkExternalDisabled(entries))
   return { version: 1, checks, summary: summarize(checks) }
 }
 
@@ -148,13 +151,23 @@ function skippedOrphan(id: string): DoctorCheck {
 
 /**
  * Minimal structural guard so a malformed entry never reaches repoDir()/readlink().
- * Only SkillEntry's *required* string fields are checked (name/url/gitUrl/ref/
- * path/addedAt); `commit`/`subdir`/`updatedAt` are optional and `name`+`path`
- * are the ones dereferenced unsafely downstream.
+ * Only SkillEntry's *required* string fields are checked; `commit`/`subdir`/
+ * `updatedAt` are optional and `name`+`path` are the ones dereferenced
+ * unsafely downstream. Zip entries legitimately carry empty gitUrl/ref/commit
+ * (§5.3), so they take a relaxed shape — name/url/path/addedAt only (§6.2
+ * doctor zip 分流). Entries without `source: 'zip'` take the git shape.
  */
 function isWellFormedEntry(e: unknown): e is SkillEntry {
   if (typeof e !== 'object' || e === null) return false
   const o = e as Record<string, unknown>
+  if (o.source === 'zip') {
+    return (
+      isNonEmptyString(o.name) &&
+      isNonEmptyString(o.url) &&
+      isNonEmptyString(o.path) &&
+      isNonEmptyString(o.addedAt)
+    )
+  }
   return (
     isNonEmptyString(o.name) &&
     isNonEmptyString(o.url) &&
@@ -296,7 +309,11 @@ async function checkSymlinks(entries: SkillEntry[]): Promise<DoctorCheck> {
         severity: 'error',
         code: 'missing-target',
         name: e.name,
-        fix: `dsh-skills-nexus update ${e.name}`,
+        // Zip entries are not git-updatable (§9.3) — repair means reinstall.
+        fix:
+          e.source === 'zip'
+            ? `dsh-skills-nexus remove ${e.name}, then install the zip again`
+            : `dsh-skills-nexus update ${e.name}`,
       })
     }
   }
@@ -353,11 +370,17 @@ function orphanLinkIssue(l: OrphanLink): DoctorIssue {
   }
 }
 
-/** `git-sanity` — each clone has a `.git` (stat probe, no git process). */
+/**
+ * `git-sanity` — each clone has a `.git` (stat probe, no git process). Zip
+ * entries are plain directories by design (§5.3): they are skipped here —
+ * no missing-git warn, no `update` fix hint (update is not applicable to
+ * zip, §9.3), and they do not count toward the N/M clone tally (§6.2).
+ */
 async function checkGitSanity(entries: SkillEntry[]): Promise<DoctorCheck> {
   const issues: DoctorIssue[] = []
   let withGit = 0
-  for (const e of entries) {
+  const clones = entries.filter((e) => e.source !== 'zip')
+  for (const e of clones) {
     try {
       await stat(join(repoDir(e.path), '.git'))
       withGit++
@@ -371,7 +394,7 @@ async function checkGitSanity(entries: SkillEntry[]): Promise<DoctorCheck> {
     }
   }
   const detail =
-    entries.length === 0 ? 'no clones' : `${withGit}/${entries.length} clones have .git`
+    clones.length === 0 ? 'no clones' : `${withGit}/${clones.length} clones have .git`
   return finalize('git-sanity', detail, issues)
 }
 
@@ -411,6 +434,82 @@ async function checkUpdates(entries: SkillEntry[], io: OpsIO): Promise<DoctorChe
 
   const behind = issues.some((i) => i.code === 'behind-remote')
   return { id: 'updates', status: behind ? 'update-available' : 'ok', issues }
+}
+
+/**
+ * `external-disabled` (§1.5 coexistence, §6.2) — external tools such as
+ * dsh-skill-hub disable a skill by renaming its SKILL.md to `*.disabled`
+ * inside the managed directory. nexus symlinks expose that directory, so the
+ * marker is visible here; it also changes what update's destructive discard
+ * will silently remove (§12.2 attribution). One warn issue per affected
+ * entry, listing the markers found. No `fix` and never a delete hint — the
+ * state belongs to the other tool.
+ *
+ * Purely filesystem: a bounded recursive walk of each entry directory,
+ * pruning `.git`, with a per-entry budget so a runaway repo cannot stall
+ * doctor.
+ */
+async function checkExternalDisabled(entries: SkillEntry[]): Promise<DoctorCheck> {
+  const issues: DoctorIssue[] = []
+  for (const e of entries) {
+    const markers = await scanDisabledMarkers(repoDir(e.path))
+    if (markers.length === 0) continue
+    const shown = markers.slice(0, 3).join(', ')
+    issues.push({
+      severity: 'warn',
+      code: 'external-disabled',
+      name: e.name,
+      detail:
+        markers.length > 3
+          ? `external disable marker(s): ${shown}, +${markers.length - 3} more`
+          : `external disable marker(s): ${shown}`,
+    })
+  }
+  return finalize(
+    'external-disabled',
+    issues.length === 0
+      ? 'none'
+      : `${issues.length} ${issues.length === 1 ? 'entry' : 'entries'} with markers`,
+    issues,
+  )
+}
+
+/** Max directory entries visited per entry scan; the walk aborts past this. */
+const DISABLED_SCAN_BUDGET = 2000
+
+/** Recursively collect `*.disabled` marker paths (repo-relative), pruning `.git`. */
+async function scanDisabledMarkers(root: string): Promise<string[]> {
+  const found: string[] = []
+  let budget = DISABLED_SCAN_BUDGET
+
+  async function walk(dir: string, rel: string): Promise<void> {
+    if (budget <= 0 || found.length >= 20) return
+    let names: string[]
+    try {
+      names = await readdir(dir)
+    } catch {
+      return
+    }
+    for (const name of names) {
+      if (budget <= 0 || found.length >= 20) return
+      if (name === '.git') continue
+      budget--
+      if (name.endsWith('.disabled')) {
+        found.push(rel ? `${rel}/${name}` : name)
+        continue
+      }
+      let st
+      try {
+        st = await stat(join(dir, name))
+      } catch {
+        continue
+      }
+      if (st.isDirectory()) await walk(join(dir, name), rel ? `${rel}/${name}` : name)
+    }
+  }
+
+  await walk(root, '')
+  return found
 }
 
 /* ------------------------------------------------------------------ */
@@ -471,6 +570,7 @@ const DEFAULT_DESC: Record<string, string> = {
   'unreadable-link': 'symlink is unreadable (may not be nexus-managed)',
   'orphan-check-skipped': 'not scanned — manifest unreadable',
   'missing-git': 'clone is missing .git',
+  'external-disabled': 'external disable marker found (e.g. skill-hub *.disabled)',
   'corrupt-manifest': 'manifest is corrupt or malformed',
   'corrupt-backup': 'found a past corruption backup',
   'root-unreadable': 'root directory is unreadable',

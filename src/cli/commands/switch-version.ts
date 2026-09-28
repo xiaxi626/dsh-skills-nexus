@@ -1,5 +1,6 @@
 import { cliIO } from '../../ops-io.js'
 import type { OpsIO } from '../../ops-io.js'
+import { withSkillFileLock, SkillLockedError } from '../../locks.js'
 import { findEntry, readManifest } from '../../manifest.js'
 import {
   RefNotFoundError,
@@ -116,7 +117,10 @@ export async function switchVersion(argv: string[], io: OpsIO = cliIO): Promise<
   try {
     result = await withSpinner(
       `switching ${opts.name} → ${opts.ref}`,
-      () => coreSwitchVersion(opts.name, opts.ref, opts.refType, io),
+      () =>
+        withSkillFileLock(opts.name, () =>
+          coreSwitchVersion(opts.name, opts.ref, opts.refType, io),
+        ),
     )
   } catch (err) {
     // The core's error classes carry complete, user-readable messages (§8.2);
@@ -124,7 +128,8 @@ export async function switchVersion(argv: string[], io: OpsIO = cliIO): Promise<
     if (
       err instanceof SkillNotFoundError ||
       err instanceof RefNotFoundError ||
-      err instanceof ZipNotUpdatableError
+      err instanceof ZipNotUpdatableError ||
+      err instanceof SkillLockedError
     ) {
       process.stderr.write(`${err.message}\n`)
       return 1

@@ -16,6 +16,8 @@ import { normalizeSkillName, ensureDescription } from '../../frontmatter.js'
 import { linkSkill, isEntryEnabled } from '../../link.js'
 import { cliIO } from '../../ops-io.js'
 import type { OpsIO } from '../../ops-io.js'
+import { acquireSkillFileLock } from '../../locks.js'
+import type { SkillFileLock } from '../../locks.js'
 import { positional } from '../args.js'
 import { batchPrefix, withSpinner } from '../progress.js'
 
@@ -61,7 +63,12 @@ export async function update(argv: string[], io: OpsIO = cliIO): Promise<number>
     const s = targets[i]!
     const dir = repoDir(s.path)
     io.emit(`${batchPrefix(i + 1, total)}Updating ${s.name} (${s.ref})…\n`)
+    // §7.3 layer 3: cross-process exclusion against CLI/server collisions.
+    // Acquire failure flows into the same per-item failure path as any other
+    // error (message explains the lock), with release guaranteed by finally.
+    let lock: SkillFileLock | undefined
     try {
+      lock = await acquireSkillFileLock(s.name)
       const before = await getHeadCommit(dir)
       let after: string
 
@@ -126,6 +133,8 @@ export async function update(argv: string[], io: OpsIO = cliIO): Promise<number>
       process.stderr.write(
         `  ✗ failed: ${err instanceof Error ? err.message : String(err)}\n`,
       )
+    } finally {
+      await lock?.release()
     }
   }
   return failures === 0 ? 0 : 1

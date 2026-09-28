@@ -4,7 +4,8 @@
  * Nexus is a CLI tool that manages git clones and creates symlinks in the
  * official DSH skills root (`~/.dsh/skills/`). The official filesystem provider
  * discovers skills through these symlinks — no custom provider registration
- * is needed at runtime; this entry only attaches the plugin's own HTTP routes.
+ * is needed at runtime; this entry only attaches the plugin's own HTTP routes
+ * (the full §7.1 table, built by `src/http/routes.ts`).
  *
  * Registering nexus via `dsh plugin add` installs the package into the DSH
  * profile and adds this Cordis layer, but it does NOT put the
@@ -23,11 +24,12 @@
  * filesystem provider.
  *
  * Symlink-integrity diagnostics live in `src/health.ts` and are surfaced by
- * the `doctor` CLI command — not from this entry point, because a
- * startup-time warning has no verified visible output channel in DSH.
+ * the `doctor` CLI command and the `GET /skills-nexus/doctor` route — not
+ * from this entry point, because a startup-time warning has no verified
+ * visible output channel in DSH.
  */
 /** Plugin id — matches the `cordis.patch.yml` insert id; the loader reads it for diagnostics. */
-export declare const name = "dsh-skills-nexus";
+export { PLUGIN_ID as name } from './http/types.js';
 /**
  * Empty on purpose: a top-level `['webServer']` inject would fail boot on
  * every host that mounts no web server service. The web half attaches

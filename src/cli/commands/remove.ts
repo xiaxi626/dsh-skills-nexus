@@ -6,6 +6,7 @@ import { previewSkills } from '../../resolve.js'
 import { sanitizeName } from '../../git.js'
 import { cliIO } from '../../ops-io.js'
 import type { OpsIO } from '../../ops-io.js'
+import { withSkillFileLock, SkillLockedError } from '../../locks.js'
 import { hasMeta, matchNames } from '../glob.js'
 import { parseRemoveArgs } from '../args.js'
 
@@ -92,7 +93,18 @@ export async function remove(argv: string[], io: OpsIO = cliIO): Promise<number>
 
   let removedCount = 0
   for (const name of resolved) {
-    if (await removeOne(name)) {
+    let ok: boolean
+    try {
+      ok = await withSkillFileLock(name, () => removeOne(name))
+    } catch (err) {
+      if (err instanceof SkillLockedError) {
+        process.stderr.write(`${err.message}\n`)
+        failures++
+        continue
+      }
+      throw err
+    }
+    if (ok) {
       removedCount++
       io.emit(`Removed "${name}" — symlink(s) deleted, repo dir removed.\n`)
     } else {

@@ -11,6 +11,7 @@ import { join } from 'node:path'
  *   │
  *   └── skills-nexus/
  *       ├── manifest.json                 # state backend
+ *       ├── .locks/                       # cross-process write-op locks (<name>.lock)
  *       └── repos/
  *           ├── repo-a/                   # git clone (full; sparse when --subdir was used)
  *           │   ├── SKILL.md
@@ -34,6 +35,9 @@ export const OFFICIAL_SKILLS_DIR: string = join(DSH_HOME, 'skills')
 export const REPOS_DIR: string = join(NEXUS_HOME, 'repos')
 
 export const MANIFEST_PATH: string = join(NEXUS_HOME, 'manifest.json')
+
+/** Cross-process write-op lock files (§7.3 layer 3): one `<name>.lock` per entry. */
+export const LOCKS_DIR: string = join(NEXUS_HOME, '.locks')
 
 /** Absolute path to a registered repo's cloned directory. */
 export function repoDir(path: string): string {
