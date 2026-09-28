@@ -361,7 +361,13 @@ async function remove(req: RouteRequest, res: RouteResponse): Promise<void> {
     return links.map((l) => l.name)
   })
 
-  sendData(res, { name, removed: true, links: removedLinks }, 'pending')
+  // §11: only an actual link deletion wakes the host watcher — a link-less
+  // removal settles as 'done' and the UI skips reconciliation.
+  sendData(
+    res,
+    { name, removed: true, links: removedLinks },
+    removedLinks.length > 0 ? 'pending' : 'done',
+  )
 }
 
 /** POST /update — `{ name, confirm: true }` → job (§8.1 分流). */
@@ -437,8 +443,10 @@ async function toggleRoute(req: RouteRequest, res: RouteResponse): Promise<void>
   const entry = findEntry(manifest, name)
   if (entry === undefined) throw new HttpError(404, 'not-found', { name })
 
-  const data = await lockedFor(name, () => toggleEntryCore(entry, enabled))
-  sendData(res, data, 'pending')
+  const { changed, ...data } = await lockedFor(name, () => toggleEntryCore(entry, enabled))
+  // §11: a no-op toggle (nothing to build or remove) leaves the watcher
+  // silent — 'done'; an actual link build/removal is 'pending'.
+  sendData(res, data, changed ? 'pending' : 'done')
 }
 
 /** POST /job/cancel — `{ id }` best-effort cancellation (§7.5). */
@@ -670,7 +678,14 @@ async function updateEntryCore(entry: SkillEntry, io: OpsIO): Promise<void> {
 async function toggleEntryCore(
   entry: SkillEntry,
   enabled: boolean,
-): Promise<{ name: string; enabled: boolean; links: Array<{ linkName: string; enabled: boolean }> }> {
+): Promise<{
+  name: string
+  enabled: boolean
+  links: Array<{ linkName: string; enabled: boolean }>
+  /** True when a link was actually built or removed (§11 hotReload input). */
+  changed: boolean
+}> {
+  let changed = false
   if (enabled) {
     const existing = new Set((await entryLinks(entry)).map((l) => l.name))
     const dir = repoDir(entry.path)
@@ -684,9 +699,13 @@ async function toggleEntryCore(
         throw new HttpError(409, 'collision', { name: linkName })
       }
       await linkSkill(linkName, s.resourceBase)
+      changed = true
     }
   } else {
-    for (const l of await entryLinks(entry)) await unlinkSkill(l.name)
+    for (const l of await entryLinks(entry)) {
+      await unlinkSkill(l.name)
+      changed = true
+    }
   }
 
   const final = await entryLinks(entry)
@@ -694,6 +713,7 @@ async function toggleEntryCore(
     name: entry.name,
     enabled: final.length > 0,
     links: final.map((l) => ({ linkName: l.name, enabled: true })),
+    changed,
   }
 }
 

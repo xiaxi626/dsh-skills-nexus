@@ -179,4 +179,27 @@ export interface PollOptions {
  * cancelled or found by a later poll.
  */
 export declare function pollJob(api: NexusApi, id: string, opts?: PollOptions): Promise<Job>;
+/** `reconcileList` gave up before the list reflected the mutation. */
+export declare class ReconcileTimeoutError extends Error {
+    readonly entries: ListEntry[];
+    constructor(entries: ListEntry[]);
+}
+export interface ReconcileOptions {
+    /** Interval between polls (default 250ms). */
+    intervalMs?: number;
+    /** Give up after this long (default 2000ms — the §11 budget). */
+    timeoutMs?: number;
+    /** Injectable sleep — tests resolve immediately. */
+    sleep?: (ms: number) => Promise<void>;
+    /** Called after every poll that did not yet satisfy `until`. */
+    onTick?: (entries: ListEntry[]) => void;
+}
+/**
+ * §11 reconciliation for a `hotReload: 'pending'` mutation: poll `list` until
+ * `until` accepts the snapshot — i.e. the link change the host watcher is
+ * about to confirm is visible. Resolves the accepted snapshot; throws
+ * `ReconcileTimeoutError` (carrying the last snapshot) past the deadline —
+ * the caller downgrades to a manual-refresh hint.
+ */
+export declare function reconcileList(api: NexusApi, until: (entries: ListEntry[]) => boolean, opts?: ReconcileOptions): Promise<ListEntry[]>;
 //# sourceMappingURL=api.d.ts.map

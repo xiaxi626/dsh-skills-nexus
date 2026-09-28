@@ -279,3 +279,51 @@ export async function pollJob(api: NexusApi, id: string, opts: PollOptions = {})
     await sleep(interval)
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* List reconciliation (§11)                                           */
+/* ------------------------------------------------------------------ */
+
+/** `reconcileList` gave up before the list reflected the mutation. */
+export class ReconcileTimeoutError extends Error {
+  constructor(readonly entries: ListEntry[]) {
+    super('the list did not reflect the change in time')
+    this.name = 'ReconcileTimeoutError'
+  }
+}
+
+export interface ReconcileOptions {
+  /** Interval between polls (default 250ms). */
+  intervalMs?: number
+  /** Give up after this long (default 2000ms — the §11 budget). */
+  timeoutMs?: number
+  /** Injectable sleep — tests resolve immediately. */
+  sleep?: (ms: number) => Promise<void>
+  /** Called after every poll that did not yet satisfy `until`. */
+  onTick?: (entries: ListEntry[]) => void
+}
+
+/**
+ * §11 reconciliation for a `hotReload: 'pending'` mutation: poll `list` until
+ * `until` accepts the snapshot — i.e. the link change the host watcher is
+ * about to confirm is visible. Resolves the accepted snapshot; throws
+ * `ReconcileTimeoutError` (carrying the last snapshot) past the deadline —
+ * the caller downgrades to a manual-refresh hint.
+ */
+export async function reconcileList(
+  api: NexusApi,
+  until: (entries: ListEntry[]) => boolean,
+  opts: ReconcileOptions = {},
+): Promise<ListEntry[]> {
+  const interval = opts.intervalMs ?? 250
+  const deadline = Date.now() + (opts.timeoutMs ?? 2000)
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+
+  for (;;) {
+    const { data } = await api.list()
+    if (until(data.entries)) return data.entries
+    opts.onTick?.(data.entries)
+    if (Date.now() >= deadline) throw new ReconcileTimeoutError(data.entries)
+    await sleep(interval)
+  }
+}

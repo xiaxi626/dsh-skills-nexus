@@ -9,9 +9,10 @@
  * host UI primitives is a later refinement — the contract proven here is the
  * data flow, not the pixels.
  *
- * Phase boundary: `hotReload: 'pending'` currently triggers an immediate list
- * refresh; the poll-until-visible reconciliation (§11) lands in the next phase
- * — the seam is `refreshAfterMutation` below.
+ * §11 reconciliation is live: a mutation marked `hotReload: 'pending'` polls
+ * the list (2s budget) until the change is visible; `done` refreshes once;
+ * `unsupported` — the preserved contract for watcher-less hosts — explains
+ * the restart downgrade. `reconcileAfter` is the single funnel for all three.
  */
 import type { ReactElement } from 'react';
 import type { NexusApi } from './api.js';

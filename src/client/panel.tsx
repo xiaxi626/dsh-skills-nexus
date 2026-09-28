@@ -9,9 +9,10 @@
  * host UI primitives is a later refinement — the contract proven here is the
  * data flow, not the pixels.
  *
- * Phase boundary: `hotReload: 'pending'` currently triggers an immediate list
- * refresh; the poll-until-visible reconciliation (§11) lands in the next phase
- * — the seam is `refreshAfterMutation` below.
+ * §11 reconciliation is live: a mutation marked `hotReload: 'pending'` polls
+ * the list (2s budget) until the change is visible; `done` refreshes once;
+ * `unsupported` — the preserved contract for watcher-less hosts — explains
+ * the restart downgrade. `reconcileAfter` is the single funnel for all three.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -19,12 +20,14 @@ import type { ReactElement, ChangeEvent, FormEvent } from 'react'
 import {
   ApiError,
   PollTimeoutError,
+  ReconcileTimeoutError,
   confirmable,
   createApi,
   jobConfirmationQuestion,
   pollJob,
+  reconcileList,
 } from './api.js'
-import type { Job, ListEntry, NexusApi } from './api.js'
+import type { HotReload, Job, ListEntry, NexusApi } from './api.js'
 
 /** One tracked job: the polled record plus the entry name it belongs to. */
 interface TrackedJob {
@@ -66,6 +69,33 @@ function errorText(err: unknown): string {
     }
   }
   return err instanceof Error ? err.message : String(err)
+}
+
+/* §11 reconciliation predicates — what each mutation should make visible in
+ * `list` before the host watcher is presumed caught up. */
+
+/** add/add-zip: a name outside the pre-mutation baseline appears. */
+function appearsNewName(baseline: Set<string>): (entries: ListEntry[]) => boolean {
+  return (entries) => entries.some((e) => !baseline.has(e.name))
+}
+
+/** remove: the entry disappears from the list. */
+function goneFrom(name: string): (entries: ListEntry[]) => boolean {
+  return (entries) => !entries.some((e) => e.name === name)
+}
+
+/** toggle: the entry's enabled flag reaches `target`. */
+function flipsTo(name: string, target: boolean): (entries: ListEntry[]) => boolean {
+  return (entries) => entries.some((e) => e.name === name && e.enabled === target)
+}
+
+/**
+ * update/switch-version: the entry survives the operation. A strict predicate
+ * (commit changed) would falsely time out on no-op runs (already up to date),
+ * so the sanity check is deliberately the weaker "still listed".
+ */
+function stillListed(name: string): (entries: ListEntry[]) => boolean {
+  return (entries) => entries.some((e) => e.name === name)
 }
 
 /**
@@ -123,9 +153,66 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     })
   }, [])
 
-  /** Track a 202-accepted job: poll to settlement, then refresh the list. */
+  /**
+   * §11 reconciliation funnel for a mutation. `pending` (or a missing field
+   * from an older server): poll the list until `until` accepts a snapshot.
+   * `done`: the mutation never woke the watcher — one refresh suffices.
+   * `unsupported` (the preserved contract for hosts without a watcher): say
+   * plainly that the change lands on the next host start. A timeout downgrades
+   * to the manual-refresh hint while the last snapshot stays on screen.
+   */
+  const reconcileAfter = useCallback(
+    async (
+      label: string,
+      hotReload: HotReload | undefined,
+      until: (entries: ListEntry[]) => boolean,
+    ): Promise<void> => {
+      if (hotReload === 'done') {
+        await refresh()
+        return
+      }
+      if (hotReload === 'unsupported') {
+        setNotice(
+          `${label}: applied on disk — this host cannot hot-reload links, ` +
+            'so it takes effect on the next host start',
+        )
+        await refresh()
+        return
+      }
+      try {
+        const entries = await reconcileList(api, until, {
+          onTick: (snapshot) => {
+            if (alive.current) setEntries(snapshot)
+          },
+        })
+        if (!alive.current) return
+        setEntries(entries)
+        setListError(null)
+      } catch (err) {
+        if (!alive.current) return
+        if (err instanceof ReconcileTimeoutError) {
+          setEntries(err.entries)
+          setListError(null)
+          setNotice(`${label}: change not reflected yet — refresh manually shortly`)
+          return
+        }
+        setNotice(errorText(err))
+      }
+    },
+    [api, refresh],
+  )
+
+  /**
+   * Track a 202-accepted job: poll to settlement, then reconcile the list.
+   * `until` describes what the mutation should make visible (§11). Failed and
+   * cancelled jobs only refresh — there is no change to reconcile.
+   */
   const track = useCallback(
-    async (entryName: string, accepted: { jobId: string }): Promise<void> => {
+    async (
+      entryName: string,
+      accepted: { jobId: string },
+      until: (entries: ListEntry[]) => boolean,
+    ): Promise<void> => {
       try {
         const settled = await pollJob(api, accepted.jobId, {
           intervalMs: 800,
@@ -139,10 +226,15 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
               ? `operation needs confirmation but the panel cannot confirm mid-job: ${question}`
               : `${entryName}: ${settled.error ?? 'operation failed'}`,
           )
+          await refresh()
         } else if (settled.status === 'cancelled') {
           setNotice(`${entryName}: operation cancelled`)
+          await refresh()
+        } else {
+          // The job did its link work; the watcher still has to catch up —
+          // the same pending semantics as remove/toggle (§11).
+          await reconcileAfter(entryName, 'pending', until)
         }
-        await refresh()
       } catch (err) {
         if (err instanceof PollTimeoutError) {
           patchJob(err.job.id, err.job, true)
@@ -151,13 +243,8 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
         setNotice(errorText(err))
       }
     },
-    [api, patchJob, refresh],
+    [api, patchJob, reconcileAfter, refresh],
   )
-
-  /** Refresh after a synchronous mutation (remove/toggle) — pending polling is the next phase. */
-  const refreshAfterMutation = useCallback(async (): Promise<void> => {
-    await refresh()
-  }, [refresh])
 
   const run = useCallback(
     async (entryName: string, fn: () => Promise<void>): Promise<void> => {
@@ -184,9 +271,10 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     void run(url, async () => {
       setAddBusy(true)
       try {
+        const baseline = new Set(entries.map((e) => e.name))
         const env = await api.add({ url, confirm: true })
         setAddUrl('')
-        await track(url, env.data)
+        await track(url, env.data, appearsNewName(baseline))
       } finally {
         setAddBusy(false)
       }
@@ -202,9 +290,10 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     void run(file.name, async () => {
       setAddBusy(true)
       try {
+        const baseline = new Set(entries.map((e) => e.name))
         const env = await api.addZip(file)
         setZipFile(null)
-        await track(file.name, env.data)
+        await track(file.name, env.data, appearsNewName(baseline))
       } finally {
         setAddBusy(false)
       }
@@ -224,9 +313,10 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   }
 
   const onToggle = (entry: ListEntry): void => {
+    const target = !entry.enabled
     void run(entry.name, async () => {
-      await api.toggle(entry.name, !entry.enabled)
-      await refreshAfterMutation()
+      const env = await api.toggle(entry.name, target)
+      await reconcileAfter(entry.name, env.hotReload, flipsTo(entry.name, target))
     })
   }
 
@@ -235,7 +325,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
       const env = await confirmable(
         async (confirm) => {
           const accepted = await api.update(entry.name, confirm)
-          await track(entry.name, accepted.data)
+          await track(entry.name, accepted.data, stillListed(entry.name))
           return accepted
         },
         ask,
@@ -250,7 +340,8 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
         (confirm) => api.remove(entry.name, confirm),
         ask,
       )
-      if (done !== undefined) await refreshAfterMutation()
+      if (done === undefined) return // declined — nothing was requested
+      await reconcileAfter(entry.name, done.hotReload, goneFrom(entry.name))
     })
   }
 
@@ -264,7 +355,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
       const env = await confirmable(
         async (confirm) => {
           const accepted = await api.switchVersion({ name: entry.name, ref, confirm })
-          await track(entry.name, accepted.data)
+          await track(entry.name, accepted.data, stillListed(entry.name))
           return accepted
         },
         ask,

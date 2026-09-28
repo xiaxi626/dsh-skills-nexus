@@ -431,6 +431,17 @@ test('remove deletes the clone, every attributed link and the registration', asy
   assert.ok(!(await exists(paths.repoDir('rm-skill'))))
 })
 
+test('remove without links answers hotReload done (no watcher event)', async () => {
+  await seedClone('rm-bare')
+  const res = await call('/skills-nexus/remove', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'rm-bare', confirm: true }),
+  })
+  assert.equal(res.status, 200)
+  assert.deepEqual(dataOf(res), { name: 'rm-bare', removed: true, links: [] })
+  assert.equal(envelope(res).hotReload, 'done')
+})
+
 /* ------------------------------------------------------------------ */
 /* POST /toggle (§6.4 target attribution)                              */
 /* ------------------------------------------------------------------ */
@@ -480,6 +491,7 @@ test('toggle enable rebuilds only the missing links', async () => {
     enabled: true,
     links: [{ linkName: 'tog-a', enabled: true }],
   })
+  assert.equal(envelope(res).hotReload, 'pending')
   assert.ok(await exists(paths.skillLinkPath('tog-a')))
   // The alias link was not resurrected — enable fills in missing links only.
   assert.ok(!(await exists(paths.skillLinkPath('tog-a-alias'))))
@@ -501,6 +513,33 @@ test('toggle enable refuses a real directory collision with 409', async () => {
   } finally {
     await rm(colliding, { recursive: true, force: true })
   }
+})
+
+test('a no-op disable (no links to remove) answers hotReload done', async () => {
+  await seedClone('tog-bare')
+  const res = await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'tog-bare', enabled: false }),
+  })
+  assert.equal(res.status, 200)
+  assert.deepEqual(dataOf(res), { name: 'tog-bare', enabled: false, links: [] })
+  assert.equal(envelope(res).hotReload, 'done')
+})
+
+test('a no-op enable (links already present) answers hotReload done', async () => {
+  await seedClone('tog-keep')
+  await link.linkSkill('tog-keep', paths.repoDir('tog-keep'))
+  const res = await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'tog-keep', enabled: true }),
+  })
+  assert.equal(res.status, 200)
+  assert.deepEqual(dataOf(res), {
+    name: 'tog-keep',
+    enabled: true,
+    links: [{ linkName: 'tog-keep', enabled: true }],
+  })
+  assert.equal(envelope(res).hotReload, 'done')
 })
 
 /* ------------------------------------------------------------------ */

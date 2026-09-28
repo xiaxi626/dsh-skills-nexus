@@ -9,8 +9,10 @@ import {
   jobConfirmationQuestion,
   pollJob,
   PollTimeoutError,
+  reconcileList,
+  ReconcileTimeoutError,
 } from '../src/client/api.js'
-import type { ApiFetch, ApiFetchInit, Job } from '../src/client/api.js'
+import type { ApiFetch, ApiFetchInit, Job, ListEntry } from '../src/client/api.js'
 
 /**
  * Unit tests for the browser-half api client (src/client/api.ts, §10.1).
@@ -307,6 +309,62 @@ test('pollJob throws PollTimeoutError carrying the last running snapshot', async
       assert.ok(err instanceof PollTimeoutError)
       assert.equal(err.job.id, 'j')
       assert.equal(err.job.stage, 'pulling')
+      return true
+    },
+  )
+})
+
+/* ------------------------------------------------------------------ */
+/* List reconciliation (§11)                                           */
+/* ------------------------------------------------------------------ */
+
+const listEntry = (name: string, enabled = true): ListEntry => ({
+  name,
+  url: `github:owner/${name}`,
+  ref: 'main',
+  subdir: null,
+  commit: null,
+  source: 'git',
+  enabled,
+  links: [],
+  update: null,
+})
+
+test('reconcileList resolves when the first snapshot already satisfies the predicate', async () => {
+  const { fetchFn, calls } = fakeFetch([ok({ entries: [listEntry('a')] }, 'done')])
+  const entries = await reconcileList(createApi(fetchFn), (es) => es.some((e) => e.name === 'a'))
+  assert.deepEqual(entries.map((e) => e.name), ['a'])
+  assert.equal(calls.length, 1, 'no extra polls once the snapshot fits')
+})
+
+test('reconcileList polls until a snapshot satisfies the predicate', async () => {
+  const { fetchFn, calls } = fakeFetch([
+    ok({ entries: [listEntry('a')] }, 'done'),
+    ok({ entries: [listEntry('a')] }, 'done'),
+    ok({ entries: [listEntry('a'), listEntry('b')] }, 'done'),
+  ])
+  const ticks: string[][] = []
+  const entries = await reconcileList(
+    createApi(fetchFn),
+    (es) => es.some((e) => e.name === 'b'),
+    { sleep: async () => undefined, onTick: (es) => ticks.push(es.map((e) => e.name)) },
+  )
+  assert.deepEqual(entries.map((e) => e.name), ['a', 'b'])
+  assert.deepEqual(ticks, [['a'], ['a']], 'every missed poll is reported')
+  assert.equal(calls.length, 3)
+})
+
+test('reconcileList throws ReconcileTimeoutError carrying the last snapshot', async () => {
+  const { fetchFn } = fakeFetch([ok({ entries: [listEntry('a')] }, 'done')])
+  await assert.rejects(
+    reconcileList(createApi(fetchFn), (es) => es.some((e) => e.name === 'b'), {
+      intervalMs: 10,
+      timeoutMs: 0,
+      sleep: async () => undefined,
+    }),
+    (err: unknown) => {
+      assert.ok(err instanceof ReconcileTimeoutError)
+      assert.deepEqual(err.entries.map((e) => e.name), ['a'])
       return true
     },
   )
