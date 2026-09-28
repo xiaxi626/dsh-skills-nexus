@@ -13,25 +13,41 @@ in the README — that's the user-facing end-to-end flow.
 
 ```
 src/
-├── index.ts          # Cordis plugin entry (empty apply(), exists for dsh plugin add)
-├── link.ts           # symlink management (link/unlink/collision check)
+├── index.ts          # Cordis plugin entry — lazily registers the /skills-nexus/* routes in web hosts
+├── cli/
+│   ├── index.ts      # dispatcher
+│   ├── args.ts       # tiny argv parser
+│   ├── glob.ts       # * / ? glob expansion for remove
+│   ├── progress.ts   # TTY-gated spinner (add / update)
+│   ├── prompt.ts     # interactive confirm
+│   └── commands/     # add · list · update · switch-version · remove · toggle · doctor · completions
+├── client/           # browser half — excluded from the server build, bundled by build:client
+│   ├── index.tsx     # module shape: name / inject / apply (Settings slot)
+│   ├── api.ts        # typed HTTP client + confirmable / pollJob / reconcileList
+│   └── panel.tsx     # the Skills Nexus settings panel
+├── http/             # /skills-nexus/* routes: types / util (envelope + guards) / jobs / io / routes
+├── ops-io.ts         # OpsIO seam: emit / progress / interactive / confirm + NeedsConfirm
+├── locks.ts          # three-layer concurrency: in-process single-flight, cache lock, O_EXCL file lock
+├── switch-version.ts # switch orchestration (fetch → checkout → re-normalize → rebuild links)
+├── zip.ts            # minimal PKZip parser + installFromZip (hardened)
+├── health.ts         # checkUpdates extraction (six states) + doctor checks
+├── update-cache.ts   # in-process update cache (never persisted)
+├── link.ts           # symlink management (link/unlink/collision/target-attribution scan)
 ├── resolve.ts        # parse cloned repos into discovered skills (previewSkills + isValidSkillName)
-├── manifest.ts       # manifest.json read/write/find/add/remove
+├── manifest.ts       # manifest.json read/write/find/add/remove + listEntries
 ├── locator.ts        # locate SKILL.md inside a clone (3 discovery layouts)
-├── frontmatter.ts    # yaml-based frontmatter parser + normalizer (normalizeSkillName / ensureDescription)
-├── git.ts            # parseGitSpec / cloneRepo / pullRepo (execFile, no shell)
-├── paths.ts          # official skills root / repos / manifest path constants
+├── frontmatter.ts    # yaml-based frontmatter parser + normalizer
+├── git.ts            # parseGitSpec / cloneRepo / pullRepo / fetch (execFile, no shell)
+├── paths.ts          # official skills root / repos / manifest / locks path constants
 ├── types.ts          # Manifest / SkillEntry types
-├── repo-kind.ts      # classify cloned repos (plain / wrapped / plugin / unknown)
-└── cli/
-    ├── index.ts      # dispatcher
-    ├── args.ts       # tiny argv parser
-    └── commands/     # add · list · update · remove · toggle
+└── repo-kind.ts      # classify cloned repos (plain / wrapped / plugin / unknown)
 ```
 
-Runtime dependency is just `yaml`. `index.ts`'s `apply()` is a no-op — no
-custom provider is registered; all skill discovery goes through symlinks to
-the official filesystem provider.
+Runtime dependency is just `yaml`. In a **web** host, `index.ts` lazily injects
+the web server and registers the `/skills-nexus/*` routes (plus the settings
+panel through the client half); in non-web hosts the plugin stays dormant.
+Skill discovery itself never depends on the plugin layer — it goes through
+symlinks to the official filesystem provider.
 
 For the full architecture (data flow, directory layout, SKILL.md discovery
 rules), see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
@@ -54,11 +70,19 @@ rules), see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 Quality gates, all runnable locally:
 
 ```bash
-npm run typecheck   # tsc --noEmit (strict)
-npm run lint        # ESLint 9 + typescript-eslint (flat config)
-npm test            # unit tests — node:test + tsx, no extra framework
-npm run build       # tsc → lib/
+npm run typecheck     # tsc --noEmit (strict)
+npm run lint          # ESLint 9 + typescript-eslint (flat config)
+npm test              # unit tests — node:test + tsx, no extra framework
+npm run build         # tsc → lib/
+npm run test:build    # tsc -p tsconfig.test.json → test-dist/ (type-checks test/)
+npm run build:client  # tsdown + tsc → lib/client.js + lib/client-types/ (browser half)
 ```
+
+`npm run build:client` bundles the browser half (`src/client/`) and emits its
+types separately. It is deliberately **not** part of `npm run build` or CI:
+tsdown's engine floor (Node ^22.18 || >=24.11) exceeds the Node 20 entry of
+the support matrix, so the client bundle is built locally on a new-enough
+Node and committed, like the rest of `lib/`.
 
 The test suite lives in `test/` and targets the pure-logic modules:
 
@@ -72,6 +96,12 @@ The test suite lives in `test/` and targets the pure-logic modules:
 | `src/manifest.ts` | `test/manifest.test.ts` | manifest read/write round-trips against a temp `DSH_HOME` |
 | `src/resolve.ts` | `test/resolve.test.ts` | `previewSkills` (preview skills), `isValidSkillName` validation |
 | `src/link.ts` | `test/link.test.ts` | `linkSkill` / `isEntryEnabled` / `unlinkSkill` / `hasCollision` against a temp `DSH_HOME` — exercises the real Windows junction vs macOS/Linux symlink code paths |
+| `src/ops-io.ts` | `test/ops-io.test.ts` | byte-equal stdout capture through the OpsIO seam, TTY gating in both directions, `NeedsConfirm` |
+| `src/zip.ts` | `test/zip.test.ts` | hand-built zip fixtures: install / normalization / multi-skill plus the full rejection matrix (zip-slip, size bombs, zip64, encrypted, …) |
+| `src/switch-version.ts` | `test/switch-version.test.ts` | branch↔tag↔sha end-to-end, missing ref leaves zero changes, dirty-clone discard, link rebuild, CLI wrapper |
+| `src/locks.ts` | `test/locks.test.ts` | O_EXCL write/release, live-lock refusal, stale-PID / timeout / corrupt-file recovery, in-process single-flight |
+| `src/http/` (routes) | `test/api.test.ts` | the 12-route table over fake req/res — envelope dialects, 409 confirm-required, toggle target attribution, add-zip job pipeline, hotReload states |
+| `src/client/api.ts` | `test/client-api.test.ts` | the typed client over a recording fake fetch — envelopes, confirmable retry, `pollJob`, `reconcileList` |
 
 `npm run test:build` compiles `src/` + `test/` to `test-dist/` for a
 loader-free run (`node --test test-dist/test/`), useful where tsx's loader

@@ -48,9 +48,11 @@ if you use a different profile):
 dsh plugin --profile web add "github:xiaxi626/dsh-skills-nexus"
 ```
 
-This uses pnpm to install the package into the DSH profile. It **does not
-provide a global CLI command and is not a prerequisite for the CLI install
-below**. Skip it if you only need the CLI to manage skills.
+In a **web** session this adds the [Skills Nexus settings panel](#web-panel-optional-plugin-side)
+along with its `/skills-nexus/*` HTTP routes; in non-web hosts the layer stays
+dormant. It still **does not provide a global CLI command and is not a
+prerequisite for the CLI install below** — skip it if you only need the CLI
+to manage skills.
 
 ### Install the CLI globally
 
@@ -116,12 +118,14 @@ This installs a registry package, not a Git dependency, so Nexus itself does
 not require `--allow-git=all` via this route. The published release may differ
 from the latest code on GitHub.
 
-> **The plugin layer is optional.** It only installs the package into the
-> profile's `node_modules` and registers a Cordis layer whose `apply()` is an
-> intentional no-op. Skills are discovered and loaded through the symlinks
-> nexus creates in `~/.dsh/skills/` plus the official filesystem provider,
-> without needing this layer. The global CLI comes from the npm installation
-> above (or `npm link` during development).
+> **The plugin layer is optional.** It installs the package into the
+> profile's `node_modules` and — when the host is a DSH web session —
+> registers the settings panel and HTTP routes described in
+> [Web panel](#web-panel-optional-plugin-side). Skill discovery itself never
+> depends on that layer: skills are picked up through the symlinks nexus
+> creates in `~/.dsh/skills/` plus the official filesystem provider. The
+> global CLI comes from the npm installation above (or `npm link` during
+> development).
 
 ## Usage
 
@@ -139,6 +143,7 @@ dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills   # c
 # inspect / maintain
 dsh-skills-nexus list                               # all registered skills (+ source repo, commit, subdir, status)
 dsh-skills-nexus update [name]                      # refresh (branch pin: pull; tag/commit pin: verify)
+dsh-skills-nexus switch-version <name> <ref> [--type <branch|tag|commit>]  # move a clone to another ref (fetch, checkout, re-normalize, rebuild links)
 dsh-skills-nexus enable  <name>                     # create symlink (default)
 dsh-skills-nexus disable <name>                     # remove symlink without deleting clone
 dsh-skills-nexus remove <name>...                   # delete clone + symlink + unregister (one or more)
@@ -162,6 +167,44 @@ When you `add` a repo, nexus inspects the clone before registering it:
 - **Pure DSH plugin (no SKILL.md)** — prints a message telling you to use that repo's own DSH plugin installation flow, then exits without registering.
 - **Neither** — reports that no SKILL.md or DSH plugin marker was found and exits with an error.
 - **Collection repos** (`skills/<name>/SKILL.md` layout, e.g. `trae-community/trae-skills`) — installing the whole repo yields no installable skill at the root; nexus rejects it and suggests `--subdir <path>`. Installations that yield more than 20 skills trigger a confirmation prompt (skip with `--yes`).
+
+## Web panel (optional plugin side)
+
+When nexus runs inside a DSH **web** session — registered via `dsh plugin add`,
+or mounted with the local `--patch` overlay from
+[Local testing steps](#local-testing-steps) — a **Skills Nexus** section
+appears in the Settings page. The panel and the CLI drive the same manifest,
+the same clones and the same cross-process file locks, so you can mix both
+freely (a skill one side is working on answers `busy` / `locked` on the
+other).
+
+From the panel you can:
+
+- browse entry cards — link names, enabled state, pinned commit, and an
+  `update available` badge for branch-tracked entries;
+- add skills by git url or by uploading a `.zip` (the same install pipeline
+  as the CLI, including frontmatter normalization);
+- enable / disable, update, pin to another ref, and remove entries —
+  destructive actions show the server's consequence wording and only retry
+  with confirmation after you accept;
+- watch long operations (clone / update / switch) stream their progress with
+  a cancel button, and check for updates across all entries.
+
+**Hot reload.** Link changes are picked up by the official filesystem
+provider's watcher, so panel operations take effect in the running host
+within its stability window — no restart needed. On hosts running without
+the watcher, the panel says plainly that a change takes effect on the next
+host start.
+
+**HTTP surface (internal).** The panel talks to `/skills-nexus/*` routes —
+ping / list / doctor / job polling on GET; add / add-zip / remove / update /
+check-updates / switch-version / toggle / job cancel on POST. Success answers
+`{ data, hotReload }`, long operations are accepted as `202 { data: { jobId } }`,
+and every mutation is same-origin-checked (remove additionally accepts
+loopback only). These routes are the panel's own plumbing — they are **not**
+part of the stable machine interfaces promised in
+[Building on nexus](docs/build-on-nexus.md); tool builders should keep
+shelling out to the CLI.
 
 ## Shell completion
 
@@ -352,8 +395,10 @@ npx @deepseek-ai/dsh web --patch overlay.yml
 ```
 
 This mounts nexus as a temporary layer **for this DSH process only** — stop the
-process and the layer is gone; nothing is persisted to the profile. Note it
-does **not** put the `dsh-skills-nexus` CLI on your shell PATH; the shell
+process and the layer is gone; nothing is persisted to the profile. With the
+plugin side built, the web UI's Settings page also shows the
+[Skills Nexus panel](#web-panel-optional-plugin-side) for this session. Note
+it does **not** put the `dsh-skills-nexus` CLI on your shell PATH; the shell
 command comes from `npm link` in Step 4. **After changing code, re-run
 `npm run build` and restart DSH to pick up changes.**
 
@@ -402,21 +447,17 @@ npm link
 
 ### Step 5 — verify in DSH
 
-> **Note**: the DSH process started in Step 3 with `--patch` was running
-> **before** you added a skill in Step 4, so asking "what skills do you have?"
-> in the original DSH session won't show the new skill — the provider hasn't
-> scanned it yet.
->
-> **You must stop and restart**: go back to the terminal from Step 3, press
-> `Ctrl+C` to stop the process, then re-run:
-> ```bash
-> npx @deepseek-ai/dsh web --patch overlay.yml
-> ```
-> After restart, DSH reloads the filesystem provider, which scans
-> `~/.dsh/skills/` for symlinks and discovers the skill you just added.
+The DSH process started in Step 3 was running **before** you added a skill in
+Step 4 — but with the default configuration you do **not** need to restart:
+the official filesystem provider watches `~/.dsh/skills/`, and the symlink
+the CLI just created is picked up within its stability window. Open a **new
+conversation** in the running DSH session and ask "what skills do you have?"
+(or similar) — `theme-port-skill` should appear in the skill list.
 
-Once restarted, ask "what skills do you have?" or similar in the DSH session,
-and check whether `theme-port-skill` appears in the skill list.
+If your host runs without the filesystem watcher (or the skill does not show
+up), fall back to a restart: stop the Step 3 process with `Ctrl+C`, re-run
+`npx @deepseek-ai/dsh web --patch overlay.yml`, and DSH will rescan the
+skills root on boot.
 
 ### Clean up after local testing
 
@@ -452,10 +493,12 @@ ls -la ~/.dsh/skills/
 
 ## Notes & limitations
 
-- **`add` then visibility**: newly added skills appear after DSH rescans
-  `~/.dsh/skills/`. If the profile was already running, reload it — the
-  official filesystem provider will rescan the skills root and pick up newly
-  created symlinks.
+- **`add` then visibility**: with the default configuration the official
+  filesystem provider watches the skills root, so newly added skills appear
+  in new conversations of an already-running host within its stability
+  window — no reload needed. Hosts running without the watcher pick changes
+  up on the next rescan/restart; the web panel flags this with a "next host
+  start" notice.
 - **Version pinning & updates**: pin a ref with `#branch`, `#tag`, or
   `#commit-sha`. At install time the manifest records the exact resolved
   commit (`commit`) — a lightweight lock that `list` shows. `update` only

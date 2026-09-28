@@ -36,7 +36,7 @@
 dsh plugin --profile web add "github:xiaxi626/dsh-skills-nexus"
 ```
 
-这一步通过 pnpm 把包装进 DSH profile，**不会提供全局 CLI 命令，也不是下面 CLI 安装的前置条件**。只需使用 CLI 管理 skill 时，可以跳过。
+在 **web** 会话中，这一步会带上 [Skills Nexus 设置面板](#web-面板插件侧可选)及其 `/skills-nexus/*` HTTP 路由；非 web 宿主里该层保持沉默。它仍然**不会提供全局 CLI 命令，也不是下面 CLI 安装的前置条件**——只用 CLI 管理 skill 的话可以跳过。
 
 ### 全局安装 CLI
 
@@ -79,7 +79,7 @@ npm install -g dsh-skills-nexus
 
 这是 registry 包安装，不属于 Git 依赖，无需为 Nexus 本身设置 `--allow-git=all`；已发布版本与 GitHub 最新代码可能不同。
 
-> **插件层是可选的。** 它只把包装进 profile 的 `node_modules`、注册一个 `apply()` 为空操作的 Cordis layer。skill 发现与加载依靠 nexus 在 `~/.dsh/skills/` 建的 symlink + 官方 filesystem provider，不需要该插件层；全局 CLI 则来自上面的 npm 安装（开发期也可用 `npm link`）。
+> **插件层是可选的。** 它把包装进 profile 的 `node_modules`，并在宿主为 DSH web 会话时注册[Web 面板](#web-面板插件侧可选)与 HTTP 路由。但 skill 发现本身从不依赖该层：技能靠 nexus 在 `~/.dsh/skills/` 建的 symlink + 官方 filesystem provider 被发现与加载；全局 CLI 则来自上面的 npm 安装（开发期也可用 `npm link`）。
 
 ## 使用
 
@@ -97,6 +97,7 @@ dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills   # �
 # 查看 / 维护
 dsh-skills-nexus list                               # 列出所有已注册 skill（含来源仓库 SOURCE、commit、subdir、状态）
 dsh-skills-nexus update [name]                      # 刷新（分支 pin 拉取；tag/commit pin 校验）
+dsh-skills-nexus switch-version <name> <ref> [--type <branch|tag|commit>]  # 把克隆切到另一个 ref（fetch、checkout、重归一化、重建链接）
 dsh-skills-nexus enable  <name>                     # 创建 symlink（默认开启）
 dsh-skills-nexus disable <name>                     # 删除 symlink 但不删克隆
 dsh-skills-nexus remove <name>...                   # 删除克隆 + symlink + 注销（可一次给多个名字）
@@ -118,6 +119,21 @@ dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>  # 输出对应 
 - **纯 DSH 插件（没有 SKILL.md）**：提示请按该仓库自己的 DSH 插件安装方式安装，不建议用 nexus 管理，然后退出，不注册。
 - **两者都不是**：提示未找到 SKILL.md 或 DSH 插件标记，报错退出。
 - **集合仓库**（`skills/<name>/SKILL.md` 布局，如 `trae-community/trae-skills`）：整个仓库安装时根目录没有可安装的 skill，nexus 会拒绝并提示改用 `--subdir <path>` 指定子目录；一次安装解析出超过 20 个 skill 时会弹确认提示（`--yes` 跳过）。
+
+## Web 面板（插件侧，可选）
+
+当 nexus 运行在 DSH **web** 会话里——无论是通过 `dsh plugin add` 注册，还是用[本地测试步骤](#本地测试步骤)里的 `--patch` overlay 挂载——设置页都会出现一个 **Skills Nexus** 段。面板与 CLI 驱动同一份 manifest、同一批克隆与同一套跨进程文件锁，两边可以随意混用（一边正在操作的 skill，另一边会收到 `busy` / `locked`）。
+
+在面板里你可以：
+
+- 浏览条目卡片——链接名、启用状态、固定的 commit，以及分支跟踪条目的「有更新」徽标；
+- 按 git url 添加 skill，或上传 `.zip` 安装（与 CLI 同一条安装流水线，含 frontmatter 归一化）；
+- 启用 / 禁用、更新、切换到其他 ref、删除条目——破坏性操作会展示服务端的后果说明，确认接受后才带确认重发；
+- 观看长操作（克隆 / 更新 / 切换）流式进度并带取消按钮，以及对全部条目检查更新。
+
+**热加载。** 链接变化由官方 filesystem provider 的 watcher 拾取，面板操作在稳定窗口内即对运行中的宿主生效——无需重启。宿主未启用 watcher 时，面板会明说该变更在下次宿主启动时生效。
+
+**HTTP 接口（内部）。** 面板与 `/skills-nexus/*` 路由通信——GET 为 ping / list / doctor / job 轮询；POST 为 add / add-zip / remove / update / check-updates / switch-version / toggle / job cancel。成功返回 `{ data, hotReload }`，长操作以 `202 { data: { jobId } }` 受理，所有变更路由均做同源校验（remove 额外仅接受 loopback）。这些路由是面板自身的管道——**不**属于[在 nexus 之上构建](docs/build-on-nexus.zh-CN.md)承诺的稳定机器接口；工具开发者请继续 shell out 调 CLI。
 
 ## Shell 补全
 
@@ -274,7 +290,7 @@ EOF
 npx @deepseek-ai/dsh web --patch overlay.yml
 ```
 
-这只把 nexus 作为临时 layer 挂载进**当前这个 DSH 进程**——进程一停 layer 就消失，不会写进 profile。注意它**不会**把 `dsh-skills-nexus` 命令放进你的 shell PATH；shell 里的命令来自第四步的 `npm link`。**每次改了代码重新 `npm run build` 后，重启 DSH 生效。**
+这只把 nexus 作为临时 layer 挂载进**当前这个 DSH 进程**——进程一停 layer 就消失，不会写进 profile。插件侧构建好之后，本次会话的 web 设置页还会出现 [Skills Nexus 面板](#web-面板插件侧可选)。注意它**不会**把 `dsh-skills-nexus` 命令放进你的 shell PATH；shell 里的命令来自第四步的 `npm link`。**每次改了代码重新 `npm run build` 后，重启 DSH 生效。**
 
 ### 第四步：用 CLI 加一个 skill 测试
 
@@ -316,15 +332,9 @@ npm link
 
 ### 第五步：在 DSH 里验证
 
-> **注意**：第三步用 `--patch` 启动的 DSH 进程，是在第四步加 skill **之前**就跑起来的，因此直接在原来的 DSH 界面里问「你有哪些 skill」是看不到新 skill 的——provider 还没扫描到它。
->
-> **必须先停掉再重启**：回到第三步启动 DSH 的那个终端，按 `Ctrl+C` 停掉进程，然后重新执行一遍：
-> ```bash
-> npx @deepseek-ai/dsh web --patch overlay.yml
-> ```
-> 重启后 DSH 会重新加载 filesystem provider，此时它会扫描 `~/.dsh/skills/` 中的 symlink，发现刚通过 CLI 添加的 skill。
+第三步启动的 DSH 进程确实是在第四步加 skill **之前**就跑起来的——但默认配置下**不需要重启**：官方 filesystem provider 一直在监听 `~/.dsh/skills/`，CLI 刚建的 symlink 会在稳定窗口内被拾取。在运行中的 DSH 会话里开一个**新对话**，问一句「你有哪些 skill」，`theme-port-skill` 应当出现在列表里。
 
-重启完成后，在 DSH 会话里问一句「你有哪些 skill」或类似触发目录查询的话，看 `theme-port-skill` 是否出现在 skill 列表里。
+如果你的宿主没启用 filesystem watcher（或 skill 迟迟不出现），退回重启兜底：回到第三步的终端按 `Ctrl+C` 停掉进程，重新跑一遍 `npx @deepseek-ai/dsh web --patch overlay.yml`，DSH 会在启动时重新扫描 skills 根目录。
 
 ### 本地测试后的清理
 
@@ -353,7 +363,7 @@ ls -la ~/.dsh/skills/
 
 ## 注意事项与限制
 
-- **add 后是否立即可见**：新添加的 skill 是否立即出现在目录中，取决于 DSH 是否重新扫描了 `~/.dsh/skills/`。如果 profile 在 add 之前已启动，重载一下即可——官方 filesystem provider 会重新扫描 skills 根目录，拾取新创建的 symlink。
+- **add 后是否立即可见**：默认配置下官方 filesystem provider 监听 skills 根目录，新添加的 skill 会在稳定窗口内出现在运行中宿主的新对话里——无需重载。未启用 watcher 的宿主则要等下次重扫/重启；web 面板会以「下次宿主启动」提示标注这种情况。
 - **版本固定与更新**：用 `#分支名`、`#tag名` 或 `#commit-hash` 固定 ref。安装时 manifest 会记录实际解析到的 commit（`commit` 字段）——一个轻量锁，`list` 会显示它。`update` 只对**分支** pin 的 skill 做快进拉取（并打印 commit 变化）；**tag/commit** pin 的 skill 是固定点：只校验当前 checkout 是否仍等于 pin（漂移则自动恢复），不做 pull——被固定的版本永远不会静默漂移。不加 `#ref` 时，CLI 会通过 `git ls-remote --symref` 自动探测远程默认分支（探测失败回落到 `main`）。
 - **仅用于 skill 内容仓库**：这不是 `dsh plugin add` 的替代品。如果仓库本身就有 `dsh.bundle.patch`，请用正常方式安装——nexus 是给那些没有封装的仓库用的。完整决策指南见 [nexus 与 `dsh plugin`——什么时候用哪个](docs/nexus-vs-plugin.zh-CN.md)。
 - **集合仓库与 `--subdir`**：skill 藏在子目录的集合仓库用 `--subdir <path>` 按需安装——每次安装是一个独立条目、独立克隆（独立克隆设计，P1/P2 权衡见 [docs/subdir-design.md](docs/subdir-design.md)）。新装的 `--subdir` 条目在 Git 和远端支持时为**稀疏检出**：部分克隆加 cone 模式 `sparse-checkout`（安装输出里报 `checkout: sparse`），无关 skill 目录不落盘——远端支持 blob 过滤时通常可减少下载与磁盘占用，实际收益取决于仓库布局（无硬性流量上限：cone 会保留仓库根与祖先目录的直属文件；远端忽略 filter 时可能整仓下载，nexus 会给出可见警告）。想退出稀疏：`git -C <克隆目录> sparse-checkout disable`（会把剩余内容全部拉取检出；后续 `update` 不会重新强制稀疏）；稀疏流程需要 **Git 2.35+**（更旧的 Git 其 `sparse-checkout set` 不提供 `--cone`），本机 Git 缺少该能力时，会在警告后把同一克隆补成整仓检出，不重复下载。不带 `--subdir` 全量安装时，根目录无可用 skill 会被拒绝；超过 20 个 skill 会弹确认提示。从同一仓库挑装的多个条目各自保留独立克隆，但 `list` 会显示 **SOURCE** 列（来源 `owner/repo`），同一仓库挑出的条目一眼可辨。

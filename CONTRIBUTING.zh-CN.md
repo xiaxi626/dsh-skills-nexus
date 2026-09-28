@@ -11,23 +11,40 @@
 
 ```
 src/
-├── index.ts          # Cordis 插件入口（apply 空实现，仅用于 dsh plugin add 安装）
-├── link.ts           # symlink 管理（link/unlink/碰撞检测）
-├── resolve.ts        # 解析克隆仓库中的 skill（previewSkills + isValidSkillName）
-├── manifest.ts       # manifest.json 的读写/查找/增删
-├── locator.ts        # 在克隆目录中定位 SKILL.md（3 种发现布局）
-├── frontmatter.ts    # 基于 yaml 的 frontmatter 解析 + 归一化（normalizeSkillName / ensureDescription）
-├── git.ts            # parseGitSpec / cloneRepo / pullRepo（execFile，无 shell）
-├── paths.ts          # 官方 skills 根 / repos / manifest 路径常量
+├── index.ts          # Cordis 插件入口——在 web 宿主中惰性注册 /skills-nexus/* 路由
+├── cli/
+│   ├── index.ts      # 命令分发
+│   ├── args.ts       # 轻量 argv 解析
+│   ├── glob.ts       # remove 的 * / ? 通配展开
+│   ├── progress.ts   # TTY 门控 spinner（add / update）
+│   ├── prompt.ts     # 交互式确认
+│   └── commands/     # add · list · update · switch-version · remove · toggle · doctor · completions
+├── client/           # 浏览器半边——不参与服务端构建，由 build:client 打包
+│   ├── index.tsx     # 模块形态：name / inject / apply（Settings 槽位）
+│   ├── api.ts        # 类型化 HTTP 客户端 + confirmable / pollJob / reconcileList
+│   └── panel.tsx     # Skills Nexus 设置面板
+├── http/             # /skills-nexus/* 路由：types / util（信封 + 校验）/ jobs / io / routes
+├── ops-io.ts         # OpsIO 接缝：emit / progress / interactive / confirm + NeedsConfirm
+├── locks.ts          # 三层并发：进程内 single-flight、缓存锁、O_EXCL 文件锁
+├── switch-version.ts # 切换编排（fetch → checkout → 重归一化 → 重建链接）
+├── zip.ts            # 极简 PKZip 解析器 + installFromZip（加固版）
+├── health.ts         # checkUpdates 抽取（六态）+ doctor 检查
+├── update-cache.ts   # 进程内更新缓存（从不落盘）
+├── link.ts           # symlink 管理（link/unlink/碰撞/按目标归属扫描）
+├── resolve.ts        # 解析克隆仓库为发现的 skill（previewSkills + isValidSkillName）
+├── manifest.ts       # manifest.json 读/写/查找/增/删 + listEntries
+├── locator.ts        # 在克隆内定位 SKILL.md（3 种发现布局）
+├── frontmatter.ts    # 基于 yaml 的 frontmatter 解析器 + 归一化
+├── git.ts            # parseGitSpec / cloneRepo / pullRepo / fetch（execFile，无 shell）
+├── paths.ts          # 官方 skills 根 / repos / manifest / locks 路径常量
 ├── types.ts          # Manifest / SkillEntry 类型
-├── repo-kind.ts      # 克隆仓库分类（纯内容 / 包装 / 插件 / 无法识别）
-└── cli/
-    ├── index.ts      # 命令分发
-    ├── args.ts       # 轻量 argv 解析
-    └── commands/     # add · list · update · remove · toggle
+└── repo-kind.ts      # 克隆仓库分类（纯内容 / 包装 / 插件 / 无法识别）
 ```
 
-运行时依赖只有 `yaml`。`index.ts` 的 `apply()` 是空实现——不再注册自定义 provider，所有 skill 发现通过 symlink 交给官方 filesystem provider。
+运行时依赖只有 `yaml`。在 **web** 宿主中，`index.ts` 惰性注入 web server 并注册
+`/skills-nexus/*` 路由（外加经浏览器半边挂上的设置面板）；非 web 宿主里插件层保持
+沉默。skill 发现本身从不依赖插件层——一律经由指向官方 filesystem provider 的
+symlink。
 
 完整架构（数据流、目录布局、SKILL.md 发现规则），见
 **[docs/ARCHITECTURE.zh-CN.md](docs/ARCHITECTURE.zh-CN.md)**。
@@ -50,11 +67,18 @@ src/
 质量门禁，本地全部可跑：
 
 ```bash
-npm run typecheck   # tsc --noEmit（strict）
-npm run lint        # ESLint 9 + typescript-eslint（flat config）
-npm test            # 单元测试——node:test + tsx，不引入额外测试框架
-npm run build       # tsc → lib/
+npm run typecheck     # tsc --noEmit（strict）
+npm run lint          # ESLint 9 + typescript-eslint（flat config）
+npm test              # 单元测试——node:test + tsx，不引入额外测试框架
+npm run build         # tsc → lib/
+npm run test:build    # tsc -p tsconfig.test.json → test-dist/（对 test/ 做类型检查）
+npm run build:client  # tsdown + tsc → lib/client.js + lib/client-types/（浏览器半边）
 ```
+
+`npm run build:client` 打包浏览器半边（`src/client/`）并单独产出其类型。它刻意**不**
+并入 `npm run build` 或 CI：tsdown 的引擎门槛（Node ^22.18 || >=24.11）超出了支持
+矩阵里的 Node 20 入口，因此客户端 bundle 在足够新的 Node 上本地构建后，与其余
+`lib/` 一样随仓库提交。
 
 测试位于 `test/`，覆盖纯逻辑模块：
 
@@ -68,6 +92,12 @@ npm run build       # tsc → lib/
 | `src/manifest.ts` | `test/manifest.test.ts` | 在临时 `DSH_HOME` 上做 manifest 读写往返 |
 | `src/resolve.ts` | `test/resolve.test.ts` | `previewSkills`（预览 skill）、`isValidSkillName` 校验 |
 | `src/link.ts` | `test/link.test.ts` | 在临时 `DSH_HOME` 上跑 `linkSkill` / `isEntryEnabled` / `unlinkSkill` / `hasCollision`——真实覆盖 Windows junction 与 macOS/Linux symlink 两条代码路径 |
+| `src/ops-io.ts` | `test/ops-io.test.ts` | 经 OpsIO 接缝的字节级 stdout 捕获、双向 TTY 门控、`NeedsConfirm` |
+| `src/zip.ts` | `test/zip.test.ts` | 手工构造的 zip fixture：安装 / 归一化 / 多 skill，及完整拒绝矩阵（zip-slip、体积炸弹、zip64、加密……） |
+| `src/switch-version.ts` | `test/switch-version.test.ts` | 分支↔tag↔sha 端到端、缺 ref 零改动、脏克隆丢弃、链接重建、CLI 包装 |
+| `src/locks.ts` | `test/locks.test.ts` | O_EXCL 写入/释放、活锁拒绝、stale-PID / 超时 / 损坏文件恢复、进程内 single-flight |
+| `src/http/`（routes） | `test/api.test.ts` | 基于 fake req/res 的 12 条路由全表——信封方言、409 confirm-required、toggle 目标归属、add-zip job 流水线、hotReload 状态 |
+| `src/client/api.ts` | `test/client-api.test.ts` | 基于录制式 fake fetch 的类型化客户端——信封、confirmable 重试、`pollJob`、`reconcileList` |
 
 `npm run test:build` 把 `src/` + `test/` 编译到 `test-dist/`，可无 loader 直接跑
 （`node --test test-dist/test/`），适合 tsx loader 不可用的环境。
