@@ -1,13 +1,11 @@
 /**
- * Browser half — Phase 0 probe.
+ * Browser half — the Skills Nexus settings panel.
  *
- * Registers one Settings section that renders a single line of text. Its job
- * is to prove the client contract end to end on a real host: package
- * `dsh.client` metadata → `./client` export → `__ModuleLoader__.load` closure
- * factory → `ctx.slots` registration → the section appears in Settings.
- *
- * The real panel (entry cards, job progress, confirm dialogs) replaces the
- * body in Phase 3; the module shape — name / inject / apply — is final.
+ * Proven shape (Phase 0 probe, kept): package `dsh.client` metadata → `./client`
+ * export → `__ModuleLoader__.load` closure factory → `ctx.slots` registration →
+ * the section appears in Settings. Phase 3 swaps the probe body for the real
+ * panel (entry cards, add form, job progress view, confirm flow) over the api
+ * client in `./api.ts`.
  * @module dsh-skills-nexus/client
  */
 /** Client-side loader diagnostics read this name. */

@@ -1,0 +1,1 @@
+{"version":3,"file":"panel.d.ts","sourceRoot":"","sources":["../../../src/client/panel.tsx"],"names":[],"mappings":"AAAA;;;;;;;;;;;;;;GAcG;AAGH,OAAO,KAAK,EAAE,YAAY,EAA0B,MAAM,OAAO,CAAA;AASjE,OAAO,KAAK,EAAkB,QAAQ,EAAE,MAAM,UAAU,CAAA;AA4CxD;;;;;;;;GAQG;AACH,wBAAgB,UAAU,CAAC,EAAE,GAAG,EAAE,OAAO,EAAE,EAAE;IAAE,GAAG,CAAC,EAAE,QAAQ,CAAA;CAAE,GAAG,YAAY,CAqT7E"}
