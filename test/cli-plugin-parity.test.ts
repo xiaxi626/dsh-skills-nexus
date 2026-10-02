@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -16,6 +16,12 @@ import type { RouteRequest, RouteResponse, RouteSpec } from '../src/http/types.j
  * asserts the resulting link sets are structurally identical, so either side
  * drifting (e.g. one pruning the links upstream dropped and the other not)
  * turns the suite red instead of silently diverging.
+ *
+ * `remove` is the other half of that promise: both faces now call the one core
+ * in `src/remove.ts`, and the remove case below pins the observable contract —
+ * link names are *derived* from the clone's current skills, so a hand-made alias
+ * pointing into it survives (attribution-based deletion would have taken it).
+ * A face that goes back to attribution turns that assertion red.
  *
  * Remotes are local `file://` fixtures: no network.
  *
@@ -60,6 +66,7 @@ let manifest: typeof import('../src/manifest.js')
 let paths: typeof import('../src/paths.js')
 let gitMod: typeof import('../src/git.js')
 let updateCmd: typeof import('../src/cli/commands/update.js')
+let removeCmd: typeof import('../src/cli/commands/remove.js')
 
 before(async () => {
   home = await mkdtemp(join(tmpdir(), 'nexus-parity-'))
@@ -70,6 +77,7 @@ before(async () => {
   paths = await import('../src/paths.js')
   gitMod = await import('../src/git.js')
   updateCmd = await import('../src/cli/commands/update.js')
+  removeCmd = await import('../src/cli/commands/remove.js')
   const routes = await import('../src/http/routes.js')
   table = routes.createNexusRoutes()
   assert.ok(
@@ -281,4 +289,44 @@ test('update shrinks upstream to one skill: both faces relink under the entry na
   assert.equal(await link.isLinked('alpha-sa'), false)
   assert.equal(await link.isLinked('beta-sc'), false)
   assert.equal(await link.isLinked('beta-sa'), false)
+})
+
+test('remove: both faces delete the same derived links and keep a hand-made alias', async () => {
+  const srcCli = join(home, 'src-remove-cli')
+  const srcApi = join(home, 'src-remove-api')
+  await mkdir(srcCli, { recursive: true })
+  await mkdir(srcApi, { recursive: true })
+  await makeBundledRepo(srcCli, 'alpha-rc', 'beta-rc')
+  await makeBundledRepo(srcApi, 'alpha-ra', 'beta-ra')
+  await installBundled('rm-cli', srcCli, 'alpha-rc', 'beta-rc')
+  await installBundled('rm-api', srcApi, 'alpha-ra', 'beta-ra')
+
+  // A link someone added by hand, pointing into each clone. The by-name scheme
+  // derives names from the clone's skills and therefore leaves it alone;
+  // attribution-based deletion would have removed it.
+  await link.linkSkill('alias-rc', join(paths.skillDir('rm-cli'), 'alpha'))
+  await link.linkSkill('alias-ra', join(paths.skillDir('rm-api'), 'alpha'))
+
+  // CLI face — exact name, so no glob confirmation is involved.
+  assert.equal(await removeCmd.remove(['rm-cli']), 0)
+  // Plugin face — same operation through the route (sync, 200).
+  const res = await call('/skills-nexus/remove', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'rm-api', confirm: true }),
+  })
+  assert.equal(res.status, 200)
+  const data = dataOf<{ name: string; removed: boolean; links: string[] }>(res)
+
+  // Both faces deleted the two derived names …
+  assert.deepEqual(data.links.slice().sort(), ['alpha-ra', 'beta-ra'])
+  assert.equal(await link.isLinked('alpha-rc'), false)
+  assert.equal(await link.isLinked('beta-rc'), false)
+  assert.equal(await link.isLinked('alpha-ra'), false)
+  assert.equal(await link.isLinked('beta-ra'), false)
+  // … kept the hand-made alias on BOTH faces …
+  assert.equal(await link.isLinked('alias-rc'), true)
+  assert.equal(await link.isLinked('alias-ra'), true)
+  // … and dropped both clone directories.
+  await assert.rejects(stat(paths.skillDir('rm-cli')), { code: 'ENOENT' })
+  await assert.rejects(stat(paths.skillDir('rm-api')), { code: 'ENOENT' })
 })

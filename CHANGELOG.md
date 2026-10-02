@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+**2026-10-02 · Changed · remove 语义两侧统一到 v0.3.0 按名字方案：抽出共享核心 `src/remove.ts`，HTTP 路由放弃 Phase 2 归属扫描**
+
+- **背景（复核结论）**：核对历史确认 remove 的删除逻辑**自 v0.3.0 起一字未改**——`git diff v0.3.0 v0.4.0 -- src/cli/commands/remove.ts` 中链接删除段零改动，v0.4.0 只新增 glob/多目标/`--yes`/多技能确认守卫（`link.ts` 甚至不在该 diff 内）。Phase 2 给 HTTP `/remove` 单独实现了「按 readlink 目标归属扫描」，于是同一操作在两侧语义分叉：CLI 按名字推算（看不见手工别名，但保留 v0.3.0 契约），HTTP 按归属（会连带删除别名）。裁决：**两侧统一采用 v0.3.0 老方案**。
+- **变更**：新增 `src/remove.ts`（共享核心 `removeSkill(name)`，逻辑自 CLI 的 `removeOne` 原样搬迁）——反注册 → `previewSkills` 推算链接名（单技能用条目名、多技能用 frontmatter 名并以条目名兜底）→ 逐个删除 → 删克隆目录；异常路径兜底删条目名。核心额外用 `isLinked` 记录**实际删除**的链接名，供路由回报 `links` 与判定 `hotReload`。`src/cli/commands/remove.ts` 删除本地 `removeOne` 改调核心（glob/`--yes`/确认/文件锁/消息/退出码全不变）；`src/http/routes.ts` 的 remove 路由删除归属扫描段改调核心（loopback/confirm/双层锁/信封不变；`removeEntry`/`removeSkillDir` 随之不再被该文件使用，已从导入移除）。对齐 `switch-version.ts` 的既有先例：两侧一致由**结构**保证，而非靠人工同步。
+- **HTTP 契约**：形状零变化（`{ name, removed, links }` + `hotReload`）；`links` 现在列出**实际删除**的链接名。既有 api 用例（单链接 `['rm-skill']`、无链接 `[]` + `done`）在新实现下原样通过。
+- **代价（明示，本次裁决接受）**：手工/外部创建的别名不再被 remove 清理——它按名字推算，看不见这类链接；克隆删除后该别名成为悬空链接，由 `doctor` 的 orphan-link 检查（`dangling-link`，error + 手工清理提示）报告。另注一处沿用不变的行为：目录缺失时 `previewSkills` 返回空数组而非抛错，因此「克隆缺失」不会走兜底、也不会删除任何链接（该兜底实际只在 frontmatter 解析等异常路径触发）。
+- **不做**：CLI `update` 缺 zip 分流仅记录（见同日两条提交的「不做」段）；`toggle` 的归属语义零改动（§6.4 裁决继续有效）；`list`/`manifest`/`toggle` 的状态派生仍走 `entryLinks` 归属扫描。
+- **测试**：`test/cli-plugin-parity.test.ts` +1 条（remove 段落，该文件共 3 条）——镜像夹具各装一个双技能条目并各加一条**手工别名**，分别经 CLI `remove()` 与 `POST /skills-nexus/remove` 删除：断言两侧删除的链接名一致（`['alpha-ra','beta-ra']`）、克隆目录消失、且**手工别名在两侧都存活**（这正是「按名字而非归属」的判别点）。全量 `npm test` **426 条 · 423 通过 · 0 失败 · 3 跳过**（上一提交基线 425 · 422 · 0 · 3；+1 恰为本轮新增）。既有 `test/remove.test.ts` 10 条与 `test/api.test.ts` 的 remove 用例在新实现下原样通过。
+- **验证方式**：六步门禁 `typecheck` / `lint` / `test:build` / `build` / `build:client` / `npm test` 退出码均 0。**负向对照**：临时把 `src/http/routes.ts` 换回 HEAD 的归属实现 → remove parity 转红，实际 `['alias-ra','alpha-ra','beta-ra']` ≠ 期望 `['alpha-ra','beta-ra']`（别名被归属删除），证明该断言真在守两侧语义；恢复后 3/3 全绿。隔离核验：真实 `~/.dsh` 仍为空（0 链接 / 0 克隆 / 无 manifest）。
+- **如何辨识改动**：新增 `src/remove.ts` 及产物 `lib/remove.js` / `.js.map` / `.d.ts` / `.d.ts.map`；M `src/cli/commands/remove.ts`、`src/http/routes.ts`、`test/cli-plugin-parity.test.ts`、本 CHANGELOG、`lib/cli/commands/remove.js` + `.js.map` + `.d.ts.map`、`lib/http/routes.js` + `.js.map` + `.d.ts.map`；`lib/cli/commands/remove.d.ts` 与 `lib/http/routes.d.ts` 不变（公开签名未变）；`lib/client.js` 零变化。
 **2026-10-02 · Fixed · 插件侧 updateEntryCore 同步按归属清理旧链接；新增 CLI↔插件 parity 测试**
 
 - **背景**：接同日 CLI 提交。CLI 与插件侧是两份镜像实现（`routes.ts` 该函数注释自称 mirroring `update.ts`），按「两侧同一操作必须一致」原则同步修改；插件侧此前同样只调 `linkSkill` 覆盖/新建、**从不清理旧链接**，故上游改名/删除技能时会留下与 CLI 同样的残留（同一 SKILL.md 以两个链接名可见；技能目录消失后链接当场悬空）。

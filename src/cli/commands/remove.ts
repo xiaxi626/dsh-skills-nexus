@@ -1,9 +1,5 @@
-import { join } from 'node:path'
-import { removeEntry, removeSkillDir, readManifest } from '../../manifest.js'
-import { repoDir } from '../../paths.js'
-import { unlinkSkill } from '../../link.js'
-import { previewSkills } from '../../resolve.js'
-import { sanitizeName } from '../../git.js'
+import { readManifest } from '../../manifest.js'
+import { removeSkill } from '../../remove.js'
 import { cliIO } from '../../ops-io.js'
 import type { OpsIO } from '../../ops-io.js'
 import { withSkillFileLock, SkillLockedError } from '../../locks.js'
@@ -93,9 +89,11 @@ export async function remove(argv: string[], io: OpsIO = cliIO): Promise<number>
 
   let removedCount = 0
   for (const name of resolved) {
-    let ok: boolean
+    let removed: boolean
     try {
-      ok = await withSkillFileLock(name, () => removeOne(name))
+      // The deletion itself lives in src/remove.ts — one core shared with the
+      // plugin's POST /remove route, so the two faces cannot drift apart.
+      removed = (await withSkillFileLock(name, () => removeSkill(name))).removed
     } catch (err) {
       if (err instanceof SkillLockedError) {
         process.stderr.write(`${err.message}\n`)
@@ -104,7 +102,7 @@ export async function remove(argv: string[], io: OpsIO = cliIO): Promise<number>
       }
       throw err
     }
-    if (ok) {
+    if (removed) {
       removedCount++
       io.emit(`Removed "${name}" — symlink(s) deleted, repo dir removed.\n`)
     } else {
@@ -121,37 +119,4 @@ export async function remove(argv: string[], io: OpsIO = cliIO): Promise<number>
     )
   }
   return failures === 0 ? 0 : 1
-}
-
-/**
- * Delete one skill by exact name: unregister it, remove every symlink that
- * pointed into its clone, then delete the clone directory. Returns false if the
- * name isn't registered. Logic is unchanged from the original single-name
- * `remove` — only the surrounding loop and messaging moved to the caller.
- */
-async function removeOne(name: string): Promise<boolean> {
-  const removed = await removeEntry(name)
-  if (!removed) return false
-
-  // Remove symlinks for all discovered skills.
-  const dir = repoDir(removed.path)
-  const skillRoot = removed.subdir ? join(dir, removed.subdir) : dir
-  try {
-    const skills = await previewSkills(skillRoot)
-    for (const s of skills) {
-      const fmName = s.invalidName ? sanitizeName(s.invalidName) : s.name
-      const linkName = skills.length === 1 ? removed.name : (fmName || removed.name)
-      await unlinkSkill(linkName)
-    }
-    // Also try the entry name itself in case it's different
-    if (skills.length > 1) {
-      await unlinkSkill(removed.name)
-    }
-  } catch {
-    // If the clone is missing/broken, just try the entry name.
-    await unlinkSkill(removed.name)
-  }
-
-  await removeSkillDir(removed.path)
-  return true
 }
