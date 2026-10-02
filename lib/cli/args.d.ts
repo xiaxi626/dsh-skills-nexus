@@ -49,4 +49,27 @@ export interface ListOptions {
  * silently print the table to a script that expects one name per line.
  */
 export declare function parseListArgs(argv: string[]): ListOptions;
+export interface ExportOptions {
+    /** Entry names to package, in the order given. */
+    names: string[];
+    /** Package every managed entry (disabled ones included). */
+    all: boolean;
+    /** Output path; absent means the command's default (`<name>.zip` / dated). */
+    out?: string;
+}
+/**
+ * Parse `export` args: entry names or `--all`, plus an optional `--out`.
+ *
+ * Unlike `add` (which has per-repo options and therefore tolerates unknown
+ * flags) this rejects anything it does not know: `export` writes a file whose
+ * name is derived from what it was given, so a typo silently falling back to
+ * "export everything" would be worse than a usage error. `--all` and explicit
+ * names are mutually exclusive for the same reason — asking for one entry and
+ * silently getting the whole manifest is not a recoverable surprise.
+ *
+ * `--out` is the only value-taking option here; `-o` is accepted as an alias
+ * and is deliberately absent from `--help`'s option list (the shell templates
+ * advertise long options only, matching `-y` for `--yes`).
+ */
+export declare function parseExportArgs(argv: string[]): ExportOptions;
 //# sourceMappingURL=args.d.ts.map

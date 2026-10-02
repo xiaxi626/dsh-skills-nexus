@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+**2026-10-02 · Added · CLI `export` 命令面（帮助文本 + 四份补全模板同步）：`export <name>... | --all [--out <file>]`**
+
+- **背景**：接上一提交的 `export` 核心。设计稿 §10.1 要求命令面与核心一次成型——仓库里存在**漂移守卫测试**：四份补全模板的子命令集合必须等于 `src/cli/index.ts` 路由的 `case` 集合，且 `--help` 中出现的每个长选项都必须在四份模板中出现。因此命令面不能"先加代码、补全后补"。
+- **变更**：`src/cli/args.ts` 新增 `parseExportArgs`（`--all`、`--out`/`-o`、位置名；拒绝未知 flag、拒绝 `--all` 与名字混用、拒绝空选择）；新增 `src/cli/commands/export.ts`（`exportCommand`：推导默认输出名 → 调核心 → 两行结果输出；退出码 0/1/2）；`src/cli/index.ts` 注册路由并在 `--help` 的 Usage、`export options`、`Batch` 三段补齐说明；四份补全模板（bash/zsh/fish/powershell）加入 `export` 子命令与 `--all`/`--out` 选项。
+- **默认输出名**：单名 → `<name>.zip`；多名 → `nexus-export.zip`；`--all` → `nexus-export-<YYYYMMDD>.zip`（本地时间，便于按时间排序）。扩展名决定形态：`.zip` 写归档，其他写目录树。
+- **选项严格度**：与 `add`（容忍未知 flag）相反，`export` **拒绝**未知参数——它的输出名由输入推导，"拼错一个字母却静默导出全部"不可接受；`--all` 与显式名字互斥同理。`-o` 作为 `--out` 的别名被接受但**不出现在 `--help`**（与 `-y` 之于 `--yes` 同一处置）。
+- **completions 的一处不变量调整**：模板此前声明"能补名字的命令都没有取值 flag，因此 flag 值不会被误计为位置参数"。`export --out <file>` 是第一个取值 flag，而 `export` 也吃位置名——本提交选择**不把 `export` 放进名字补全分支**（并在四处注释写明原因），而不是把四个 shell 的位置计数改成"跳过 flag 值"。理由：改动面更小、不触碰会被真实 shell 执行的计数逻辑，代价仅是 `export <TAB>` 不补名字。
+- **不做**：`import` / `adopt` 未动；面板入口未动（设计稿 §10.3 把 `export` 的面板位列为可后置）；`source` 字段、`add-zip` 路由与 `src/zip.ts` 的安装编排**仍未改动**。
+- **测试**：`test/export.test.ts` 追加 5 条 CLI 用例（经 `OpsIO` 接缝注入，**不 patch `process.stdout`**）：写包并回报路径、`--out=value` 等值、默认命名（单名与 `--all` 的日期名，经 `process.chdir` 指向临时目录后断言）、用法错误退出 2 且 stdout 为空（5 种输入）、导出失败退出 1（核心 `ExportError`）。全量 `npm test` **444 条 · 441 通过 · 0 失败 · 3 跳过**（上一提交基线 439 · 436 · 0 · 3；+5 恰为本轮新增）。
+- **验证方式**：六步门禁 `typecheck` / `lint` / `test:build` / `build` / `build:client` / `npm test` 退出码均 0。过程中一处修正：`export` 空参数最初落到核心守卫、退出码为 1，而按 CLI 约定用法错误必须是 2——改由 `parseExportArgs` 直接拒绝（核心守卫保留，供面板侧复用，属第二道防线而非 CLI 的用法检查）。
+- **如何辨识改动**：新增 `src/cli/commands/export.ts` 及产物 `lib/cli/commands/export.js` + `.js.map` + `.d.ts` + `.d.ts.map`；M `src/cli/args.ts`、`src/cli/index.ts`、`src/cli/commands/completions/bash.ts`、`zsh.ts`、`fish.ts`、`powershell.ts`、`test/export.test.ts`、对应 `lib/` 产物与本 CHANGELOG。
+
 **2026-10-02 · Added · `export` 核心与 PKZip 写入器（来源与移植 §4.1/§5）：包 = 技能文件 + 来源标签；并引入 `ownership: 'external'` 标记（`remove` 不再删除非 nexus 所有的目录）**
 
 - **背景**：设计稿 `docs/source-and-migration-design.md` §4.1 把"把技能搬到另一台机器"定义为通道 C：包是**搬运容器**而非第二种安装格式——它必须携带**来源标签**（`url`/`gitUrl`/`ref`/`commit`/`subdir`、启用态与链接名），导入方才能优先按标签重新取货，把"永久冻结的副本"变成"可更新条目"。本提交落地产方（核心模块 + 编解码器），命令面留待下一提交。

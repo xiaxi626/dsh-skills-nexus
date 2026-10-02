@@ -138,3 +138,66 @@ export function parseListArgs(argv: string[]): ListOptions {
 
   return { names }
 }
+
+export interface ExportOptions {
+  /** Entry names to package, in the order given. */
+  names: string[]
+  /** Package every managed entry (disabled ones included). */
+  all: boolean
+  /** Output path; absent means the command's default (`<name>.zip` / dated). */
+  out?: string
+}
+
+/**
+ * Parse `export` args: entry names or `--all`, plus an optional `--out`.
+ *
+ * Unlike `add` (which has per-repo options and therefore tolerates unknown
+ * flags) this rejects anything it does not know: `export` writes a file whose
+ * name is derived from what it was given, so a typo silently falling back to
+ * "export everything" would be worse than a usage error. `--all` and explicit
+ * names are mutually exclusive for the same reason — asking for one entry and
+ * silently getting the whole manifest is not a recoverable surprise.
+ *
+ * `--out` is the only value-taking option here; `-o` is accepted as an alias
+ * and is deliberately absent from `--help`'s option list (the shell templates
+ * advertise long options only, matching `-y` for `--yes`).
+ */
+export function parseExportArgs(argv: string[]): ExportOptions {
+  const names: string[] = []
+  let all = false
+  let out: string | undefined
+
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!
+    // 按第一个 `=` 拆分 --flag=value；无 `=` 时 inlineVal 为 undefined。
+    const eqIdx = a.indexOf('=')
+    const flag = eqIdx !== -1 ? a.slice(0, eqIdx) : a
+    const inlineVal = eqIdx !== -1 ? a.slice(eqIdx + 1) : undefined
+
+    if (flag === '--all') {
+      if (inlineVal !== undefined) {
+        throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
+      }
+      all = true
+    } else if (flag === '--out' || flag === '-o') {
+      out = inlineVal ?? argv[++i]
+      if (!out) throw new Error(`${flag} requires a path, e.g. --out skills.zip`)
+    } else if (!a.startsWith('-')) {
+      names.push(a)
+    } else {
+      throw new Error(
+        `unknown argument "${a}"; usage: dsh-skills-nexus export <name>... | --all [--out <file>]`,
+      )
+    }
+  }
+
+  if (all && names.length > 0) {
+    throw new Error('--all packages every entry; do not combine it with entry names')
+  }
+  if (!all && names.length === 0) {
+    throw new Error(
+      'nothing to export; usage: dsh-skills-nexus export <name>... | --all [--out <file>]',
+    )
+  }
+  return { names, all, out }
+}

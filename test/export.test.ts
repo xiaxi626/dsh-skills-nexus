@@ -1,10 +1,11 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { SkillEntry } from '../src/types.js'
 import type { NexusPackage } from '../src/export.js'
+import type { OpsIO } from '../src/ops-io.js'
 
 /**
  * Module-level tests for the `export` core — channel C of the source &
@@ -29,6 +30,23 @@ let linker: typeof import('../src/link.js')
 let codec: typeof import('../src/zip.js')
 let exporter: typeof import('../src/export.js')
 let remover: typeof import('../src/remove.js')
+let cli: typeof import('../src/cli/commands/export.js')
+
+/** The OpsIO seam, so CLI tests never patch process.stdout. */
+function captureIO(): { io: OpsIO; lines: string[] } {
+  const lines: string[] = []
+  return {
+    lines,
+    io: {
+      confirm: async () => true,
+      progress: () => {},
+      emit: (line: string) => {
+        lines.push(line)
+      },
+      interactive: false,
+    },
+  }
+}
 
 before(async () => {
   home = await mkdtemp(join(tmpdir(), 'nexus-export-home-'))
@@ -41,6 +59,7 @@ before(async () => {
   codec = await import('../src/zip.js')
   exporter = await import('../src/export.js')
   remover = await import('../src/remove.js')
+  cli = await import('../src/cli/commands/export.js')
 })
 
 after(async () => {
@@ -360,4 +379,75 @@ test('a zip written by createZip round-trips through readZip byte for byte', () 
     back.map((f) => [f.name, f.data.toString('utf8')]),
     files.map((f) => [f.name, f.data.toString('utf8')]),
   )
+})
+
+/* ------------------------------------------------------------------ */
+/* CLI surface                                                         */
+/* ------------------------------------------------------------------ */
+
+test('the CLI writes a package and reports where it went', async () => {
+  await clearManifest()
+  await seedSkill('cli')
+  await addEntry({ name: 'cli' })
+
+  const out = join(work, 'cli-pkg.zip')
+  const { io, lines } = captureIO()
+  assert.equal(await cli.exportCommand(['cli', '--out', out], io), 0)
+  assert.equal((await stat(out)).isFile(), true)
+  const text = lines.join('')
+  assert.match(text, /1 entry, 1 file/)
+  assert.match(text, /cli-pkg\.zip/)
+})
+
+test('--out=value is equivalent to the space form', async () => {
+  await clearManifest()
+  await seedSkill('eq')
+  await addEntry({ name: 'eq' })
+
+  const out = join(work, 'eq-pkg.zip')
+  const { io } = captureIO()
+  assert.equal(await cli.exportCommand(['eq', `--out=${out}`], io), 0)
+  assert.equal((await stat(out)).isFile(), true)
+})
+
+test('the CLI default output name follows the entry name and the date', async () => {
+  await clearManifest()
+  await seedSkill('named')
+  await addEntry({ name: 'named' })
+
+  const previous = process.cwd()
+  process.chdir(work)
+  try {
+    const single = captureIO()
+    assert.equal(await cli.exportCommand(['named'], single.io), 0)
+    assert.equal((await stat(join(work, 'named.zip'))).isFile(), true)
+
+    const everything = captureIO()
+    assert.equal(await cli.exportCommand(['--all'], everything.io), 0)
+    const dated = (await readdir(work)).filter((f) => /^nexus-export-\d{8}\.zip$/.test(f))
+    assert.equal(dated.length, 1, 'a dated package name is used for --all')
+  } finally {
+    process.chdir(previous)
+  }
+})
+
+test('usage errors exit 2 and write nothing', async () => {
+  const cases: string[][] = [
+    [],
+    ['--nope'],
+    ['alpha', '--all'],
+    ['alpha', '--out'],
+    ['--out', join(work, 'never.zip'), 'extra', '--bogus'],
+  ]
+  for (const argv of cases) {
+    const { io, lines } = captureIO()
+    assert.equal(await cli.exportCommand(argv, io), 2, `argv: ${argv.join(' ')}`)
+    assert.deepEqual(lines, [], 'a usage error emits nothing on stdout')
+  }
+})
+
+test('a failing export exits 1', async () => {
+  await clearManifest()
+  const { io } = captureIO()
+  assert.equal(await cli.exportCommand(['ghost', '--out', join(work, 'ghost.zip')], io), 1)
 })
