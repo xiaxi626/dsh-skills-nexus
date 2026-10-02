@@ -6,6 +6,7 @@
  *   list   [--names]
  *   update [name]
  *   export <name>... | --all [--out <file>]
+ *   import <package> [--dry-run] [--force]
  *   switch-version <name> <ref> [--type <branch|tag|commit>]
  *   remove <name-or-pattern>... [--yes]
  *   enable  <name>
@@ -21,6 +22,7 @@ import { add } from './commands/add.js'
 import { list } from './commands/list.js'
 import { update } from './commands/update.js'
 import { exportCommand } from './commands/export.js'
+import { importCommand } from './commands/import.js'
 import { switchVersion } from './commands/switch-version.js'
 import { remove } from './commands/remove.js'
 import { toggle } from './commands/toggle.js'
@@ -46,6 +48,8 @@ async function main(argv: string[]): Promise<number> {
       return update(rest, io)
     case 'export':
       return exportCommand(rest, io)
+    case 'import':
+      return importCommand(rest, io)
     case 'switch-version':
       return switchVersion(rest, io)
     case 'remove':
@@ -84,6 +88,8 @@ Usage:
   dsh-skills-nexus update [name]            # refresh clones (default: all enabled)
   dsh-skills-nexus export <name>... | --all [--out <file>]
                                             # package skills for another machine
+  dsh-skills-nexus import <package> [--dry-run] [--force]
+                                            # rebuild entries from a package
   dsh-skills-nexus switch-version <name> <ref> [--type <branch|tag|commit>]
                                             # move a clone to another version
   dsh-skills-nexus remove <name-or-pattern>... [--yes]
@@ -118,6 +124,19 @@ Options:
                     an archive, anything else as a directory tree. Default:
                     <name>.zip, nexus-export.zip for several names, and
                     nexus-export-<YYYYMMDD>.zip for --all
+
+  import options:
+  <package>         a .zip archive or a directory produced by export — or by
+                    anyone else. Entries whose recorded remote answers are
+                    rebuilt as real clones (updatable); the rest land as
+                    snapshots and can be adopted later.
+  --dry-run         report what would happen and touch nothing
+  --subdir <path>   import one root only: a package-relative directory for a
+                    bare package, an entry name for a labelled one
+  --each            one entry per skill instead of one entry per package root
+  --force           replace an entry that is already registered (remove + add)
+  --no-remote       land everything as a snapshot, even with a recorded remote
+  --no-net-check    skip the remote probe entirely (offline: no waiting)
 
   completions options:
   --shell <name>    target shell: bash, zsh, fish or powershell

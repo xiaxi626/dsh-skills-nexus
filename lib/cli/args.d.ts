@@ -72,4 +72,34 @@ export interface ExportOptions {
  * advertise long options only, matching `-y` for `--yes`).
  */
 export declare function parseExportArgs(argv: string[]): ExportOptions;
+export interface ImportOptions {
+    /** Package path — a `.zip` archive or a directory tree. */
+    source: string;
+    /** Report what would happen; touch nothing. */
+    dryRun: boolean;
+    /** Skip the remote probe entirely (offline: no waiting, no verdict). */
+    noNetCheck: boolean;
+    /** Land everything as a snapshot, even when the label records a remote. */
+    noRemote: boolean;
+    /** One entry per skill instead of one per candidate root. */
+    each: boolean;
+    /** Replace an existing entry of the same name. */
+    force: boolean;
+    /** Entry name override (single-entry packages). */
+    name?: string;
+    /** Package-relative root, or a labelled entry's name. */
+    subdir?: string;
+    /** Skip the large-collection confirmation during a git install. */
+    yes: boolean;
+}
+/**
+ * Parse `import` args: exactly one package path plus its modifiers.
+ *
+ * Strict like `export` and `list`, not tolerant like `add`: every flag here
+ * changes what lands on disk, and a typo that turned `--dry-run` into a real
+ * import (or `--no-remote` into a clone) is not something the user can undo by
+ * re-running. A second positional is rejected for the same reason — a package
+ * path with a stray word after it is a mistake, not a batch.
+ */
+export declare function parseImportArgs(argv: string[]): ImportOptions;
 //# sourceMappingURL=args.d.ts.map

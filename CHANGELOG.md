@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+**2026-10-02 · Added · `import` 命令：包 → 条目（优先按标签恢复远端，否则落快照并还原状态）**
+
+- **背景**：设计稿 `docs/source-and-migration-design.md` §4.2/§10.1/§10.3 里通道 C 的消费侧。它的价值全在标签：**有标签且远端可达时走 `installFromGit`**（与 `add` 同一条安装路径 → 真克隆、可更新、可切版本），否则落成快照；**裸包**（别人打的 zip）则靠剥壳扫描找到技能。§10.1 要求 CLI 与面板共用同一核心，因此全部逻辑在 `src/import.ts`，命令只是薄壳。
+- **变更**：
+  - `src/import.ts`：`stagePackage`（zip → 临时目录展开、目录包就地读）/ `planStaged`（决策，零副作用）/ `importPackage`（规划 + 应用，返回 `{ plan, result? }`）。**剥壳扫描**：先按安装自己的三条规则判断根是否命中，未命中且根下**恰有一个子目录**就剥一层（≤3 层）——规则本身一字未改，`skills/alpha/SKILL.md` 剥 1 层、`export-2026/skills/alpha/SKILL.md` 剥 2 层。
+  - **四态可达性**（§10.2）：`reachable` / `unreachable` / `timeout`（5s，**与失败分开**）/ `not-checked`；同一 remote 只探一次。
+  - **状态还原**：标签的 `enabled` 与**逐技能链接名**都还原——git 路径下若上游是禁用的，安装后显式解链；快照路径按记录的链接名建链，手工别名得以存活。
+  - **错误分级**：`no-skill-found`（"这不是技能包"）vs `skill-nested-too-deep`（附实际文件并提示 `--subdir`）；另有 `newer-package` / `invalid-package` / `already-registered` / `collision` / `install-refused` / `nothing-to-import` / `package-not-found`。`--force` 的语义是**替换**（复用 `remove` 共享核心：反注册 + 解链 + 删 nexus 拥有的目录）。
+  - `src/cli/commands/import.ts` + `parseImportArgs` + `index.ts` 的路由与帮助三段 + 四份补全模板（子命令与九个 flag）。`--dry-run` 打印四态判定行。
+- **不做**：面板上传入口**未接**（§10.3 允许后置，属下一提交）；未引入任何"包内带 `.git`"之类档位；`source` 字段、`add-zip` 路由与 `src/zip.ts` 的安装编排仍未改动。
+- **测试**：新增 `test/import.test.ts` **16 条**——`export` → `import` 环形往返必须还原成**可更新的 git 条目**、禁用态保持禁用、快照路径、剥壳 1 层与 2 层、两种错误分级、`--subdir` 救深包、`--dry-run` 三处状态零变化（manifest / repos / 技能根逐字节对比）、四态决策、冲突与 `--force`、清单变体、`--each`、CLI 退出码 0/1/2。全量 `npm test` **460 条 · 457 通过 · 0 失败 · 3 跳过**（基线 444 · 441 · 0 · 3；+16 恰为本轮新增）。
+- **验证方式**：六步门禁 `typecheck` / `lint` / `test:build` / `build` / `build:client` / `npm test` 退出码均 0。**测试作者独立复核时发现两处我的缺陷**，两处都按"改源码、不放宽断言"处理：① `findSkillFiles` 曾无条件收集任意层级的 markdown，于是**只有根级 `notes.md`** 的包被误报为"层级太深"（`no-skill-found` 实际不可达，而它建议的 `--subdir` 也救不了根级文件）——改为只把**超出剥壳预算**的 markdown 计入；② `planStaged` 在 `--no-net-check` / `--no-remote` 下**仍会探测远端**（最多白等 5 秒），与这两个选项"离线零等待"的承诺矛盾——改为仅在需要判定时探测。两处修正后该文件 16/16 通过。
+- **如何辨识改动**：新增 `src/import.ts`、`src/cli/commands/import.ts`、`test/import.test.ts` 及对应 `lib/` 产物；M `src/cli/args.ts`、`src/cli/index.ts`、`src/cli/commands/completions/{bash,zsh,fish,powershell}.ts`、`package.json`（仅 test 脚本 +1 个测试文件）、本 CHANGELOG 与相应 `lib/` 产物。
+
 **2026-10-02 · Changed · 抽出共享 git 安装核心 `src/install.ts`：`add` 的"克隆 → 归一化 → 注册 → 建链"逐字搬迁，行为等价**
 
 - **背景**：设计稿 `docs/source-and-migration-design.md` §10.1 要求 `import` / `adopt` 与既有安装走**同一条实现**——新的"按标签恢复远端"若另写一份克隆 + 注册 + 建链，本仓库就会立刻拥有**第三份**会各自漂移的实现（已有 CLI `src/cli/commands/add.ts` 与面板 `src/http/routes.ts:installGitCore` 两份镜像）。本次先把 CLI 侧那份抽成共享核心，`import` 直接复用。
