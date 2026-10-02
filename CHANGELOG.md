@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+**2026-10-02 · Changed · 抽掉共享安装核心对 CLI 展现代码的依赖：`io.spin` 可选接缝，`cliIO.spin` 就是 `withSpinner` 本身（CLI 输出逐字不变）**
+
+- **背景**：`src/install.ts` 是 CLI 与面板共用的安装核心，但它顶部 `import { withSpinner } from './cli/progress.js'` 直接用了 CLI 的终端动画——模块注释里那句"还不是纯展示层"说的就是这件事。只要这行还在，"两侧共用同一实现"就永远差一块：面板一旦跑这段代码，就有把 `\r`/ANSI 塞进被轮询的 job 记录的风险。本次把 spinner 变成一个调用方能注入、也可以完全不实现的接缝。
+- **变更**：
+  - `src/ops-io.ts`：`OpsIO` 新增**可选**成员 `spin?<T>(message, fn): Promise<T>`，注释写清"进度是装饰性的、永不承载语义"，以及为什么是可选的而不是必填——`src/` 与 `test/` 里共有 **9 处 OpsIO 字面量替身**（`src/http/io.ts` 两处 + `export` / `adopt`×2 / `update-pipeline` / `switch-version` / `import`×2 七处测试），加必填成员会让它们全线 typecheck 失败，而代价只是"忘了实现的前端静默无进度"，与写一个空实现毫无区别。
+  - `cliIO.spin = withSpinner` —— **同一个函数对象，不是包装**：TTY 门控、`\r` + erase-line、光标隐藏/恢复、`clampToWidth`、定时器 `unref` 全部原样，所以 CLI 的字节输出不变。
+  - `src/http/io.ts`：`jobIO.spin` 先把 spinner 标签还原成 job 的 `stage`/`detail`（`cloning (main)` → `('cloning','main')`，正是统一前 `installGitCore` 自己设的那一对，顺带保留了取消检查点），然后**直接跑 `fn`**——被轮询的记录不该收到动画帧；`quietIO.spin` 就是跑 `fn`（同步路由没有 job 记录可报）。
+  - `src/install.ts`：`const spin = io.spin ?? (<T>(_m, fn) => fn())`，删掉 `./cli/progress.js` 的 import，模块注释改成"已经是纯展示无关的"。**调用点一处、消息一处未变**：`spin(\`cloning (${gitSpec.ref})\`, …)`。
+- **不做**：`installFromGit` 里 S3a 为"输出逐字不变"保留的 `process.stderr.write` **仍未 OpsIO 化**（那需要另一次输出等价性证明，要动请单独提交）；不给 OpsIO 加必填成员（理由见上）；不动 9 处替身（可选项让它们一个都不用改）；面板的 job 阶段序列只做了等价替换，没有新增阶段。
+- **测试**：新增 `test/install-spin.test.ts` **6 条**（并登记进 `package.json` 的 `test` 脚本）——注入 `spin` 时**恰好调用一次**且消息是 `cloning (main)`、被包裹的步骤真的执行（克隆落地 + 链接建立）；注入的 `spin` 抛错时原样抛出且**不残留半成品克隆**；**完全没有** `spin` 成员的前端照常安装；`spin` 显式 `undefined`（`??` 的另一支）也照常安装；`cliIO.spin` 与 `withSpinner` **同一性断言**（`assert.equal(cliIO.spin, withSpinner)`——用等价断言就守不住"逐字不变"这个承诺，包装一层完全可能悄悄丢掉 TTY 门控或 ANSI 序列）；非 TTY 下调 `cliIO.spin` **stderr 一个字节都没有**。另在 `test/api.test.ts` 补 1 条面板侧端到端：本地 `file://` 仓库走 `add` 到 job 完成，断言 `stage='cloning'` / `detail='main'`（即统一前后阶段等价）、`output` 里有 `Cloning ` 行、且**整条记录不含 `\r` 或 ESC**。全量 `npm test` **481 条 · 478 通过 · 0 失败 · 3 跳过**（上一提交 474 · 471 · 0 · 3，净 +7）。
+- **验证方式**：六步门禁 `typecheck` / `lint` / `test:build` / `build` / `build:client` / `npm test` 退出码全 0（一次 `danger-full-access` 提权）。CLI 输出等价性用的是**同一性**证据而不是"跑一遍看着像"：`cliIO.spin` 与 `withSpinner` 是同一个对象引用，因此动画逻辑根本不可能被这次改动碰到。新用例先各自单跑确认走对分支（`install-spin` 6/6、`api`+`ops-io`+`progress` 合计 52/52）。
+- **如何辨识改动**：改 `src/ops-io.ts`（新增可选成员 + `cliIO.spin`）、`src/http/io.ts`（`jobIO.spin` / `quietIO.spin` 与 `spinnerStage`）、`src/install.ts`（删 import、改用 `io.spin`）；新增 `test/install-spin.test.ts`；改 `test/api.test.ts`、`package.json`（仅 test 脚本 +1 文件）与相应 `lib/` 产物（`lib/install.*`、`lib/ops-io.*`、`lib/http/io.*`），以及本 CHANGELOG。
+
 **2026-10-02 · Changed · 面板 `add` 改为调用共享安装核心 `src/install.ts`：删掉 `routes.ts` 的 `installGitCore` 镜像，5 个 400 码从核心的失败码重建（首次补测）**
 
 - **背景**：设计稿 `docs/source-and-migration-design.md` §10.1 要求 `import` / `adopt` 由 CLI 与面板调用**同一实现**，并点名"当前 `installFromZip` 只被 `add-zip` 路由调用、CLI 无对应命令"正是两侧不一致的反例。S3a 已把 CLI 侧抽成 `src/install.ts`，但 `src/http/routes.ts` 里还留着同一段编排的第二份手写镜像（`installGitCore` + `GitInstallPlan`）：它会独立漂移，而下一步的 `import` / `adopt` 面板入口正要复用这条路径。本次就是把面板这半也收到同一核心上。

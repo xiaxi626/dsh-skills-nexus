@@ -1,4 +1,5 @@
 import { confirm as promptConfirm } from './cli/prompt.js'
+import { withSpinner } from './cli/progress.js'
 
 /**
  * OpsIO — the single seam between the two front ends (CLI today, the HTTP
@@ -39,6 +40,26 @@ export interface OpsIO {
    * HTTP = `false`.
    */
   readonly interactive: boolean
+
+  /**
+   * Wrap a slow step (a clone, a fetch) in a progress indicator, resolving
+   * whatever `fn` resolves.
+   *
+   * Optional on purpose: progress is cosmetic and never load-bearing, so a
+   * front end that has no indicator simply runs `fn` instead of implementing a
+   * no-op. That is also why the shared cores call it as
+   * `const spin = io.spin ?? runInline` rather than through a required member —
+   * there are nine literal `OpsIO` stand-ins across `src/` and `test/`, and a
+   * required member would have to be added to every one of them for no
+   * behavioural gain (the cost of forgetting it is a silently progress-less
+   * front end, which is the same thing a no-op would have produced).
+   *
+   * CLI = `cli/progress.withSpinner`, the very function object the install core
+   * used to import directly, so a TTY renders the identical `\r`-animated
+   * spinner and a non-TTY stays silent. HTTP = run `fn` as it is: a polled job
+   * record is not a terminal and must never receive `\r`/ANSI.
+   */
+  spin?<T>(message: string, fn: () => Promise<T>): Promise<T>
 }
 
 /**
@@ -73,6 +94,8 @@ export class NeedsConfirm extends Error {
  * - `emit` writes to stdout and guarantees the trailing `\n`; strings that
  *   already carry one (the ported `process.stdout.write` call sites) pass
  *   through byte-for-byte;
+ * - `spin` is `withSpinner` itself — not a wrapper around it — so the shared
+ *   cores animate exactly what they animated before this seam existed;
  * - `interactive` is read live from stdin so command logic observes the same
  *   TTY-ness that `prompt.confirm` will.
  */
@@ -85,6 +108,7 @@ export const cliIO: OpsIO = {
   emit(line: string): void {
     process.stdout.write(line.endsWith('\n') ? line : `${line}\n`)
   },
+  spin: withSpinner,
   get interactive(): boolean {
     return process.stdin.isTTY === true
   },

@@ -29,10 +29,11 @@ import type { SkillEntry } from './types.js';
  * in its own spinner and its own "Detecting default branch" line) and must not
  * be duplicated inside this phase.
  *
- * This module is not presentation-free yet: the install-time spinner comes
- * from `cli/progress.js` (`withSpinner`), which the caller cannot inject —
- * swapping it for `io.progress` would change the CLI's output, so it is kept
- * exactly as the inline flow had it.
+ * This module is presentation-free: the clone's progress indicator comes from
+ * the caller's `io.spin` (CLI = the same `withSpinner` it always used, HTTP =
+ * run inline), so nothing here reaches for `process.stderr` or the CLI's
+ * terminal helpers. The remaining `process.stderr.write` calls are the
+ * diagnostics S3a moved verbatim and are deliberately left alone.
  */
 /** Parameters of the filesystem-mutating install phase. */
 export interface GitInstallParams {

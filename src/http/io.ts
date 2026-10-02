@@ -14,16 +14,17 @@ import type { Job } from './jobs.js'
 const OUTPUT_LIMIT = 200
 
 export function jobIO(job: Job): OpsIO {
+  const progress = (stage: string, detail?: string): void => {
+    if (isCancelRequested(job.id)) throw new JobCancelledError(job.id)
+    job.stage = stage
+    job.detail = detail
+  }
   return {
     interactive: false,
     confirm(question: string, defaultValue: boolean): Promise<boolean> {
       return Promise.reject(new NeedsConfirm(question, defaultValue))
     },
-    progress(stage: string, detail?: string): void {
-      if (isCancelRequested(job.id)) throw new JobCancelledError(job.id)
-      job.stage = stage
-      job.detail = detail
-    },
+    progress,
     emit(text: string): void {
       if (isCancelRequested(job.id)) throw new JobCancelledError(job.id)
       job.output.push(text)
@@ -31,7 +32,30 @@ export function jobIO(job: Job): OpsIO {
         job.output.splice(0, job.output.length - OUTPUT_LIMIT)
       }
     },
+    /**
+     * A job record is polled, not watched: it must never receive the CLI's
+     * `\r`-animated spinner. Reporting the stage first keeps the same signal
+     * the CLI's own `io.progress('cloning', …)` set (and doubles as the
+     * cancellation checkpoint), then the step runs inline.
+     */
+    async spin<T>(message: string, fn: () => Promise<T>): Promise<T> {
+      const stage = spinnerStage(message)
+      if (stage !== undefined) progress(stage[0], stage[1])
+      return await fn()
+    },
   }
+}
+
+/**
+ * The `progress` stage a spinner message maps to, or undefined when the step
+ * has no stage of its own. Install cores name their step as
+ * `cloning (<ref>)` — the CLI's spinner label — which becomes the
+ * `('cloning', '<ref>')` pair the panel reported before this seam existed.
+ */
+function spinnerStage(message: string): [string, string | undefined] | undefined {
+  const match = /^([a-z][a-z-]*) \(([^)]*)\)$/.exec(message)
+  if (match !== null) return [match[1]!, match[2]!]
+  return /^[a-z][a-z-]*$/.test(message) ? [message, undefined] : undefined
 }
 
 /**
@@ -49,5 +73,9 @@ export const quietIO: OpsIO = {
   },
   emit(): void {
     // synchronous route — output is the response body itself
+  },
+  spin<T>(_message: string, fn: () => Promise<T>): Promise<T> {
+    // synchronous route — no job record to report a stage to; just run the step
+    return fn()
   },
 }

@@ -17,7 +17,6 @@ import { normalizeSkillName, ensureDescription } from './frontmatter.js'
 import { linkSkill } from './link.js'
 import type { OpsIO } from './ops-io.js'
 import type { SkillEntry } from './types.js'
-import { withSpinner } from './cli/progress.js'
 
 /**
  * The one filesystem-mutating install phase for a git source
@@ -47,10 +46,11 @@ import { withSpinner } from './cli/progress.js'
  * in its own spinner and its own "Detecting default branch" line) and must not
  * be duplicated inside this phase.
  *
- * This module is not presentation-free yet: the install-time spinner comes
- * from `cli/progress.js` (`withSpinner`), which the caller cannot inject —
- * swapping it for `io.progress` would change the CLI's output, so it is kept
- * exactly as the inline flow had it.
+ * This module is presentation-free: the clone's progress indicator comes from
+ * the caller's `io.spin` (CLI = the same `withSpinner` it always used, HTTP =
+ * run inline), so nothing here reaches for `process.stderr` or the CLI's
+ * terminal helpers. The remaining `process.stderr.write` calls are the
+ * diagnostics S3a moved verbatim and are deliberately left alone.
  */
 
 /** Parameters of the filesystem-mutating install phase. */
@@ -140,9 +140,14 @@ export async function installFromGit(params: GitInstallParams): Promise<GitInsta
   await rm(dest, { recursive: true, force: true })
 
   io.emit(`Cloning ${gitSpec.url} (ref: ${gitSpec.ref}) → ${dest}\n`)
+  // Progress is cosmetic, so it goes through the caller's OpsIO when that front
+  // end has an indicator and is skipped when it has none (a front end that
+  // never sets `spin`), instead of this module importing the CLI's spinner:
+  // the panel polls a job record and must not receive `\r`/ANSI (§10.1).
+  const spin = io.spin ?? (<T>(_message: string, fn: () => Promise<T>): Promise<T> => fn())
   let clone: CloneResult
   try {
-    clone = await withSpinner(`cloning (${gitSpec.ref})`, () =>
+    clone = await spin(`cloning (${gitSpec.ref})`, () =>
       cloneRepo(gitSpec, dest, { subdir: normalizedSubdir }),
     )
   } catch (err) {

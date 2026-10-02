@@ -1,5 +1,6 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
 import { lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -489,7 +490,8 @@ test('a no-op enable (links already present) answers hotReload done', async () =
 })
 
 /* ------------------------------------------------------------------ */
-/* POST /add (pre-flight only — no clone is ever started here)         */
+/* ------------------------------------------------------------------ */
+/* POST /add (pre-flight only, plus one local-clone happy path)        */
 /* ------------------------------------------------------------------ */
 
 test('add requires a url field (400)', async () => {
@@ -537,6 +539,44 @@ test('add rejects a cross-origin request with 403', async () => {
     body: JSON.stringify({ url: 'github:owner/x' }),
   })
   assert.equal(res.status, 403)
+})
+
+test('an accepted add reports its clone stage on the job record (no spinner bytes)', async () => {
+  // The install phase is the shared core (§10.1) and its progress indicator is
+  // the caller's `io.spin`; a polled job record must receive the stage, never
+  // the CLI's `\r`-animated spinner. This is the one case that runs the job to
+  // completion, so it is also the closest thing to an end-to-end install here —
+  // a local `file://` repo, so nothing touches the network.
+  const src = join(home, 'src-api-add')
+  await mkdir(src, { recursive: true })
+  const git = (args: string[]): Promise<unknown> =>
+    new Promise((resolve, reject) => {
+      execFile('git', args, { cwd: src }, (err) => (err ? reject(err) : resolve(undefined)))
+    })
+  await git(['init'])
+  await git(['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  await git(['config', 'user.email', 'test@example.com'])
+  await git(['config', 'user.name', 'Nexus Test'])
+  await writeFile(join(src, 'SKILL.md'), skillMd('src-api-add'), 'utf8')
+  await git(['add', '.'])
+  await git(['commit', '-m', 'skill'])
+
+  const accepted = await call('/skills-nexus/add', {
+    method: 'POST',
+    body: JSON.stringify({ url: 'file:///' + src.replaceAll('\\', '/') }),
+  })
+  assert.equal(accepted.status, 202)
+  const { jobId } = dataOf<{ jobId: string }>(accepted)
+  const job = await waitForJob(jobId)
+
+  assert.equal(job.status, 'done', job.error ?? '')
+  // The stage the pre-unification mirror set, preserved through the seam.
+  assert.equal(job.stage, 'cloning')
+  assert.equal(job.detail, 'main')
+  assert.ok(job.output.some((l) => l.startsWith('Cloning ')), 'the clone line is recorded')
+  for (const line of job.output) {
+    assert.doesNotMatch(line, /[\r\x1b]/, 'no spinner control bytes in a polled record')
+  }
 })
 
 /* ------------------------------------------------------------------ */
