@@ -102,4 +102,33 @@ export interface ImportOptions {
  * path with a stray word after it is a mistake, not a batch.
  */
 export declare function parseImportArgs(argv: string[]): ImportOptions;
+export interface AdoptOptions {
+    /** Registered entry to adopt. */
+    name: string;
+    /** Where the entry really comes from — required (`adopt` never guesses a URL). */
+    url: string;
+    /** Branch / tag / commit of the new source. */
+    ref?: string;
+    /** Repo-relative skill root inside the new clone. */
+    subdir?: string;
+    /** Adopt a source that yields different skills; also re-sources a git entry. */
+    force: boolean;
+    /** Delete the pre-adopt backup on success. */
+    prune: boolean;
+}
+/**
+ * Parse `adopt` args: exactly one entry name plus the source to attach.
+ *
+ * Strict like `import`/`export`/`list`, not tolerant like `add`: this command
+ * replaces a directory the user may still need, and every flag here changes
+ * what that replacement is. A typo that turned `--prune` into "keep" (or
+ * `--subdir` into "the clone root") would be discovered only after the old
+ * directory had been moved aside, so unknown arguments are usage errors.
+ *
+ * `--url` is required rather than inferred: §6 forbids URL guessing outright,
+ * and the one thing this command must never do is adopt the wrong repository.
+ * A second positional is rejected for the same reason a missing one is — the
+ * name identifies which entry to re-source, and there is no batch form.
+ */
+export declare function parseAdoptArgs(argv: string[]): AdoptOptions;
 //# sourceMappingURL=args.d.ts.map

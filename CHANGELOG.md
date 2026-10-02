@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+**2026-10-02 · Added · `adopt` 命令：给"无 git 源"条目补身份（七步编排 + 失败整体回滚，命令面与四份补全同步）**
+
+- **背景**：设计稿 `docs/source-and-migration-design.md` §6/§10.1 的通道 D。快照条目（包导入落下的、旧 zip 装出来的、别人给的目录）永远不能 `update` / `switch-version`——它们的 `gitUrl` 是空的。上一轮的 `import` 只在**导入那一刻**能按标签重克隆；已经躺在机器上的冻结条目，唯一的转正动作就是 `adopt <name> --url <repo>`。§6 同时禁止 URL 猜测：身份必须由用户显式给出。
+- **变更**：
+  - 新增 `src/adopt.ts`（`adoptSkill`）：§6 的七步与 `switch-version` 同构——① 解析 `--url`/`--ref`（未给 ref 时照 `add` 的做法探测远端默认分支）并克隆到 `repos/.adopt-stage-<name>-<pid>-<ts>`；② 用**安装自己的发现规则**（`previewSkills`，规则一字未改）算出"这个源会链接出哪些名字"，与现有目录算出的集合比对，不一致默认拒绝；③ 现目录备份为 `repos/<path>.pre-adopt-<ts>`；④ 暂存目录就位；⑤ 先按归属删旧链接集、再按新发现建（单技能→条目名、多技能→frontmatter 名，与 `switch-version` 第 6 步同一套判据），**原本禁用的条目不会被静默启用**；⑥ 写回 `url/gitUrl/ref/commit/subdir` 并刷新 `updatedAt`；⑦ `--prune` 删备份，否则报出备份路径。
+  - **失败整体回滚**：任一步失败 → 按归属卸掉当前链接 → 删掉新克隆 → 备份改名回 `repos/<path>` → 重建旧链接；回滚自身的错误 best-effort 吞掉（照 `rollbackSwitch`）。§9 的不变量"目录、链接、manifest 三者与操作前一致"由逐字节对照钉住。**manifest 写入之前失败绝不动 manifest；`--prune` 删备份失败也不回滚**——否则会造出"manifest 说有 git 源、目录却是旧快照"的分裂状态。
+  - 三处相对 §6 草图的补强，都是为守住既有不变量而非加功能：① 新克隆**落盘前做安装期归一化**（与 `add`/`switch-version` 同一约定），否则非法 frontmatter 名会让条目"看起来链接了、却被官方 provider 静默跳过"；② 新链接名与官方技能根里的**真实目录**冲突时前置拒绝（与 `add` 的 `hasCollision` 同级）；③ **`ownership: 'external'` 条目直接拒绝**——§2.1 的硬不变量 `external ⇒ gitUrl === ''` 的意义就是 nexus 永不碰用户自己的目录，而 adopt 必须替换那个目录。
+  - `subdir` 默认继承条目已记录的值（技能根属于条目身份，§7 也只允许用 `subdir` 表达偏移），`--subdir .` 显式表示克隆根（manifest 记为无 `subdir`）。`--force` 一个开关管两件事：换源（已有 git 源）与绕过发现不一致。
+  - 成功后**删除 legacy `source: 'zip'` 标记**：条目已有 git 源，该字段与之矛盾，且 `list` 载荷会把它渲染成面板的 zip 徽标（客户端契约）。
+  - `src/cli/args.ts` 新增 `parseAdoptArgs`（`--url` 必填、`--ref`/`--subdir` 取值、`--force`/`--prune` 布尔且拒绝内联值、未知 flag = 用法错误）；新增 `src/cli/commands/adopt.ts`（持每技能文件锁 → 调共享核心 → 打印结果，退出码 0/1/2）；`src/cli/index.ts` 注册路由并在 `--help` 补 Usage 与 `adopt options` 两段；四份补全模板同步子命令集合与 `--url`/`--ref`/`--subdir`/`--force`/`--prune`（漂移守卫拿 `--help` 与路由本身比对，不能只改一处）。
+- **不做**：面板入口未接（§10.3 允许后置，条目行内 "attach source" 属下一提交）；不改条目名、不改 `path`；不做 URL 猜测；不清理历史遗留的 `.pre-adopt-*`（`--prune` 只删本次的）。
+- **测试**：新增 `test/adopt.test.ts` **13 条**（并登记进 `package.json`）——快照→git 条目（`hasGitSource` 为真、`.git` 存在、提交写回、链接重建、`source:'zip'` 被清、备份内容正确、归一化计数 2）；`--prune` 删备份；无目录条目走修复路径且**保持禁用**；`--force` 换源（旧克隆被替换而非合并）；发现不一致默认拒绝（状态逐项对照 + 无暂存残留）与 `--force` 放行；`subdir` 继承与 `--subdir .` 覆盖；克隆失败零副作用；**写 manifest 失败触发回滚**，目录/链接/manifest 三者复原；五类前置拒绝（未知名、external、空 url、`ext::` 危险 url、`../` subdir）；CLI 退出码 0/1/2 与 stdout 洁净。全量 `npm test` **473 条 · 470 通过 · 0 失败 · 3 跳过**（基线 460 · 457 · 0 · 3；+13 为本轮新增）。
+- **验证方式**：六步门禁 `typecheck` / `lint` / `test:build` / `build` / `build:client` / `npm test` 退出码全 0（一次 `danger-full-access` 提权：npm 在 workspace-write 下以管道 stdio 启动 tsc/eslint/node 会 spawn EPERM）。回滚用例是**故障注入**而不是"随便造个失败"：把 `<manifest>.tmp` 占成目录，让 `writeManifest` 的 `writeFile` 必失败——失败点落在"新克隆已经就位"之后，正是回滚存在的理由。
+- **如何辨识改动**：新增 `src/adopt.ts`、`src/cli/commands/adopt.ts`、`test/adopt.test.ts` 及对应 `lib/` 产物（`lib/adopt.*`、`lib/cli/commands/adopt.*`）；改 `src/cli/args.ts`、`src/cli/index.ts`、`src/cli/commands/completions/{bash,zsh,fish,powershell}.ts`、`package.json`（仅 test 脚本 +1 个测试文件）与相应 `lib/` 产物，以及本 CHANGELOG。
+
 **2026-10-02 · Added · `import` 命令：包 → 条目（优先按标签恢复远端，否则落快照并还原状态）**
 
 - **背景**：设计稿 `docs/source-and-migration-design.md` §4.2/§10.1/§10.3 里通道 C 的消费侧。它的价值全在标签：**有标签且远端可达时走 `installFromGit`**（与 `add` 同一条安装路径 → 真克隆、可更新、可切版本），否则落成快照；**裸包**（别人打的 zip）则靠剥壳扫描找到技能。§10.1 要求 CLI 与面板共用同一核心，因此全部逻辑在 `src/import.ts`，命令只是薄壳。

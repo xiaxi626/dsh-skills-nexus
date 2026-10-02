@@ -24,6 +24,8 @@
  * offer names, because `--yes` is accepted before the names. Only update/pull/
  * remove/rm/enable/disable reach that branch and none of them has a
  * value-taking flag, so a flag value can never be miscounted as a positional.
+ * `export` and `adopt` also take a positional (a name), but each has
+ * value-taking flags (`--out`, `--url`), so both are deliberately outside it.
  *
  * Layer 3 shells out to `list --names` instead of reading `manifest.json`, so
  * an internal schema change cannot silently break completion.
@@ -48,7 +50,7 @@ export const powershellTemplate = [
   "Register-ArgumentCompleter -Native -CommandName dsh-skills-nexus -ScriptBlock {",
   "  param($wordToComplete, $commandAst, $cursorPosition)",
   "",
-  "  $cmds = 'add','list','ls','update','pull','export','import','switch-version','remove','rm','enable','disable','doctor','help','completions'",
+  "  $cmds = 'add','list','ls','update','pull','export','import','adopt','switch-version','remove','rm','enable','disable','doctor','help','completions'",
   "",
   "  # CommandElements holds the finished tokens plus, when it is non-empty, the",
   "  # token under the cursor; a trailing space adds no element (measured on",
@@ -78,6 +80,7 @@ export const powershellTemplate = [
   "        'rm'          { '--yes' }",
   "        'export'      { '--all','--out' }",
   "        'import'      { '--dry-run','--subdir','--each','--force','--no-remote','--no-net-check','--name','--yes' }",
+  "        'adopt'       { '--url','--ref','--subdir','--force','--prune' }",
   "        'switch-version' { '--type' }",
   "        'doctor'      { '--json','--updates','--quiet' }",
   "        'completions' { '--shell' }",
@@ -86,9 +89,9 @@ export const powershellTemplate = [
   "    } elseif ($cmd -eq 'completions' -and $prev -eq '--shell') {",
   "      $candidates = 'bash','zsh','fish','powershell'",
   "    } elseif ($nargs -eq 0 -and $cmd -in 'update','pull','remove','rm','enable','disable') {",
-  "      # export takes names too, but it is the one command with a value-taking",
-  "      # flag (--out), so it stays out of this branch rather than making the",
-  "      # positional count flag-value aware.",
+  "      # export and adopt take names too, but they are the commands with",
+  "      # value-taking flags (--out, --url), so they stay out of this branch",
+  "      # rather than making the positional count flag-value aware.",
   "      # Installed skill names - shell out to the CLI, the isolation git gets",
   "      # by calling for-each-ref rather than reading .git/refs/.",
   "      $candidates = @(& dsh-skills-nexus list --names 2>$null)",

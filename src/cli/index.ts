@@ -7,6 +7,7 @@
  *   update [name]
  *   export <name>... | --all [--out <file>]
  *   import <package> [--dry-run] [--force]
+ *   adopt  <name> --url <repo> [--ref <ref>] [--subdir <path>] [--force] [--prune]
  *   switch-version <name> <ref> [--type <branch|tag|commit>]
  *   remove <name-or-pattern>... [--yes]
  *   enable  <name>
@@ -23,6 +24,7 @@ import { list } from './commands/list.js'
 import { update } from './commands/update.js'
 import { exportCommand } from './commands/export.js'
 import { importCommand } from './commands/import.js'
+import { adopt } from './commands/adopt.js'
 import { switchVersion } from './commands/switch-version.js'
 import { remove } from './commands/remove.js'
 import { toggle } from './commands/toggle.js'
@@ -50,6 +52,8 @@ async function main(argv: string[]): Promise<number> {
       return exportCommand(rest, io)
     case 'import':
       return importCommand(rest, io)
+    case 'adopt':
+      return adopt(rest, io)
     case 'switch-version':
       return switchVersion(rest, io)
     case 'remove':
@@ -90,6 +94,8 @@ Usage:
                                             # package skills for another machine
   dsh-skills-nexus import <package> [--dry-run] [--force]
                                             # rebuild entries from a package
+  dsh-skills-nexus adopt  <name> --url <repo> [--ref <ref>] [--subdir <path>] [--force] [--prune]
+                                            # give a source-less entry a git source
   dsh-skills-nexus switch-version <name> <ref> [--type <branch|tag|commit>]
                                             # move a clone to another version
   dsh-skills-nexus remove <name-or-pattern>... [--yes]
@@ -137,6 +143,20 @@ Options:
   --force           replace an entry that is already registered (remove + add)
   --no-remote       land everything as a snapshot, even with a recorded remote
   --no-net-check    skip the remote probe entirely (offline: no waiting)
+
+  adopt options:
+  <name>            the entry to adopt: one that has no git source yet, or any
+                    entry together with --force (that reads as "re-source it")
+  --url <repo>      where the entry really comes from (required — adopt never
+                    guesses a URL). Accepts the same forms as add.
+  --ref <ref>       branch / tag / commit of the new source (default: the
+                    remote's default branch)
+  --subdir <path>   repo-relative skill root inside the new clone (default: the
+                    entry's recorded subdir, or the clone root when it has none)
+  --force           adopt a source that yields different skills than the entry
+                    exposes today, and re-source an entry that already has one
+  --prune           delete the backup of the previous directory after a
+                    successful adopt; without it the backup path is printed
 
   completions options:
   --shell <name>    target shell: bash, zsh, fish or powershell

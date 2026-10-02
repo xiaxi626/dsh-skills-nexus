@@ -21,7 +21,9 @@
  * offer names, because `--yes` is accepted before the names. Only update/pull/
  * remove/rm/enable/disable reach that branch and none of them has a
  * value-taking flag, so a flag value can never be miscounted as a positional —
- * giving one of them a value flag would break that invariant.
+ * giving one of them a value flag would break that invariant. `export` and
+ * `adopt` also take a positional (a name), but each has value-taking flags
+ * (`--out`, `--url`), so they are deliberately outside that branch.
  *
  * Layer 3 goes through the CLI rather than reading `manifest.json`, so an
  * internal schema change cannot silently break completion — the isolation git
