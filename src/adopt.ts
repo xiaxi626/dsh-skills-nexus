@@ -137,16 +137,24 @@ export interface AdoptResult {
 }
 
 /**
- * Re-source `name` from `url` and rebuild everything derived from it.
+ * The read-only guards of `adoptSkill`: the entry exists, it may be adopted at
+ * all, and the url parses into a cloneable spec.
  *
- * The entry must currently have no git source; `--force` both lifts that
- * precondition and bypasses the discovery-mismatch guard (step 2), which is
- * what makes "adopt the other repository instead" a deliberate act rather than
- * a silent catalog change.
+ * They are split out so the **HTTP route can run them before accepting a job**.
+ * An adopt is a `202` job, so an error raised inside it can only surface in the
+ * polled job record — where the §10.4 code is lost and the user reads a raw
+ * message. Deciding these three synchronously keeps the codes on the wire
+ * (`404 skill-not-found`, `409 external-entry`, `400 invalid-url`) and matches
+ * every other route's "rejected before it is accepted" preflight.
+ *
+ * `adoptSkill` calls it too, so the two faces cannot drift: it is the same
+ * code, not a second copy.
  */
-export async function adoptSkill(options: AdoptOptions): Promise<AdoptResult> {
-  const { name, io, force, prune } = options
-
+export async function assertAdoptable(
+  name: string,
+  rawUrl: string,
+  ref: string | undefined,
+): Promise<{ entry: SkillEntry; gitSpec: GitSpec }> {
   const manifest = await readManifest()
   const entry = findEntry(manifest, name)
   if (!entry) throw new AdoptError('skill-not-found', `No skill named "${name}".`)
@@ -158,6 +166,35 @@ export async function adoptSkill(options: AdoptOptions): Promise<AdoptResult> {
         `Remove the entry and install the source with "dsh-skills-nexus add" instead.`,
     )
   }
+
+  const spec = typeof rawUrl === 'string' ? rawUrl.trim() : ''
+  if (spec.length === 0) {
+    throw new AdoptError(
+      'invalid-url',
+      '--url requires a repository URL, e.g. --url https://github.com/owner/repo',
+    )
+  }
+  let gitSpec: GitSpec
+  try {
+    gitSpec = parseGitSpec(spec, ref ?? 'main')
+  } catch (err) {
+    throw new AdoptError('invalid-url', message(err))
+  }
+  return { entry, gitSpec }
+}
+
+/**
+ * Re-source `name` from `url` and rebuild everything derived from it.
+ *
+ * The entry must currently have no git source; `--force` both lifts that
+ * precondition and bypasses the discovery-mismatch guard (step 2), which is
+ * what makes "adopt the other repository instead" a deliberate act rather than
+ * a silent catalog change.
+ */
+export async function adoptSkill(options: AdoptOptions): Promise<AdoptResult> {
+  const { name, io, force, prune } = options
+
+  const { entry, gitSpec: parsedSpec } = await assertAdoptable(name, options.url, options.ref)
   if (hasGitSource(entry) && force !== true) {
     throw new AdoptError(
       'already-has-source',
@@ -170,18 +207,7 @@ export async function adoptSkill(options: AdoptOptions): Promise<AdoptResult> {
   //     repos/. Nothing the manifest names has been touched at this point.
   const subdir = resolveSubdir(options.subdir ?? entry.subdir)
   const spec = typeof options.url === 'string' ? options.url.trim() : ''
-  if (spec.length === 0) {
-    throw new AdoptError(
-      'invalid-url',
-      '--url requires a repository URL, e.g. --url https://github.com/owner/repo',
-    )
-  }
-  let gitSpec: GitSpec
-  try {
-    gitSpec = parseGitSpec(spec, options.ref ?? 'main')
-  } catch (err) {
-    throw new AdoptError('invalid-url', message(err))
-  }
+  let gitSpec: GitSpec = parsedSpec
   if (options.ref === undefined && !spec.includes('#')) {
     io.progress('resolving default branch', gitSpec.url)
     gitSpec = { ...gitSpec, ref: await getDefaultBranch(gitSpec.url) }

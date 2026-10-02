@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -75,6 +75,7 @@ let gitMod: typeof import('../src/git.js')
 let updateCmd: typeof import('../src/cli/commands/update.js')
 let removeCmd: typeof import('../src/cli/commands/remove.js')
 let addCmd: typeof import('../src/cli/commands/add.js')
+let adoptCmd: typeof import('../src/cli/commands/adopt.js')
 
 before(async () => {
   home = await mkdtemp(join(tmpdir(), 'nexus-parity-'))
@@ -87,6 +88,7 @@ before(async () => {
   updateCmd = await import('../src/cli/commands/update.js')
   removeCmd = await import('../src/cli/commands/remove.js')
   addCmd = await import('../src/cli/commands/add.js')
+  adoptCmd = await import('../src/cli/commands/adopt.js')
   const routes = await import('../src/http/routes.js')
   table = routes.createNexusRoutes()
   assert.ok(
@@ -521,4 +523,109 @@ test('add: a wrapped skill with no confirm reaches the panel as a needs-confirm 
   const after = await manifest.readManifest()
   assert.equal(manifest.findEntry(after, 'src-code-wrapped'), undefined)
   await assert.rejects(stat(paths.skillDir('src-code-wrapped')), { code: 'ENOENT' })
+})
+
+/* ------------------------------------------------------------------ */
+/* adopt — the same core on both faces (§10.1/§10.3)                   */
+/* ------------------------------------------------------------------ */
+
+/** A snapshot entry: registered, a directory under repos/, no git source. */
+async function seedSnapshot(name: string, skillName: string): Promise<void> {
+  const dir = paths.repoDir(name)
+  await mkdir(dir, { recursive: true })
+  await writeFile(
+    join(dir, 'SKILL.md'),
+    `---\nname: ${skillName}\ndescription: snapshot\n---\nv1\n`,
+    'utf8',
+  )
+  await manifest.addEntry({
+    name,
+    url: `package:${name}.zip`,
+    gitUrl: '',
+    ref: '',
+    path: name,
+    addedAt: new Date().toISOString(),
+  })
+}
+
+test('adopt: CLI and the HTTP route turn a snapshot into the same git entry', async () => {
+  const srcCli = join(home, 'src-adopt-cli')
+  const srcApi = join(home, 'src-adopt-api')
+  await makeOneSkillRepo(srcCli, 'adopt-cli')
+  await makeOneSkillRepo(srcApi, 'adopt-api')
+  await seedSnapshot('snap-cli', 'adopt-cli')
+  await seedSnapshot('snap-api', 'adopt-api')
+
+  // CLI face …
+  assert.equal(await adoptCmd.adopt(['snap-cli', '--url', fileUrl(srcCli)]), 0)
+  // … plugin face (202 + job channel).
+  const accepted = await call('/skills-nexus/adopt', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'snap-api', url: fileUrl(srcApi), confirm: true }),
+  })
+  assert.equal(accepted.status, 202)
+  const { jobId } = dataOf<{ jobId: string }>(accepted)
+  const settled = await waitForJob(jobId)
+  assert.equal(settled.status, 'done', settled.error ?? '')
+
+  const cliEntry = manifest.findEntry(await manifest.readManifest(), 'snap-cli')!
+  const apiEntry = manifest.findEntry(await manifest.readManifest(), 'snap-api')!
+  // Both entries became updatable git entries.
+  assert.equal(manifest.hasGitSource(cliEntry), true)
+  assert.equal(manifest.hasGitSource(apiEntry), true)
+  assert.equal(cliEntry.ref, 'main')
+  assert.equal(apiEntry.ref, 'main')
+  assert.match(cliEntry.commit!, /^[0-9a-f]{40}$/)
+  assert.match(apiEntry.commit!, /^[0-9a-f]{40}$/)
+  // The entry keeps its name and path (§6) — only the source changed.
+  assert.equal(cliEntry.name, 'snap-cli')
+  assert.equal(apiEntry.name, 'snap-api')
+  assert.equal(cliEntry.path, 'snap-cli')
+  assert.equal(apiEntry.path, 'snap-api')
+  // Neither snapshot had a link, and §6 forbids adopt from silently enabling an
+  // entry: both faces leave the link set empty (a later `toggle` is the way to
+  // expose it)…
+  assert.deepEqual(await linkNames('snap-cli'), [])
+  assert.deepEqual(await linkNames('snap-api'), [])
+  assert.equal(await link.isLinked('snap-cli'), false)
+  assert.equal(await link.isLinked('snap-api'), false)
+  // …and both left a real clone (with git state) where the snapshot used to be.
+  await stat(join(paths.repoDir('snap-cli'), '.git'))
+  await stat(join(paths.repoDir('snap-api'), '.git'))
+  // §9's invariant: the old directory is kept beside the new one, on both faces.
+  const keptCli = (await readdir(paths.REPOS_DIR)).filter((n) => n.startsWith('snap-cli.pre-adopt-'))
+  const keptApi = (await readdir(paths.REPOS_DIR)).filter((n) => n.startsWith('snap-api.pre-adopt-'))
+  assert.equal(keptCli.length, 1, 'the CLI kept the previous directory as a backup')
+  assert.equal(keptApi.length, 1, 'the route kept the previous directory as a backup')
+})
+
+test('adopt: an entry that was linked comes back linked on the route too', async () => {
+  const src = join(home, 'src-adopt-linked')
+  await makeOneSkillRepo(src, 'adopt-linked')
+  await seedSnapshot('snap-linked', 'adopt-linked')
+  await link.linkSkill('snap-linked', paths.repoDir('snap-linked'))
+
+  const accepted = await call('/skills-nexus/adopt', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'snap-linked', url: fileUrl(src), confirm: true }),
+  })
+  assert.equal(accepted.status, 202)
+  const settled = await waitForJob(dataOf<{ jobId: string }>(accepted).jobId)
+  assert.equal(settled.status, 'done', settled.error ?? '')
+
+  // The route rebuilt the link set from the new source, under the entry name.
+  assert.deepEqual(await linkNames('snap-linked'), ['snap-linked'])
+  assert.equal(await link.isLinked('snap-linked'), true)
+})
+
+test('adopt: a missing entry is a 404 on the wire, not a job error', async () => {
+  // §10.4 wants the code, and an adopt is a job — so the core's read-only guard
+  // has to run before the 202. This is the route half of that contract.
+  const res = await call('/skills-nexus/adopt', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'nope-adopt-parity', url: 'github:owner/x', confirm: true }),
+  })
+  assert.equal(res.status, 404)
+  const env = JSON.parse(res.raw) as { error?: string }
+  assert.equal(env.error, 'not-found')
 })

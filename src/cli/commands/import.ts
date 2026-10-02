@@ -2,7 +2,8 @@ import { cliIO } from '../../ops-io.js'
 import type { OpsIO } from '../../ops-io.js'
 import { parseImportArgs } from '../args.js'
 import { ImportError, importPackage } from '../../import.js'
-import type { ImportPlan, ImportPlanEntry, ImportResult } from '../../import.js'
+import { describeDecision } from '../../import-decision.js'
+import type { ImportPlan, ImportResult } from '../../import.js'
 
 /**
  * `import <package> [--dry-run] [--subdir <path>] [--each] [--force] ...` —
@@ -76,7 +77,7 @@ function printPlan(plan: ImportPlan, io: OpsIO): void {
   for (const entry of plan.entries) {
     io.emit(
       `  ${entry.name}  ${entry.files} file(s), ${entry.skills.length} skill(s)  ` +
-        `${describe(entry)}${entry.conflict ? '  [already registered]' : ''}` +
+        `${describeDecision(entry)}${entry.conflict ? '  [already registered]' : ''}` +
         `${entry.enabled ? '' : '  [disabled upstream]'}\n`,
     )
   }
@@ -85,24 +86,6 @@ function printPlan(plan: ImportPlan, io: OpsIO): void {
   }
   if (plan.manifestOnly) {
     io.emit('  ⚠ this package lists sources but carries no skill content\n')
-  }
-}
-
-function describe(entry: ImportPlanEntry): string {
-  if (entry.decision.kind === 'git') {
-    return `will clone from ${entry.decision.url} (${entry.decision.ref})`
-  }
-  switch (entry.decision.reason) {
-    case 'unreachable':
-      return 'will import as snapshot (remote unreachable)'
-    case 'timeout':
-      return 'will import as snapshot (remote check timed out)'
-    case 'no-remote':
-      return 'will import as snapshot (--no-remote)'
-    case 'not-checked':
-      return 'will import as snapshot (remote not checked)'
-    default:
-      return 'will import as snapshot (source unknown)'
   }
 }
 

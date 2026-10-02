@@ -1,4 +1,5 @@
 import type { OpsIO } from './ops-io.js';
+import type { ImportDecision } from './import-decision.js';
 import type { PackageSkipped } from './export.js';
 /**
  * `import` — channel C of the source & migration design
@@ -37,21 +38,13 @@ export declare class ImportError extends Error {
     readonly code: ImportErrorCode;
     constructor(code: ImportErrorCode, message: string);
 }
-/** Why an entry will be cloned from its remote, or why it will not. */
-export type ImportDecision = {
-    kind: 'git';
-    url: string;
-    ref: string;
-} | {
-    kind: 'snapshot';
-    reason: SnapshotReason;
-};
 /**
- * `unreachable` means the remote answered with a failure; `timeout` means it did
- * not answer in time. The two must never be conflated, or a slow network looks
- * like a deleted repository (§10.2). `not-checked` is `--no-net-check`.
+ * The verdict of a plan (and the four-state rule behind it) lives in
+ * `src/import-decision.ts`: the panel renders the same sentence as the CLI's
+ * `--dry-run`, and that module is free of the node-only dependencies this core
+ * carries. Re-exported here so `import` keeps one import surface.
  */
-export type SnapshotReason = 'no-source' | 'unreachable' | 'timeout' | 'no-remote' | 'not-checked';
+export type { ImportDecision, SnapshotReason } from './import-decision.js';
 /** One skill inside a planned entry, with the links it should end up under. */
 export interface PlannedSkill {
     /** Skill name (frontmatter name, entry-name fallback). */

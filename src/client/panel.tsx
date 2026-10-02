@@ -4,9 +4,17 @@
  * flow (§12.2 — the server's `409 confirm-required` question is the single
  * source of consequence wording; the panel only asks and retries).
  *
- * The zip upload row is gone with `add-zip` (design §8 phase 3): zip is no
- * longer an installation method, and the package channel (`import`) has not
- * reached the panel yet (§10.3). That row is where it will live.
+ * The panel mirrors the command surface (§10.3): an add form (git url), the
+ * **package import row** the retired `add-zip` row used to occupy (pick a file →
+ * synchronous `--dry-run` preview → confirm → `202` job), an **"attach source"
+ * action on source-less entries only** (`adopt`), the job progress view (§7.5)
+ * and the destructive-action confirm flow (§12.2 — the server's
+ * `409 confirm-required` question is the single source of consequence wording;
+ * the panel only asks and retries).
+ *
+ * The preview renders the four verdicts of §10.2 through `describeDecision`,
+ * the same function the CLI's `--dry-run` uses — the wording is shared, not
+ * re-invented here.
  *
  * Styling stays deliberately structural (semantic elements, no stylesheet
  * dependency): the half runs inside the host Settings shell, and hooking the
@@ -21,6 +29,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement, ChangeEvent, FormEvent } from 'react'
+// The `React` *namespace* is a runtime requirement of the test runner, not a
+// value this file reads: no tsconfig sets `jsx` (the client is bundled by tsdown
+// and only type-checked by tsc, so `.tsx` never reaches an emitter), and
+// tsx/esbuild therefore transpiles this component with the classic runtime —
+// emitting `React.createElement` for `test/panel-render.test.ts`. tsdown's own
+// transform uses the automatic runtime and elides this import, so the shipped
+// bundle is unchanged. One documented suppression for one line beats making
+// every future `.tsx` test carry a JSON-configuring loader.
+/* eslint-disable-next-line @typescript-eslint/no-unused-vars */
+import React from 'react'
+import { describeDecision } from '../import-decision.js'
 import {
   ApiError,
   PollTimeoutError,
@@ -31,7 +50,13 @@ import {
   pollJob,
   reconcileList,
 } from './api.js'
-import type { HotReload, Job, ListEntry, NexusApi } from './api.js'
+import type { HotReload, ImportPlan, Job, ListEntry, NexusApi } from './api.js'
+
+/** §11 reconciliation for `import`: every entry the plan promised shows up. */
+function importedAll(plan: ImportPlan): (entries: ListEntry[]) => boolean {
+  const wanted = plan.entries.map((e) => e.name)
+  return (entries) => wanted.every((name) => entries.some((e) => e.name === name))
+}
 
 /** One tracked job: the polled record plus the entry name it belongs to. */
 interface TrackedJob {
@@ -122,6 +147,12 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   const [addBusy, setAddBusy] = useState(false)
   const [checking, setChecking] = useState(false)
   const [refInputs, setRefInputs] = useState<Record<string, string>>({})
+  const [adoptInputs, setAdoptInputs] = useState<Record<string, string>>({})
+  /** The chosen package file — kept so the confirmed run can re-send it. */
+  const [importFile, setImportFile] = useState<File | null>(null)
+  /** The synchronous `--dry-run` verdict (§10.2), once previewed. */
+  const [importPlan, setImportPlan] = useState<ImportPlan | null>(null)
+  const [importBusy, setImportBusy] = useState(false)
   const alive = useRef(true)
 
   useEffect(() => {
@@ -296,6 +327,74 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     })
   }
 
+  /* ---------------- package import (§10.3) ---------------- */
+
+  /** Picking a different file invalidates the verdict shown for the old one. */
+  const onPickPackage = (ev: ChangeEvent<HTMLInputElement>): void => {
+    setImportFile(ev.target.files?.[0] ?? null)
+    setImportPlan(null)
+  }
+
+  /**
+   * Step 1 — the synchronous preview. `dryRun` touches no nexus state, so it is
+   * safe to run on every pick and gives the user the four-state verdict and the
+   * candidate roots *before* anything is imported.
+   */
+  const onPreviewImport = (): void => {
+    const file = importFile
+    if (file === null) return
+    void run('import', async () => {
+      setImportBusy(true)
+      try {
+        const env = await api.importPreview(file)
+        if (alive.current) setImportPlan(env.data.plan)
+      } finally {
+        setImportBusy(false)
+      }
+    })
+  }
+
+  /**
+   * Step 2 — the confirmed run. The browser still holds the `File`, so the same
+   * bytes are uploaded again rather than parking a server-side upload token
+   * (see `importRoute`); the job then does the cloning and linking.
+   */
+  const onImport = (): void => {
+    const file = importFile
+    const plan = importPlan
+    if (file === null || plan === null) return
+    void run('import', async () => {
+      setImportBusy(true)
+      try {
+        const env = await api.importPackage(file)
+        setImportFile(null)
+        setImportPlan(null)
+        await track(`package ${file.name}`, env.data, importedAll(plan))
+      } finally {
+        setImportBusy(false)
+      }
+    })
+  }
+
+  const onAdopt = (entry: ListEntry): void => {
+    const url = (adoptInputs[entry.name] ?? '').trim()
+    if (url.length === 0) {
+      setNotice(`enter the repository url for "${entry.name}" first — it is never guessed`)
+      return
+    }
+    void run(entry.name, async () => {
+      const env = await confirmable(
+        async (confirm) => {
+          const accepted = await api.adopt({ name: entry.name, url, confirm })
+          await track(entry.name, accepted.data, stillListed(entry.name))
+          return accepted
+        },
+        ask,
+      )
+      if (env !== undefined) setAdoptInputs((prev) => ({ ...prev, [entry.name]: '' }))
+    })
+  }
+
   const onToggle = (entry: ListEntry): void => {
     const target = !entry.enabled
     void run(entry.name, async () => {
@@ -402,6 +501,60 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
         </button>
       </form>
 
+      {/* The row the retired zip upload used to occupy (§8 phase 3 → §10.3). */}
+      <div>
+        <label>
+          import package{' '}
+          <input
+            type="file"
+            accept=".zip,application/zip"
+            onChange={onPickPackage}
+            disabled={importBusy}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={onPreviewImport}
+          disabled={importBusy || importFile === null}
+        >
+          preview
+        </button>
+      </div>
+
+      {importPlan !== null && (
+        <div className="skills-nexus-import-plan">
+          <p>
+            {`package: ${importPlan.source} (${importPlan.format}) · `}
+            {importPlan.labelled
+              ? `manifest: ${importPlan.entries.length} entry(ies)`
+              : 'manifest: none (source unknown)'}
+            {importPlan.peel > 0
+              ? ` · peeled ${importPlan.peel} wrapper level(s), root: ${importPlan.candidate ?? '.'}`
+              : ''}
+          </p>
+          <ul>
+            {importPlan.entries.map((planned) => (
+              <li key={planned.name}>
+                <strong>{planned.name}</strong>{' '}
+                {`${planned.files} file(s), ${planned.skills.length} skill(s) — `}
+                {describeDecision(planned)}
+                {planned.conflict ? ' [already registered]' : ''}
+                {planned.enabled ? '' : ' [disabled upstream]'}
+              </li>
+            ))}
+          </ul>
+          {importPlan.skipped.map((s) => (
+            <p key={s.name}>{`⚠ skipped by the exporting machine: "${s.name}" — ${s.reason}`}</p>
+          ))}
+          {importPlan.manifestOnly && (
+            <p>⚠ this package lists sources but carries no skill content</p>
+          )}
+          <button type="button" onClick={onImport} disabled={importBusy}>
+            import
+          </button>
+        </div>
+      )}
+
       <div>
         <button type="button" onClick={() => void refresh()} disabled={loading}>
           {loading ? 'loading…' : 'refresh'}
@@ -422,10 +575,13 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
               entry={entry}
               refValue={refInputs[entry.name] ?? ''}
               onRefChange={(v) => setRefInputs((prev) => ({ ...prev, [entry.name]: v }))}
+              adoptValue={adoptInputs[entry.name] ?? ''}
+              onAdoptChange={(v) => setAdoptInputs((prev) => ({ ...prev, [entry.name]: v }))}
               onToggle={onToggle}
               onUpdate={onUpdate}
               onRemove={onRemove}
               onSwitchVersion={onSwitchVersion}
+              onAdopt={onAdopt}
             />
           </li>
         ))}
@@ -457,13 +613,21 @@ interface EntryCardProps {
   entry: ListEntry
   refValue: string
   onRefChange: (value: string) => void
+  adoptValue: string
+  onAdoptChange: (value: string) => void
   onToggle: (entry: ListEntry) => void
   onUpdate: (entry: ListEntry) => void
   onRemove: (entry: ListEntry) => void
   onSwitchVersion: (entry: ListEntry) => void
+  onAdopt: (entry: ListEntry) => void
 }
-
-function EntryCard({ entry, refValue, onRefChange, onToggle, onUpdate, onRemove, onSwitchVersion }: EntryCardProps): ReactElement {
+/**
+ * One entry row. Exported for `test/panel-render.test.ts`: the card is where
+ * `hasGitSource` decides which actions exist (update/switch vs attach source),
+ * and that decision is pure props → markup, so it can be rendered and asserted
+ * without a DOM, a click, or a mounted effect.
+ */
+export function EntryCard({ entry, refValue, onRefChange, adoptValue, onAdoptChange, onToggle, onUpdate, onRemove, onSwitchVersion, onAdopt }: EntryCardProps): ReactElement {
   // Entries without a git source (snapshots, an imported package that had no
   // reachable remote) cannot be updated or switched — the server answers
   // `400 not-a-git-clone`, so the buttons are not offered at all.
@@ -521,6 +685,25 @@ function EntryCard({ entry, refValue, onRefChange, onToggle, onUpdate, onRemove,
             </label>
             <button type="button" onClick={() => onSwitchVersion(entry)} disabled={refValue.trim().length === 0}>
               switch
+            </button>
+          </>
+        )}
+        {/* §10.3: "attach source" appears only where it applies — a snapshot has
+            no history to update, so this is the one action that can give it one.
+            The url is typed by the user; `adopt` never guesses it (§6). */}
+        {!canUpdate && (
+          <>
+            <label>
+              attach source{' '}
+              <input
+                type="text"
+                placeholder="github:owner/repo"
+                value={adoptValue}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => onAdoptChange(e.target.value)}
+              />
+            </label>
+            <button type="button" onClick={() => onAdopt(entry)} disabled={adoptValue.trim().length === 0}>
+              adopt
             </button>
           </>
         )}

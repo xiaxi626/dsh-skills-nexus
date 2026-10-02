@@ -17,7 +17,7 @@ import { NeedsConfirm } from '../ops-io.js'
 import type { OpsIO } from '../ops-io.js'
 import { jobIO } from './io.js'
 
-export type JobKind = 'add' | 'update' | 'switch-version'
+export type JobKind = 'add' | 'import' | 'adopt' | 'update' | 'switch-version'
 export type JobStatus = 'running' | 'done' | 'error' | 'cancelled'
 
 /** §7.5 Job schema — polling contract for the UI; do not add fields lightly. */

@@ -13,7 +13,7 @@
  * rollback standard (rm of partial clones) still applies on the way out.
  */
 import type { OpsIO } from '../ops-io.js';
-export type JobKind = 'add' | 'update' | 'switch-version';
+export type JobKind = 'add' | 'import' | 'adopt' | 'update' | 'switch-version';
 export type JobStatus = 'running' | 'done' | 'error' | 'cancelled';
 /** §7.5 Job schema — polling contract for the UI; do not add fields lightly. */
 export interface Job {

@@ -27,5 +27,11 @@
  * later phase).
  */
 import type { RouteSpec } from './types.js';
+/**
+ * Upload cap for a package body (§5's 200MB-class ceiling, restored with the
+ * channel itself). It is a *transport* guard: `readZip` still enforces the
+ * package's own static rules and size caps once the bytes are staged.
+ */
+export declare const MAX_PACKAGE_BYTES: number;
 export declare function createNexusRoutes(): RouteSpec[];
 //# sourceMappingURL=routes.d.ts.map

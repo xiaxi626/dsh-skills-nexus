@@ -24,13 +24,14 @@ src/
 │   ├── api.ts        # 类型化 HTTP 客户端 + confirmable / pollJob / reconcileList
 │   └── panel.tsx     # Skills Nexus 设置面板
 ├── http/             # /skills-nexus/* 路由：types / util（信封 + 校验）/ jobs / io / routes
-├── ops-io.ts         # OpsIO 接缝：emit / progress / interactive / confirm + NeedsConfirm
+├── ops-io.ts         # OpsIO 接缝：emit / progress / spin / interactive / confirm + NeedsConfirm
 ├── locks.ts          # 三层并发：进程内 single-flight、缓存锁、O_EXCL 文件锁
 ├── switch-version.ts # 切换编排（fetch → checkout → 重归一化 → 重建链接）
 ├── install.ts        # 唯一的 git 安装阶段（克隆 → 分类 → 归一化 → 注册 → 建链），add / import 共用
 ├── adopt.ts          # adopt 编排：给无 git 源条目换源（暂存 → 就位 → 重建链接 → 写回 manifest → 回滚）
 ├── export.ts         # 打包条目 + 来源标签（skills/<name>/… + nexus-package.json）
 ├── import.ts         # 从包重建条目：标签远端可达走 git 通道，否则落快照
+├── import-decision.ts # §10.2 四态判定，零依赖，好让浏览器半边复用 CLI 的措辞
 ├── zip.ts            # 极简 PKZip 读写器——包编解码器（加固版）
 ├── health.ts         # checkUpdates 抽取（六态）+ doctor 检查
 ├── update-cache.ts   # 进程内更新缓存（从不落盘）
@@ -104,8 +105,10 @@ npm run build:client  # tsdown + tsc → lib/client.js + lib/client-types/（浏
 | `src/zip.ts` | `test/zip.test.ts` | 手工构造的 zip fixture：`readZip` / `createZip` 往返，及完整拒绝矩阵（zip-slip、体积炸弹、zip64、加密……） |
 | `src/switch-version.ts` | `test/switch-version.test.ts` | 分支↔tag↔sha 端到端、缺 ref 零改动、脏克隆丢弃、链接重建、CLI 包装 |
 | `src/locks.ts` | `test/locks.test.ts` | O_EXCL 写入/释放、活锁拒绝、stale-PID / 超时 / 损坏文件恢复、进程内 single-flight |
-| `src/http/`（routes） | `test/api.test.ts` | 基于 fake req/res 的 11 条路由全表——信封方言、409 confirm-required、toggle 目标归属、已退役的 add-zip 路由、hotReload 状态 |
-| `src/client/api.ts` | `test/client-api.test.ts` | 基于录制式 fake fetch 的类型化客户端——信封、confirmable 重试、`pollJob`、`reconcileList` |
+| `src/http/`（routes） | `test/api.test.ts` | 基于 fake req/res 的 13 条路由全表——信封方言、409 confirm-required、toggle 目标归属、已退役的 add-zip 路由、`import` 上传（裸 body + 文件名头、同步 dry-run、202 任务）与 `adopt` 的 §10.4 状态码、hotReload 状态 |
+| `src/client/api.ts` | `test/client-api.test.ts` | 基于录制式 fake fetch 的类型化客户端——信封、confirmable 重试、包上传的请求形状、`pollJob`、`reconcileList` |
+| `src/install.ts`（`io.spin`） | `test/install-spin.test.ts` | 安装核心的进度接缝：一次克隆一次 spin、前端未实现时原地执行、以及 `cliIO.spin === withSpinner` 的同一性 |
+| `src/import-decision.ts` | （两侧共同渲染） | §10.2 四态判定只此一处——`src/cli/commands/import.ts` 打印它，`src/client/panel.tsx` 显示它 |
 
 `npm run test:build` 把 `src/` + `test/` 编译到 `test-dist/`，可无 loader 直接跑
 （`node --test test-dist/test/`），适合 tsx loader 不可用的环境。

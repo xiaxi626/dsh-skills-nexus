@@ -239,11 +239,16 @@ From the panel you can:
   `update available` badge for branch-tracked entries;
 - add skills by git url (the same install pipeline as the CLI, including
   frontmatter normalization);
+- import a package — pick a file, read the same per-entry verdicts `import
+  --dry-run` prints (clone or snapshot, and why), then confirm. The upload is a
+  raw body with the filename beside it; there is no multipart endpoint;
+- attach a source to a snapshot — the `adopt` action, offered only on entries
+  with no git source, where you type the repository url (it is never guessed);
 - enable / disable, update, pin to another ref, and remove entries —
   destructive actions show the server's consequence wording and only retry
   with confirmation after you accept;
-- watch long operations (clone / update / switch) stream their progress with
-  a cancel button, and check for updates across all entries.
+- watch long operations (clone / import / adopt / update / switch) stream their
+  progress with a cancel button, and check for updates across all entries.
 
 **Hot reload.** Link changes are picked up by the official filesystem
 provider's watcher, so panel operations take effect in the running host
@@ -252,12 +257,12 @@ the watcher, the panel says plainly that a change takes effect on the next
 host start.
 
 **HTTP surface (internal).** The panel talks to `/skills-nexus/*` routes —
-ping / list / doctor / job polling on GET; add / remove / update /
-check-updates / switch-version / toggle / job cancel on POST. Success answers
-`{ data, hotReload }`, long operations are accepted as `202 { data: { jobId } }`,
-and every mutation is same-origin-checked (remove additionally accepts
-loopback only). These routes are the panel's own plumbing — they are **not**
-part of the stable machine interfaces promised in
+ping / list / doctor / job polling on GET; add / import / adopt / remove /
+update / check-updates / switch-version / toggle / job cancel on POST. Success
+answers `{ data, hotReload }`, long operations are accepted as
+`202 { data: { jobId } }`, and every mutation is same-origin-checked (remove
+additionally accepts loopback only). These routes are the panel's own
+plumbing — they are **not** part of the stable machine interfaces promised in
 [Building on nexus](docs/build-on-nexus.md); tool builders should keep
 shelling out to the CLI.
 

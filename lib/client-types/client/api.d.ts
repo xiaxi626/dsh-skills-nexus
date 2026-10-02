@@ -11,8 +11,11 @@
  * is unit-testable in Node without a server, and so the browser bundle keeps
  * its only platform dependency on `fetch` itself. Contract types are declared
  * here on purpose (client-side mirror of the server responses, not an import
- * across the bundler/node module-resolution split).
+ * across the bundler/node module-resolution split). The one exception is
+ * `import-decision.js`: it is dependency-free by construction precisely so this
+ * half can render the same §10.2 verdict wording the CLI prints.
  */
+import type { ImportDecision } from '../import-decision.js';
 /** Response surface this client needs (a subset of the DOM `Response`). */
 export interface ApiFetchResponse {
     readonly status: number;
@@ -21,8 +24,12 @@ export interface ApiFetchResponse {
 export interface ApiFetchInit {
     readonly method?: string;
     readonly headers?: Record<string, string>;
-    /** JSON bodies only — the client has no upload route since `add-zip` retired. */
-    readonly body?: string;
+    /**
+     * `string` for the JSON routes; `Blob` for the package upload, which sends the
+     * chosen `File`'s bytes as the raw body (the filename travels in
+     * `x-nexus-filename`, see `importPreview` / `importPackage`).
+     */
+    readonly body?: string | Blob;
 }
 /** Injectable transport — the real `fetch` satisfies this shape. */
 export type ApiFetch = (input: string, init?: ApiFetchInit) => Promise<ApiFetchResponse>;
@@ -78,7 +85,7 @@ export interface DoctorReport {
         updates: number;
     };
 }
-export type JobKind = 'add' | 'update' | 'switch-version';
+export type JobKind = 'add' | 'import' | 'adopt' | 'update' | 'switch-version';
 export type JobStatus = 'running' | 'done' | 'error' | 'cancelled';
 /** §7.5 Job schema as `GET /job` serves it. */
 export interface Job {
@@ -105,12 +112,84 @@ export interface SwitchVersionBody {
     refType?: 'branch' | 'tag' | 'commit';
     confirm?: boolean;
 }
+export interface AdoptBody {
+    name: string;
+    /** Required, never guessed (§6): the panel asks the user for it. */
+    url: string;
+    ref?: string;
+    subdir?: string;
+    /** Re-source an entry that already has a git source. */
+    force?: boolean;
+    /** Delete the pre-adopt backup instead of reporting where it was kept. */
+    prune?: boolean;
+    confirm?: boolean;
+}
+/**
+ * The four verdicts of §10.2 as the client consumes them — a structural mirror
+ * of the server's `ImportPlan` (like every other contract type here, so the
+ * bundler/node module split is not crossed). The wording of a decision is
+ * rendered by `describeDecision` from `../import-decision.js`, which both the
+ * CLI and the panel import: pure, dependency-free, so it can be in this bundle.
+ */
+export interface ImportPlan {
+    source: string;
+    format: 'zip' | 'directory';
+    labelled: boolean;
+    manifestOnly: boolean;
+    entries: ImportPlanEntry[];
+    skipped: Array<{
+        name: string;
+        reason: string;
+    }>;
+    candidate?: string;
+    peel: number;
+    files: number;
+}
+export interface ImportPlanEntry {
+    name: string;
+    root: string;
+    subdir?: string;
+    skills: Array<{
+        name: string;
+        root: string;
+        links: string[];
+    }>;
+    enabled: boolean;
+    decision: ImportDecision;
+    conflict: boolean;
+    files: number;
+}
+/** Options of `POST /import`; the package travels beside them, as the body. */
+export interface ImportBody {
+    /** Preview only: answers the plan synchronously, touches no nexus state. */
+    dryRun?: boolean;
+    /** The remaining options (with `dryRun: false`) require this. */
+    confirm?: boolean;
+    /** Overrides the entry name (single-entry packages only). */
+    name?: string;
+    /** Restricts a labelled package to one entry name. */
+    subdir?: string;
+    each?: boolean;
+    /** Replace an already-registered entry (honoured only with `confirm`). */
+    force?: boolean;
+    noRemote?: boolean;
+    noNetCheck?: boolean;
+}
 export interface NexusApi {
     list(): Promise<Envelope<{
         entries: ListEntry[];
     }>>;
     doctor(): Promise<Envelope<DoctorReport>>;
     add(body: AddBody): Promise<Envelope<{
+        jobId: string;
+    }>>;
+    importPreview(file: File, opts?: ImportBody): Promise<Envelope<{
+        plan: ImportPlan;
+    }>>;
+    importPackage(file: File, opts?: ImportBody): Promise<Envelope<{
+        jobId: string;
+    }>>;
+    adopt(body: AdoptBody): Promise<Envelope<{
         jobId: string;
     }>>;
     remove(name: string, confirm?: boolean): Promise<Envelope<{

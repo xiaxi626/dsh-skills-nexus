@@ -26,13 +26,14 @@ src/
 │   ├── api.ts        # typed HTTP client + confirmable / pollJob / reconcileList
 │   └── panel.tsx     # the Skills Nexus settings panel
 ├── http/             # /skills-nexus/* routes: types / util (envelope + guards) / jobs / io / routes
-├── ops-io.ts         # OpsIO seam: emit / progress / interactive / confirm + NeedsConfirm
+├── ops-io.ts         # OpsIO seam: emit / progress / spin / interactive / confirm + NeedsConfirm
 ├── locks.ts          # three-layer concurrency: in-process single-flight, cache lock, O_EXCL file lock
 ├── switch-version.ts # switch orchestration (fetch → checkout → re-normalize → rebuild links)
 ├── install.ts        # the one git install phase (clone → classify → normalize → register → link), shared by add / import
 ├── adopt.ts          # adopt orchestration: re-source a source-less entry (stage → swap → relink → manifest → rollback)
 ├── export.ts         # package entries plus the provenance label (skills/<name>/… + nexus-package.json)
 ├── import.ts         # rebuild entries from a package: git channel when the label's remote answers, snapshot otherwise
+├── import-decision.ts # the four §10.2 verdicts, dependency-free so the browser half renders the CLI's wording
 ├── zip.ts            # minimal PKZip reader/writer — the package codec (hardened)
 ├── health.ts         # checkUpdates extraction (six states) + doctor checks
 ├── update-cache.ts   # in-process update cache (never persisted)
@@ -108,8 +109,10 @@ The test suite lives in `test/` and targets the pure-logic modules:
 | `src/zip.ts` | `test/zip.test.ts` | hand-built zip fixtures: `readZip` / `createZip` round trip plus the full rejection matrix (zip-slip, size bombs, zip64, encrypted, …) |
 | `src/switch-version.ts` | `test/switch-version.test.ts` | branch↔tag↔sha end-to-end, missing ref leaves zero changes, dirty-clone discard, link rebuild, CLI wrapper |
 | `src/locks.ts` | `test/locks.test.ts` | O_EXCL write/release, live-lock refusal, stale-PID / timeout / corrupt-file recovery, in-process single-flight |
-| `src/http/` (routes) | `test/api.test.ts` | the 11-route table over fake req/res — envelope dialects, 409 confirm-required, toggle target attribution, the retired add-zip route, hotReload states |
-| `src/client/api.ts` | `test/client-api.test.ts` | the typed client over a recording fake fetch — envelopes, confirmable retry, `pollJob`, `reconcileList` |
+| `src/http/` (routes) | `test/api.test.ts` | the 13-route table over fake req/res — envelope dialects, 409 confirm-required, toggle target attribution, the retired add-zip route, the `import` upload (raw body + filename header, sync dry-run, 202 job) and `adopt`'s §10.4 statuses, hotReload states |
+| `src/client/api.ts` | `test/client-api.test.ts` | the typed client over a recording fake fetch — envelopes, confirmable retry, the package upload's request shape, `pollJob`, `reconcileList` |
+| `src/install.ts` (`io.spin`) | `test/install-spin.test.ts` | the install core's progress seam: one spin per clone, inline fallback when a front end has none, and `cliIO.spin === withSpinner` by identity |
+| `src/import-decision.ts` | (rendered by both faces) | the four §10.2 verdicts in one place — `src/cli/commands/import.ts` prints them, `src/client/panel.tsx` shows them |
 
 `npm run test:build` compiles `src/` + `test/` to `test-dist/` for a
 loader-free run (`node --test test-dist/test/`), useful where tsx's loader

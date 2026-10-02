@@ -1,4 +1,6 @@
+import type { GitSpec } from './git.js';
 import type { OpsIO } from './ops-io.js';
+import type { SkillEntry } from './types.js';
 /**
  * `adopt` — channel D of the source & migration design
  * (`docs/source-and-migration-design.md` §6): give an entry that has no git
@@ -89,6 +91,24 @@ export interface AdoptResult {
     /** True when a backup existed and `--prune` removed it. */
     pruned: boolean;
 }
+/**
+ * The read-only guards of `adoptSkill`: the entry exists, it may be adopted at
+ * all, and the url parses into a cloneable spec.
+ *
+ * They are split out so the **HTTP route can run them before accepting a job**.
+ * An adopt is a `202` job, so an error raised inside it can only surface in the
+ * polled job record — where the §10.4 code is lost and the user reads a raw
+ * message. Deciding these three synchronously keeps the codes on the wire
+ * (`404 skill-not-found`, `409 external-entry`, `400 invalid-url`) and matches
+ * every other route's "rejected before it is accepted" preflight.
+ *
+ * `adoptSkill` calls it too, so the two faces cannot drift: it is the same
+ * code, not a second copy.
+ */
+export declare function assertAdoptable(name: string, rawUrl: string, ref: string | undefined): Promise<{
+    entry: SkillEntry;
+    gitSpec: GitSpec;
+}>;
 /**
  * Re-source `name` from `url` and rebuild everything derived from it.
  *

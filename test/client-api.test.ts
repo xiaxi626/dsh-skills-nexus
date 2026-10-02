@@ -187,6 +187,77 @@ test('cancelJob posts {id}', async () => {
 })
 
 /* ------------------------------------------------------------------ */
+/* Package upload (§10.3) — raw body + filename header                 */
+/* ------------------------------------------------------------------ */
+
+/** The browser object the upload sends: only `name` and the bytes matter. */
+function fakeFile(name: string, content = 'zip-bytes'): File {
+  return {
+    name,
+    size: content.length,
+    type: 'application/zip',
+    bytes: async () => new TextEncoder().encode(content),
+  } as unknown as File
+}
+
+test('importPreview uploads the file as the body with dryRun in the query', async () => {
+  const plan = { source: 'pkg.zip', labelled: false, entries: [] }
+  const { fetchFn, calls } = fakeFetch([ok({ plan }, 'done')])
+  const file = fakeFile('my.skills.zip')
+  const env = await createApi(fetchFn).importPreview(file)
+
+  assert.deepEqual(env.data.plan, plan)
+  const call = calls[0]!
+  // The bytes are the body — not a JSON envelope, not multipart.
+  assert.equal(call.init?.body, file)
+  assert.equal(call.init?.method, 'POST')
+  // The filename rides in a header, because the body is the package itself.
+  assert.equal(call.init?.headers?.['x-nexus-filename'], 'my.skills.zip')
+  assert.equal(call.init?.headers?.['content-type'], 'application/octet-stream')
+  // §10.3 step 1: the preview is a dry run and can never import.
+  const query = new URLSearchParams(call.input.split('?')[1]!)
+  assert.equal(query.get('dryRun'), 'true')
+  assert.equal(query.get('confirm'), 'false')
+})
+
+test('importPackage asks for the real run (confirm) and forwards the options', async () => {
+  const { fetchFn, calls } = fakeFetch([{ status: 202, body: { data: { jobId: 'job-9' } } }])
+  const env = await createApi(fetchFn).importPackage(fakeFile('pkg.zip'), {
+    force: true,
+    each: true,
+    noNetCheck: true,
+    subdir: 'skills/alpha',
+  })
+
+  assert.deepEqual(env.data, { jobId: 'job-9' })
+  const call = calls[0]!
+  const query = new URLSearchParams(call.input.split('?')[1]!)
+  assert.equal(query.get('dryRun'), 'false')
+  assert.equal(query.get('confirm'), 'true')
+  assert.equal(query.get('force'), 'true')
+  assert.equal(query.get('each'), 'true')
+  assert.equal(query.get('noNetCheck'), 'true')
+  assert.equal(query.get('subdir'), 'skills/alpha')
+  // Options nobody set must not appear as "undefined" strings — the server
+  // reads `flag()`/`strField` and would treat them as truthy garbage.
+  assert.equal(query.has('name'), false)
+  assert.equal(query.has('noRemote'), false)
+})
+
+test('adopt posts the entry name and the explicitly typed url as JSON', async () => {
+  const { fetchFn, calls } = fakeFetch([{ status: 202, body: { data: { jobId: 'job-3' } } }])
+  await createApi(fetchFn).adopt({ name: 'snap', url: 'github:owner/repo', confirm: true })
+  const call = calls[0]!
+  assert.equal(call.input, '/skills-nexus/adopt')
+  assert.equal(call.init?.headers?.['content-type'], 'application/json')
+  assert.deepEqual(JSON.parse(call.init?.body as string), {
+    name: 'snap',
+    url: 'github:owner/repo',
+    confirm: true,
+  })
+})
+
+/* ------------------------------------------------------------------ */
 /* confirm-required retry flow (§7.1 约定 4 / §10.4)                   */
 /* ------------------------------------------------------------------ */
 

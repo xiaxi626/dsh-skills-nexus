@@ -3,10 +3,22 @@
   "compilerOptions": {
     "rootDir": ".",
     "outDir": "test-dist",
+    // The browser half is the only `.tsx` source in the repo and the main build
+    // excludes it. It is compiled *here* — automatic JSX runtime plus the DOM lib
+    // the client needs — so a test can import the panel and the loader-less
+    // `test-dist/` round trip still builds. `lib` is widened for the whole test
+    // program on purpose: nothing in this suite runs in a DOM, but a `.tsx`
+    // source cannot be type-checked without the environment it is written for.
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "declaration": false,
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"],
+  // `test/**/*`, not `test/**/*.ts`: the `react-dom/server` declaration shim that
+  // lets `test/panel-render.test.ts` render without a new @types dependency is a
+  // `.d.ts`, and a `.ts`-only glob silently skips it.
+  "include": ["src/**/*.ts", "src/client/**/*.tsx", "test/**/*"],
   "exclude": ["node_modules", "lib", "test-dist"]
 }

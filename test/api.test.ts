@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { RouteRequest, RouteResponse, RouteSpec } from '../src/http/types.js'
@@ -20,11 +20,25 @@ import type { SkillEntry } from '../src/types.js'
  * paths.ts reads DSH_HOME at import time → env before dynamic import
  * (test/remove.test.ts pattern).
  *
- * Nothing here may touch the network: the network cores (add / update /
- * switch-version jobs, check-updates) are exercised only through pre-flight
- * branches that throw before any git call. The real jobs in this file are the
- * ones whose work is pure local filesystem work (remove / toggle / cancel).
+ * No remote may be contacted: the network cores (add / update / import's git
+ * channel / adopt's clone / check-updates) are exercised only through branches
+ * that decide before any git call — pre-flight rejections, the synchronous
+ * dry-run of §10.2 (a bare package has no label to probe), and snapshots. The
+ * jobs that do run here are local filesystem work (add against a `file://`
+ * fixture, import of a bare package, remove / toggle / cancel).
  */
+
+/** The plan shape `POST /import?dryRun=true` answers with (§10.2). */
+interface ImportPlanView {
+  source: string
+  labelled: boolean
+  entries: Array<{
+    name: string
+    decision: { kind: string; reason?: string }
+    conflict: boolean
+  }>
+  skipped: unknown[]
+}
 
 let home: string
 let table: RouteSpec[]
@@ -34,6 +48,7 @@ let link: typeof import('../src/link.js')
 let jobs: typeof import('../src/http/jobs.js')
 let locks: typeof import('../src/locks.js')
 let paths: typeof import('../src/paths.js')
+let codec: typeof import('../src/zip.js')
 
 before(async () => {
   home = await mkdtemp(join(tmpdir(), 'nexus-api-'))
@@ -45,6 +60,7 @@ before(async () => {
   jobs = await import('../src/http/jobs.js')
   locks = await import('../src/locks.js')
   paths = await import('../src/paths.js')
+  codec = await import('../src/zip.js')
   table = routes.createNexusRoutes()
 })
 
@@ -714,13 +730,250 @@ test('the add-zip route is gone: zip is not an installation method any more', ()
   // §8 phase 3: the route, its hand-written multipart reader and the
   // `installFromZip` orchestration behind it were deleted together. Pinned as
   // an absence so a later refactor cannot quietly bring the upload path back;
-  // the panel row it occupied is where `import` will live (§10.3).
+  // the panel row it occupied is where `import` lives now (§10.3).
   assert.equal(
     table.some((s) => s.path === '/skills-nexus/add-zip'),
     false,
     'no route may answer /skills-nexus/add-zip',
   )
-  assert.equal(table.length, 11, 'the §7.1 table lost exactly that one route')
+  // The package channel took that row over with exactly two routes (import and
+  // the adopt action), so the table is 11 + 2 — and the upload path itself is a
+  // raw body, not a restored multipart endpoint.
+  assert.equal(table.length, 13, 'the §7.1 table plus the two §10.3 routes')
+  assert.deepEqual(
+    table.filter((s) => s.path.startsWith('/skills-nexus/import')).map((s) => s.path),
+    ['/skills-nexus/import'],
+  )
+  assert.ok(table.some((s) => s.path === '/skills-nexus/adopt'))
+})
+
+/* ------------------------------------------------------------------ */
+/* POST /import — the package channel (§10.3)                          */
+/* ------------------------------------------------------------------ */
+
+/** A minimal bare package: one skill at the root, no `nexus-package.json`. */
+function barePackage(skillName: string): Buffer {
+  return codec.createZip([
+    { name: 'SKILL.md', data: Buffer.from(skillMd(skillName), 'utf8') },
+  ])
+}
+
+/** A labelled package: `nexus-package.json` (§5) + the payload it describes. */
+function labelledPackage(entryName: string, gitUrl: string): Buffer {
+  const label = {
+    schema: 'dsh-skills-nexus/package',
+    version: 1,
+    exportedAt: '2026-10-02T00:00:00.000Z',
+    generator: 'dsh-skills-nexus@test',
+    skipped: [],
+    entries: [
+      {
+        name: entryName,
+        url: gitUrl,
+        gitUrl,
+        ref: 'main',
+        commit: '',
+        enabled: true,
+        skills: [{ name: entryName, description: 'demo', root: `${entryName}`, links: [entryName] }],
+      },
+    ],
+  }
+  return codec.createZip([
+    { name: 'nexus-package.json', data: Buffer.from(JSON.stringify(label), 'utf8') },
+    { name: `skills/${entryName}/SKILL.md`, data: Buffer.from(skillMd(entryName), 'utf8') },
+  ])
+}
+
+test('import requires the package bytes (400 missing-field)', async () => {
+  const res = await call('/skills-nexus/import', {
+    method: 'POST',
+    url: '/skills-nexus/import?dryRun=true',
+  })
+  assert.equal(res.status, 400)
+  assert.equal(errorsOf(res).error, 'missing-field')
+  assert.equal(errorsOf(res).data.field, 'package')
+})
+
+test('import rejects a cross-origin request before reading the body (403)', async () => {
+  const res = await call('/skills-nexus/import', {
+    method: 'POST',
+    url: '/skills-nexus/import?dryRun=true',
+    headers: { origin: 'http://evil.example', host: '127.0.0.1:3080' },
+    body: barePackage('x'),
+  })
+  assert.equal(res.status, 403)
+  assert.equal(errorsOf(res).error, 'untrusted origin')
+})
+
+test('import dry-run answers the plan synchronously and changes nothing', async () => {
+  await clearEntries()
+  const res = await call('/skills-nexus/import', {
+    method: 'POST',
+    // `noNetCheck` keeps the verdict deterministic (and offline): a bare
+    // package has no label to probe anyway, but the flag pins the reason.
+    url: '/skills-nexus/import?dryRun=true&noNetCheck=true',
+    headers: { 'x-nexus-filename': 'third-party.ZIP' },
+    body: barePackage('api-import-bare'),
+  })
+  assert.equal(res.status, 200)
+  const { plan } = dataOf<{ plan: ImportPlanView }>(res)
+  assert.equal(plan.labelled, false)
+  assert.equal(plan.entries.length, 1)
+  // A bare package names its entry after the uploaded file — so the filename
+  // travels outside the body and reaches the plan intact (§10.2's `package:`
+  // line is the name the user recognises), only sanitized into kebab-case.
+  assert.equal(plan.entries[0]!.name, 'third-party')
+  assert.match(plan.source, /third-party\.ZIP$/)
+  // §10.2 verdict: no label at all → snapshot, and never "unreachable" (there
+  // is no url to have failed to reach).
+  assert.equal(plan.entries[0]!.decision.kind, 'snapshot')
+  assert.equal(plan.entries[0]!.decision.reason, 'no-source')
+
+  // The preview must not have registered anything, and the temporary upload
+  // must be gone — a dry run leaves no server-side state at all.
+  assert.deepEqual((await manifest.readManifest()).skills, [])
+  const uploaded = (await readdir(paths.NEXUS_HOME)).filter((f) => f.startsWith('upload-'))
+  assert.deepEqual(uploaded, [])
+  // …and it never took the per-entry flight, so a following operation can.
+  const release = locks.tryClaimSkillFlight('third-party')
+  assert.ok(release, 'the dry run released (never took) the flight slot')
+  release()
+})
+
+test('import dry-run reports a labelled package as not-checked, never unreachable', async () => {
+  const res = await call('/skills-nexus/import', {
+    method: 'POST',
+    // The label records a remote; `--no-net-check` (offline mode) must report
+    // "not checked", not a verdict it never obtained (§10.2).
+    url: '/skills-nexus/import?dryRun=true&noNetCheck=true',
+    headers: { 'x-nexus-filename': 'labelled.zip' },
+    body: labelledPackage('api-import-labelled', 'github:owner/api-import-labelled'),
+  })
+  assert.equal(res.status, 200)
+  const { plan } = dataOf<{ plan: ImportPlanView }>(res)
+  assert.equal(plan.labelled, true)
+  assert.equal(plan.entries.length, 1)
+  assert.equal(plan.entries[0]!.name, 'api-import-labelled')
+  assert.equal(plan.entries[0]!.decision.kind, 'snapshot')
+  assert.equal(plan.entries[0]!.decision.reason, 'not-checked')
+  assert.deepEqual((await manifest.readManifest()).skills, [])
+})
+
+test('import refused a run without confirm (409) and registers nothing', async () => {
+  const res = await call('/skills-nexus/import', {
+    method: 'POST',
+    url: '/skills-nexus/import?noNetCheck=true',
+    headers: { 'x-nexus-filename': 'unconfirmed.zip' },
+    body: barePackage('api-import-noconfirm'),
+  })
+  assert.equal(res.status, 409)
+  const { error, data } = errorsOf(res)
+  assert.equal(error, 'confirm-required')
+  assert.match(String(data.question), /Import the package "unconfirmed\.zip"/)
+  assert.deepEqual((await manifest.readManifest()).skills, [])})
+
+test('import with confirm lands the package as a snapshot (202 + job)', async () => {
+  await clearEntries()
+  const accepted = await call('/skills-nexus/import', {
+    method: 'POST',
+    url: '/skills-nexus/import?confirm=true&noNetCheck=true',
+    headers: { 'x-nexus-filename': 'api-import-snap.zip' },
+    body: barePackage('api-import-snap'),
+  })
+  assert.equal(accepted.status, 202)
+  const { jobId } = dataOf<{ jobId: string }>(accepted)
+  const job = await waitForJob(jobId)
+
+  assert.equal(job.status, 'done', job.error ?? '')
+  assert.equal(job.kind, 'import')
+  // A package without a label names its entry after the file (peel-scan rule),
+  // so the uploaded basename has to survive staging.
+  const entry = manifest.findEntry(await manifest.readManifest(), 'api-import-snap')
+  assert.ok(entry, 'the entry was registered under the package name')
+  // No label → snapshot: no git source to update from (§10.2).
+  assert.equal(manifest.hasGitSource(entry), false)
+  assert.ok(await exists(paths.repoDir('api-import-snap')))
+  assert.equal(await link.isLinked('api-import-snap'), true)
+  // A job that registers and links wakes the host watcher.
+  assert.ok(job.output.some((l) => l.includes('api-import-snap')))
+  const uploaded = (await readdir(paths.NEXUS_HOME)).filter((f) => f.startsWith('upload-'))
+  assert.deepEqual(uploaded, [], 'the uploaded temporary directory was cleaned up')
+})
+
+/* ------------------------------------------------------------------ */
+/* POST /adopt — attach a source to a snapshot (§10.3)                 */
+/* ------------------------------------------------------------------ */
+
+test('adopt validates name and url before anything else (400)', async () => {
+  const noName = await call('/skills-nexus/adopt', {
+    method: 'POST',
+    body: JSON.stringify({ url: 'github:owner/x' }),
+  })
+  assert.equal(noName.status, 400)
+  assert.equal(errorsOf(noName).data.field, 'name')
+
+  const noUrl = await call('/skills-nexus/adopt', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'x' }),
+  })
+  assert.equal(noUrl.status, 400)
+  assert.equal(errorsOf(noUrl).data.field, 'url')
+})
+
+test('adopt rejects a cross-origin request (403)', async () => {
+  const res = await call('/skills-nexus/adopt', {
+    method: 'POST',
+    headers: { origin: 'http://evil.example', host: '127.0.0.1:3080' },
+    body: JSON.stringify({ name: 'x', url: 'github:owner/x', confirm: true }),
+  })
+  assert.equal(res.status, 403)
+})
+
+test('adopt answers 404 for an unknown entry and 409 without confirmation', async () => {
+  await seedClone('ad-snapshot', { gitUrl: '', ref: '' })
+  const unknown = await call('/skills-nexus/adopt', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'nope-adopt', url: 'github:owner/x', confirm: true }),
+  })
+  assert.equal(unknown.status, 404)
+  assert.equal(errorsOf(unknown).error, 'not-found')
+
+  const noConfirm = await call('/skills-nexus/adopt', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'ad-snapshot', url: 'github:owner/x' }),
+  })
+  assert.equal(noConfirm.status, 409)
+  assert.equal(errorsOf(noConfirm).error, 'confirm-required')
+})
+
+test('adopt refuses an external entry with 409 external-entry', async () => {
+  await seedClone('ad-external', { gitUrl: '', ref: '', ownership: 'external' })
+  const res = await call('/skills-nexus/adopt', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'ad-external', url: 'github:owner/x', confirm: true }),
+  })
+  assert.equal(res.status, 409)
+  const { error, data } = errorsOf(res)
+  assert.equal(error, 'external-entry')
+  // §2.1: nexus must not touch a directory the user owns — the message says so
+  // and the clone directory is still exactly where it was.
+  assert.match(String(data.message), /directory you own/)
+  assert.ok(await exists(paths.repoDir('ad-external')))
+})
+
+test('adopt maps a bad url to 400 invalid-url before any clone', async () => {
+  await seedClone('ad-badurl', { gitUrl: '', ref: '' })
+  const res = await call('/skills-nexus/adopt', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'ad-badurl', url: 'ext::sh -c echo', confirm: true }),
+  })
+  // `ext::` is Git's remote-ext transport — the core refuses it as an unsafe
+  // spec, and the route decides that *before* the 202 (a job error would only
+  // reach the client as an untyped message).
+  assert.equal(res.status, 400)
+  const { error, data } = errorsOf(res)
+  assert.equal(error, 'invalid-url')
+  assert.match(String(data.message), /Invalid repo spec/)
 })
 
 /* ------------------------------------------------------------------ */
