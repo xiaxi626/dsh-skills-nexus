@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+**2026-10-02 · Fixed · 插件侧 updateEntryCore 同步按归属清理旧链接；新增 CLI↔插件 parity 测试**
+
+- **背景**：接同日 CLI 提交。CLI 与插件侧是两份镜像实现（`routes.ts` 该函数注释自称 mirroring `update.ts`），按「两侧同一操作必须一致」原则同步修改；插件侧此前同样只调 `linkSkill` 覆盖/新建、**从不清理旧链接**，故上游改名/删除技能时会留下与 CLI 同样的残留（同一 SKILL.md 以两个链接名可见；技能目录消失后链接当场悬空）。
+- **变更**：`updateEntryCore` 重建链接改为「记录归属集合 → 逐个 `unlinkSkill` → 按当前 `previewSkills` 重建」；门条件由 `isEntryEnabled(entry)` 换成 `oldLinks.length > 0`（语义等价，扫描由两次减为一次）；被上游移除的名字以一行警告写入 job output；disabled 条目不复活。`isEntryEnabled` 因此在本文件不再被使用，已从导入移除。HTTP 契约零变化（仍 202 + `{ jobId }`；`hotReload` 由客户端既有 `stillListed` 对账承担）。
+- **新增 parity 测试**：`test/cli-plugin-parity.test.ts`（2 条，已登记进 `package.json` 的 test 脚本）——同一夹具分别经 CLI `update()` 与 `POST /skills-nexus/update`（202 + job 轮询至 settle）驱动，断言两侧结果链接集合**结构一致**：①上游改名 → 两侧都只留新名、旧名被清理；②上游删至单技能 → 两侧都按「单技能 → 条目名」重新链接，且被删技能的链接消失（不留悬空）。任一侧将来漂移即转红。远端为本地 `file://` 夹具，零网络。
+- **不做**：`remove` 路由零改动——其归属语义与 CLI 的统一另作一次提交；`routes.ts` 中 remove 的 `unlinkSkill`（而非 `unlinkIfPointsInto`）随该提交处理；CLI `update` 缺 zip 分流仅记录（同上一条提交「不做」段）。
+- **测试**：`test/cli-plugin-parity.test.ts` 新增 2 条；全量 `npm test` **425 条 · 422 通过 · 0 失败 · 3 跳过**（上一提交基线 423 · 420 · 0 · 3；+2 恰为本轮新增）。
+- **验证方式**：六步门禁 `typecheck` / `lint` / `test:build` / `build` / `build:client` / `npm test` 退出码均 0。**负向对照**：临时换回 HEAD 的 `routes.ts`（不清理旧链接）→ parity 首条转红，实际 `['alpha-api','beta-api','beta-api2']` ≠ 期望 `['alpha-api','beta-api2']`，证明该用例真在守两侧一致性；恢复后 2/2 全绿。隔离核验：真实 `~/.dsh` 仍为空（0 链接 / 0 克隆 / 无 manifest）。
+- **如何辨识改动**：M `src/http/routes.ts`、`package.json`（仅 test 一行）、本 CHANGELOG、`lib/http/routes.js` + `.js.map` + `.d.ts.map`；新增 `test/cli-plugin-parity.test.ts`；`lib/http/routes.d.ts` 不变（改动落在私有函数内）；`lib/client.js` 零变化（`git diff --stat -- lib/client.js` 为空）。
 **2026-10-02 · Fixed · CLI update 重建链接前按归属清理旧集合（对齐 switch-version 的先删后建；remove 语义零改动）**
 
 - **背景（判断过程）**：起因是复核 remove 的删除语义是否与插件侧一致。逐行比对四条路径的链接命名规则后确认——add（`add.ts:377`）、update（`update.ts:125`）、switch-version（`switch-version.ts:171`）、remove（`remove.ts:143`）**完全一致**（单技能用条目名，多技能用 frontmatter 名并以条目名兜底），即 **remove 删的正是 add 建的那批，v0.4.0 的设计成立**（`removeOne` 的删除段自 v0.3.0 起一字未改，v0.4.0 只新增 glob/多目标/确认守卫）；`remove.ts` 本次零改动。真正的缺口在 **update**：它只调 `linkSkill` 覆盖/新建、**从不清理旧链接**——上游把某技能改名时旧名链接留存（同一 SKILL.md 以两个链接名可见），上游删除某技能目录时旧名链接**当场悬空**（doctor 报 `missing-target` / `dangling-link`）；且随后的 remove 按当前克隆推算名字，同样看不见这些残留，克隆一删即成悬空链接。

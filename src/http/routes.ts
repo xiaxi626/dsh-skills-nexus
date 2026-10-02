@@ -66,7 +66,7 @@ import {
   removeEntry,
   removeSkillDir,
 } from '../manifest.js'
-import { entryLinks, hasCollision, isEntryEnabled, linkSkill, unlinkSkill } from '../link.js'
+import { entryLinks, hasCollision, linkSkill, unlinkSkill } from '../link.js'
 import { previewSkills } from '../resolve.js'
 import { normalizeSkillName, ensureDescription } from '../frontmatter.js'
 import { classifyRepo } from '../repo-kind.js'
@@ -657,12 +657,27 @@ async function updateEntryCore(entry: SkillEntry, io: OpsIO): Promise<void> {
     }
   }
 
-  const wasLinked = await isEntryEnabled(entry)
-  if (wasLinked) {
+  // Rebuild the way the CLI does (record -> unlink -> relink): a link kept
+  // under a name upstream dropped would either surface the same SKILL.md under
+  // two names or dangle once its skill directory is gone, and a later `remove`
+  // (which derives names from the current clone) could not clean it up either.
+  // Like switch-version (§8.2 step 6), an entry with no attributed links is
+  // disabled and must not be silently re-enabled.
+  const oldLinks = await entryLinks(entry)
+  for (const l of oldLinks) await unlinkSkill(l.name)
+  if (oldLinks.length > 0) {
+    const rebuilt = new Set<string>()
     for (const ps of skills) {
       const fmName = ps.invalidName ? sanitizeName(ps.invalidName) : ps.name
       const linkName = skills.length === 1 ? entry.name : fmName || entry.name
       await linkSkill(linkName, ps.resourceBase)
+      rebuilt.add(linkName)
+    }
+    const dropped = oldLinks.map((l) => l.name).filter((n) => !rebuilt.has(n))
+    if (dropped.length > 0) {
+      io.emit(
+        `  ⚠ dropped ${dropped.length} stale link(s) no longer provided upstream: ${dropped.join(', ')}\n`,
+      )
     }
   }
 
