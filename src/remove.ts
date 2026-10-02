@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { removeEntry, removeSkillDir } from './manifest.js'
+import { isExternalEntry, removeEntry, removeSkillDir } from './manifest.js'
 import { repoDir } from './paths.js'
 import { isLinked, unlinkSkill } from './link.js'
 import { previewSkills } from './resolve.js'
@@ -63,6 +63,10 @@ export async function removeSkill(name: string): Promise<RemoveResult> {
     // clone does not land here — the locator yields an empty list instead.
     await unlink(removed.name)
   }
+
+  // An external (`--link-only`) entry only links a directory the user owns:
+  // unregister and unlink, but never delete that directory.
+  if (isExternalEntry(removed)) return { removed: true, links }
 
   await removeSkillDir(removed.path)
   return { removed: true, links }

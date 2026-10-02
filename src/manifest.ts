@@ -74,6 +74,15 @@ export function hasGitSource(entry: SkillEntry): boolean {
   return entry.gitUrl.length > 0
 }
 
+/**
+ * True when the entry merely links a directory the user owns (a `--link-only`
+ * adoption). Such an entry is never deleted by `remove` and never copied into
+ * an export package: nexus must not touch a directory it does not own.
+ */
+export function isExternalEntry(entry: SkillEntry): boolean {
+  return entry.ownership === 'external'
+}
+
 /** Append a new entry and persist. Throws on duplicate name/path. */
 export async function addEntry(entry: SkillEntry): Promise<void> {
   const manifest = await readManifest()

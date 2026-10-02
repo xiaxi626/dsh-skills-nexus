@@ -25,6 +25,12 @@ export declare function hasEntry(manifest: Manifest, name: string): boolean;
  * in a directory that has no repository.
  */
 export declare function hasGitSource(entry: SkillEntry): boolean;
+/**
+ * True when the entry merely links a directory the user owns (a `--link-only`
+ * adoption). Such an entry is never deleted by `remove` and never copied into
+ * an export package: nexus must not touch a directory it does not own.
+ */
+export declare function isExternalEntry(entry: SkillEntry): boolean;
 /** Append a new entry and persist. Throws on duplicate name/path. */
 export declare function addEntry(entry: SkillEntry): Promise<void>;
 /** Remove an entry by name and persist. Returns the removed entry, if any. */

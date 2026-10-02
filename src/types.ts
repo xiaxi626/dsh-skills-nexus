@@ -39,6 +39,15 @@ export interface SkillEntry {
    * is the skill root. Always a repo-relative path (no `..`, no leading `/`).
    */
   subdir?: string
+  /**
+   * Who owns the directory this entry exposes. Absent = `managed`: nexus
+   * created `repos/<path>` and `remove` may delete it. `external` = the entry
+   * only links a directory the user owns (a `--link-only` adoption): `remove`
+   * deletes the links and the manifest entry but never that directory, and
+   * every git-bound path refuses the entry — an external entry records no
+   * gitUrl/ref/commit, so it has no history to fetch, update or switch.
+   */
+  ownership?: 'managed' | 'external'
   /** Directory name under <repos>/ holding the cloned repo. */
   path: string
   /** ISO timestamp of when the entry was added. */

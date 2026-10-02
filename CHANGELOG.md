@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+**2026-10-02 · Added · `export` 核心与 PKZip 写入器（来源与移植 §4.1/§5）：包 = 技能文件 + 来源标签；并引入 `ownership: 'external'` 标记（`remove` 不再删除非 nexus 所有的目录）**
+
+- **背景**：设计稿 `docs/source-and-migration-design.md` §4.1 把"把技能搬到另一台机器"定义为通道 C：包是**搬运容器**而非第二种安装格式——它必须携带**来源标签**（`url`/`gitUrl`/`ref`/`commit`/`subdir`、启用态与链接名），导入方才能优先按标签重新取货，把"永久冻结的副本"变成"可更新条目"。本提交落地产方（核心模块 + 编解码器），命令面留待下一提交。
+- **变更**：
+  - 新增 `src/export.ts`（`exportSkills`）：按 `--all` 或显式名字选取条目 → 逐条写入 `skills/<条目名>/…` 与 `nexus-package.json`；输出以 `.zip` 结尾走归档，否则写目录树（两种形态共用同一标签与载荷）。
+  - **标签结构（v1）**：`schema` / `version` / `exportedAt` / `generator` / `skipped[]` / `entries[]`，每条为 `{ name, url, gitUrl, ref, commit, subdir?, enabled, skills[] }`，`skills[]` 记 `root`（包内相对路径）、`name`、`description`、`links[]`。`links` 按**链接目标归属**分配（复用 `entryLinks` 的同一 `pointsInto` 判据），因此集合仓库里未链接的兄弟技能不会被算到别人头上，手工别名也会被原样带出。
+  - **两条边界写进实现**：包内**绝不携带 `.git`**（`walk` 跳过 `.git` 且不跟随符号链接——既不为"能不能离线切版本"而虚增体积，也不把 `.git/config` 里的凭据打包给下一个人）；**`ownership: 'external'` 条目绝不导出**（`--all` 记入 `skipped[]`，按名字点名则直接报错）。
+  - `src/zip.ts` 新增 PKZip **写入器** `createZip`（stored 条目、无 deflate；名称 UTF-8 且带编码标志；拒绝绝对路径 / `..` / `:` 段 / NUL / 空段 / 超长名）与**包级读取** `readZip`（内存读入，复用既有全部静态加固规则：加密、zip64、计数与体积上限一律先拒）。读写同源，导入侧（S3）直接复用。
+  - `src/types.ts` 新增 `ownership?: 'managed' | 'external'`（缺省即 managed）；`src/manifest.ts` 新增 `isExternalEntry`；`src/remove.ts` 据此**不删除 external 条目的目录**——§2.1 的硬不变量：nexus 永不删除它不拥有的目录。
+- **不做**：CLI 命令面（`export` 子命令、帮助文本、四份补全模板）与面板入口留待下一提交（S2b）；`import` / `adopt` 未动；`source` 字段、`add-zip` 路由与 `src/zip.ts` 的安装编排**仍未改动**。
+- **测试**：新增 `test/export.test.ts`（13 条）——标签字段与载荷往返（经 `readZip` 读回）、`--all` 保留禁用条目并记 `enabled: false`、包内无 `.git`、`--subdir` 条目只导出子目录且记 `subdir`、多技能条目的链接按目标归属、目录输出与 zip 输出等价、缺目录（点名报错 / `--all` 记入 `skipped[]`）、external（点名报错 / `--all` 跳过）、空清单与空选择、写入器拒绝逃逸路径（5 种）、`createZip` → `readZip` 逐字节往返（含中文名）。全量 `npm test` **439 条 · 436 通过 · 0 失败 · 3 跳过**（上一提交基线 426 · 423 · 0 · 3；+13 恰为本轮新增）。
+- **验证方式**：六步门禁 `typecheck` / `lint` / `test:build` / `build` / `build:client` / `npm test` 退出码均 0。**配对对照（守 ownership 边界）**：同一夹具下，`ownership: 'external'` 条目的目录在 `remove` 后**存活**，而形状相同但没有该标记的受管条目的目录**被删除**——两条断言互为对照，任一侧失效即转红。另有一处过程记录：写入器的 `a:b` 诊断最初被盘符正则先截住（报"绝对路径"），改为"盘符后必须跟分隔符才算绝对路径"后由 `:` 段规则报出，**改的是诊断精度而非测试期望**。
+- **如何辨识改动**：新增 `src/export.ts`、`test/export.test.ts` 及产物 `lib/export.js` + `.js.map` + `.d.ts` + `.d.ts.map`；M `src/zip.ts`（+`createZip`/`readZip`）、`src/remove.ts`、`src/manifest.ts`、`src/types.ts`、`package.json`（仅 test 脚本 +1 个测试文件）、对应 `lib/` 产物与 `lib/types.d.ts`，以及本 CHANGELOG。
+
 **2026-10-02 · Changed · "无 git 源"判据抽成 `hasGitSource`（7 处替换），错误码 `zip-not-updatable` → `not-a-git-clone`；为退役 `source` 字段铺路（行为等价）**
 
 - **背景**：`entry.source === 'zip'` 这一判据此前散在 7 处——`health.ts` 的 check-updates 分流、`switch-version.ts` 的核心守卫、`doctor.ts` 三处（manifest 形状检查的宽松分支 / missing-target 的修复提示 / git-sanity 的 clone 计数）、`http/routes.ts` 两处预检（update 与 switch-version）。它把"能不能 update / switch-version"绑在"来源是不是 zip"上；而 zip 条目与 git 条目的**唯一实质差别是有没有 `gitUrl`**（`src/zip.ts` 安装时写入空 `gitUrl`/`ref`/`commit`）。设计稿 `docs/source-and-migration-design.md` §2 因此把"有 git 源"定为唯一判据，本次先落地判据本身（该稿 §8 阶段 2 的第一步），为后续 `export`/`import`/`adopt` 与最终删除 `source` 字段铺路。
