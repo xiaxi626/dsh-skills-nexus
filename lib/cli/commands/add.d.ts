@@ -24,6 +24,11 @@ import type { OpsIO } from '../../ops-io.js';
  * repos that yield zero installable skills are rejected.
  */
 export declare function add(argv: string[], io?: OpsIO): Promise<number>;
-/** Repos with > this many skills trigger the "install all?" guard (unless --subdir/--yes). */
-export declare const LARGE_COLLECTION_THRESHOLD = 20;
+/**
+ * Re-exported from the shared install core (`src/install.ts`, §10.1): the
+ * large-collection guard threshold is part of `add`'s surface — the HTTP mirror
+ * in `src/http/routes.ts` reads it from this module — so the name and value
+ * stay here although the guard itself now lives in the shared module.
+ */
+export { LARGE_COLLECTION_THRESHOLD } from '../../install.js';
 //# sourceMappingURL=add.d.ts.map

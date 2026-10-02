@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+**2026-10-02 · Changed · 抽出共享 git 安装核心 `src/install.ts`：`add` 的"克隆 → 归一化 → 注册 → 建链"逐字搬迁，行为等价**
+
+- **背景**：设计稿 `docs/source-and-migration-design.md` §10.1 要求 `import` / `adopt` 与既有安装走**同一条实现**——新的"按标签恢复远端"若另写一份克隆 + 注册 + 建链，本仓库就会立刻拥有**第三份**会各自漂移的实现（已有 CLI `src/cli/commands/add.ts` 与面板 `src/http/routes.ts:installGitCore` 两份镜像）。本次先把 CLI 侧那份抽成共享核心，`import` 直接复用。
+- **变更**：新增 `src/install.ts` —— `installFromGit(params)` 即原 `src/cli/commands/add.ts` 的 `installOne` **逐字搬迁**（43 处 `io.emit`/stderr 字符串字面量逐一核对：值与顺序均一致；`nestedHint` / `hasNestedSkills` / `LARGE_COLLECTION_THRESHOLD` 同块搬迁且与 HEAD 逐字节相同）。`src/cli/commands/add.ts` 保留只读预检（`--subdir` 校验、默认分支探测、重复登记与碰撞检查）与按技能的文件锁，改调核心，并把结果映射回原来的 `AddResult`（`installed → added`，`skipped` / `failed` 透传）——输出与退出码逐字不变。
+- **返回形状**：`GitInstallResult = { status: 'installed' | 'skipped' | 'failed'; entry?: SkillEntry; links; normalized; clone }`。引入判别式是因为**跳过的两条路径**（DSH-plugin 包装确认被拒、大集合确认被拒）与**失败的三条路径**（`--subdir` 不是真实目录、仓库既非 SKILL.md 仓库也非 DSH 插件、未发现可安装技能）本就没有条目可返回；`clone` 保持必填（这些返回都发生在克隆成功之后，克隆/网络错误仍照原样抛出）。**没有新增任何失败模式。**
+- **`LARGE_COLLECTION_THRESHOLD` 由 `add.ts` 再导出**：`src/http/routes.ts` 从 `add.ts` 导入它，而本次不动路由文件（面板侧镜像留待退役阶段）；若改在 `add.ts` 内定义，`install.ts` 就会反向依赖自己的调用方。
+- **不做**：`src/http/routes.ts` 的 `installGitCore` 镜像**一字未改**（面板与 CLI 的统一不属于本阶段）；`import` / `adopt` 对核心的实际调用在下一提交；`source` 字段、`add-zip` 路由与 `src/zip.ts` 的安装编排仍未改动。
+- **测试**：**不新增用例**——纯搬迁的验收标准就是"既有用例逐条不变"，`test/add.test.ts` 的 23 条覆盖被搬迁的全部路径。全量 `npm test` **444 条 · 441 通过 · 0 失败 · 3 跳过**，与搬迁前逐项一致。
+- **验证方式**：六步门禁 `typecheck` / `lint` / `test:build` / `build` / `build:client` / `npm test` 退出码均 0。搬运者另做了两项更强的等价性核对：① 搬迁体的 43 处字符串字面量与原文件逐一比对（值 + 顺序）；② 用 `tsc` 输出到临时目录，与入库的 `lib/install.*`、`lib/cli/commands/add.*` **逐字节一致**（证明入库产物确为当前源码的产物）。
+- **如何辨识改动**：新增 `src/install.ts` 及产物 `lib/install.js` + `.js.map` + `.d.ts` + `.d.ts.map`；M `src/cli/commands/add.ts`（净删约 234 行：-262/+28）与 `lib/cli/commands/add.*` 四个产物，以及本 CHANGELOG。
+
 **2026-10-02 · Added · CLI `export` 命令面（帮助文本 + 四份补全模板同步）：`export <name>... | --all [--out <file>]`**
 
 - **背景**：接上一提交的 `export` 核心。设计稿 §10.1 要求命令面与核心一次成型——仓库里存在**漂移守卫测试**：四份补全模板的子命令集合必须等于 `src/cli/index.ts` 路由的 `case` 集合，且 `--help` 中出现的每个长选项都必须在四份模板中出现。因此命令面不能"先加代码、补全后补"。
