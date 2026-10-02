@@ -104,6 +104,13 @@ dsh-skills-nexus remove <name>...                   # 删除克隆 + symlink + �
 dsh-skills-nexus remove 'theme-*'                   # …或用 * / ? 通配符匹配 skill 名
 dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # 只读体检 nexus 全量状态（退出码 0/1/2）
 dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>  # 输出对应 shell 的补全脚本
+
+# 跨机器搬运 skill——包携带来路，绝不携带 .git
+dsh-skills-nexus export --all -o migrate.zip        # 打包全部条目（含禁用条目）
+dsh-skills-nexus export <name>... -o one.zip        # …或只打包其中几个
+dsh-skills-nexus import migrate.zip --dry-run       # 逐条目预览：真克隆还是落快照；零副作用
+dsh-skills-nexus import migrate.zip                 # 在本机重建这些条目
+dsh-skills-nexus adopt <name> --url github:owner/repo   # 给无 git 源的条目补回来路
 ```
 
 取值型选项（`--name`、`--ref`、`--subdir`）也支持 `--flag=value` 写法（如 `--subdir=skills/foo`、`--name=owner-skills`）；布尔选项 `--yes` 不接受值。
@@ -119,6 +126,26 @@ dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>  # 输出对应 
 - **纯 DSH 插件（没有 SKILL.md）**：提示请按该仓库自己的 DSH 插件安装方式安装，不建议用 nexus 管理，然后退出，不注册。
 - **两者都不是**：提示未找到 SKILL.md 或 DSH 插件标记，报错退出。
 - **集合仓库**（`skills/<name>/SKILL.md` 布局，如 `trae-community/trae-skills`）：整个仓库安装时根目录没有可安装的 skill，nexus 会拒绝并提示改用 `--subdir <path>` 指定子目录；一次安装解析出超过 20 个 skill 时会弹确认提示（`--yes` 跳过）。
+
+### 跨机器搬运 skill：`export` / `import`
+
+包是**搬运容器，不是安装方式**。`export` 写出技能文件外加一份 `nexus-package.json` 标签，记录每个条目的来路；`import` 在另一台机器上按这份标签把条目重建出来——也可以用来收取别人打给你的包。
+
+- **包内绝不含 `.git`**，也不含任何凭据。它携带的是技能**和它们的来路**：每个条目的 `url` / `gitUrl` / `ref` / `commit` / `subdir`、启用状态与链接名。`export --all` 连禁用条目一起打包，因此整机迁移能还原出原机的样子。
+- **`import` 优先重新克隆**：标签里记录的远端此刻可达时，走与 `add` 同一条安装路径——真浅克隆，可 `update`、可 `switch-version`。只有在没有来源、或远端不可达时才落成**快照**；即便如此，原机的状态也会被还原：在那边禁用的技能到这里仍然禁用，链接名也原样保留。
+- **`--dry-run` 先看后动，零副作用**，逐条目打印四种判定之一：`will clone from <url> (<ref>)`、`will import as snapshot (<url> unreachable)`、`will import as snapshot (<url> check timed out)`（5 秒探测——网络慢绝不能被写成"仓库没了"），以及无标签包的 `will import as snapshot (source unknown)`。别人打的 zip 就属于最后这种：它的技能靠更宽容的扫描找到；层级太深时用 `--subdir <path>` 显式指定根。
+- **包是用来跨机器的，不是用来安装的**：有网就直接 `add`，`export` / `import` 负责整体搬迁（或接收别人交付的技能）。`--no-net-check` 完全跳过探测（离线零等待）、`--no-remote` 一律落快照、`--each` 每个技能一个条目、`--force` 替换同名已注册条目。
+
+### 把冻结条目救回来：`adopt`
+
+快照不能 `update`、也不能 `switch-version`——它没有历史可取。等你查到它当初来自哪个仓库，把身份接上：
+
+```bash
+dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo
+dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo --subdir skills/daily-trend-writer
+```
+
+`adopt` 不改条目名、也不改它的 `subdir` 身份，只把该仓库克隆进 `repos/<name>/` 并重建链接，于是该条目与 `add` 装出来的完全同质。原目录会保留为 `repos/<name>.pre-adopt-<ts>`（用 `--prune` 删除）；若新来源**暴露的技能集合不同**，默认拒绝，除非显式 `--force`；任一步失败都会把目录、链接与 manifest 还原回操作前。
 
 ## Web 面板（插件侧，可选）
 

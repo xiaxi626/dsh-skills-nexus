@@ -20,7 +20,7 @@ src/
 │   ├── glob.ts       # * / ? glob expansion for remove
 │   ├── progress.ts   # TTY-gated spinner (add / update)
 │   ├── prompt.ts     # interactive confirm
-│   └── commands/     # add · list · update · switch-version · remove · toggle · doctor · completions
+│   └── commands/     # add · list · update · export · import · adopt · switch-version · remove · toggle · doctor · completions
 ├── client/           # browser half — excluded from the server build, bundled by build:client
 │   ├── index.tsx     # module shape: name / inject / apply (Settings slot)
 │   ├── api.ts        # typed HTTP client + confirmable / pollJob / reconcileList
@@ -29,6 +29,10 @@ src/
 ├── ops-io.ts         # OpsIO seam: emit / progress / interactive / confirm + NeedsConfirm
 ├── locks.ts          # three-layer concurrency: in-process single-flight, cache lock, O_EXCL file lock
 ├── switch-version.ts # switch orchestration (fetch → checkout → re-normalize → rebuild links)
+├── install.ts        # the one git install phase (clone → classify → normalize → register → link), shared by add / import
+├── adopt.ts          # adopt orchestration: re-source a source-less entry (stage → swap → relink → manifest → rollback)
+├── export.ts         # package entries plus the provenance label (skills/<name>/… + nexus-package.json)
+├── import.ts         # rebuild entries from a package: git channel when the label's remote answers, snapshot otherwise
 ├── zip.ts            # minimal PKZip reader/writer — the package codec (hardened)
 ├── health.ts         # checkUpdates extraction (six states) + doctor checks
 ├── update-cache.ts   # in-process update cache (never persisted)
@@ -97,6 +101,10 @@ The test suite lives in `test/` and targets the pure-logic modules:
 | `src/resolve.ts` | `test/resolve.test.ts` | `previewSkills` (preview skills), `isValidSkillName` validation |
 | `src/link.ts` | `test/link.test.ts` | `linkSkill` / `isEntryEnabled` / `unlinkSkill` / `hasCollision` against a temp `DSH_HOME` — exercises the real Windows junction vs macOS/Linux symlink code paths |
 | `src/ops-io.ts` | `test/ops-io.test.ts` | byte-equal stdout capture through the OpsIO seam, TTY gating in both directions, `NeedsConfirm` |
+| `src/install.ts` | `test/add.test.ts` | the shared git install phase as `add` drives it — clone modes, sparse `--subdir`, frontmatter normalization, large-collection guard |
+| `src/export.ts` | `test/export.test.ts` | the package label and payload, `--all` including disabled entries, no `.git` in a package, zip and directory outputs |
+| `src/import.ts` | `test/import.test.ts` | stage → plan → apply: the four `--dry-run` verdicts, the peel scan, state restore (enabled flag, link names), conflicts, collision guard |
+| `src/adopt.ts` | `test/adopt.test.ts` | re-sourcing a snapshot into a git entry: the discovery guard, `--force`, `subdir` inheritance, and the full rollback after a late failure |
 | `src/zip.ts` | `test/zip.test.ts` | hand-built zip fixtures: `readZip` / `createZip` round trip plus the full rejection matrix (zip-slip, size bombs, zip64, encrypted, …) |
 | `src/switch-version.ts` | `test/switch-version.test.ts` | branch↔tag↔sha end-to-end, missing ref leaves zero changes, dirty-clone discard, link rebuild, CLI wrapper |
 | `src/locks.ts` | `test/locks.test.ts` | O_EXCL write/release, live-lock refusal, stale-PID / timeout / corrupt-file recovery, in-process single-flight |

@@ -150,6 +150,13 @@ dsh-skills-nexus remove <name>...                   # delete clone + symlink + u
 dsh-skills-nexus remove 'theme-*'                   # ...or a * / ? glob matched against skill names
 dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # read-only full checkup of nexus state (exit 0/1/2)
 dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>  # print a completion script for that shell
+
+# move skills to another machine — a package carries provenance, never .git
+dsh-skills-nexus export --all -o migrate.zip        # package every entry (disabled ones included)
+dsh-skills-nexus export <name>... -o one.zip        # ...or just some of them
+dsh-skills-nexus import migrate.zip --dry-run       # per-entry preview: clone or snapshot; touches nothing
+dsh-skills-nexus import migrate.zip                 # rebuild the entries on this machine
+dsh-skills-nexus adopt <name> --url github:owner/repo   # give a source-less entry its git identity back
 ```
 
 Value options (`--name`, `--ref`, `--subdir`) also accept the `--flag=value` form (e.g. `--subdir=skills/foo`, `--name=owner-skills`); the boolean `--yes` takes no value.
@@ -167,6 +174,54 @@ When you `add` a repo, nexus inspects the clone before registering it:
 - **Pure DSH plugin (no SKILL.md)** — prints a message telling you to use that repo's own DSH plugin installation flow, then exits without registering.
 - **Neither** — reports that no SKILL.md or DSH plugin marker was found and exits with an error.
 - **Collection repos** (`skills/<name>/SKILL.md` layout, e.g. `trae-community/trae-skills`) — installing the whole repo yields no installable skill at the root; nexus rejects it and suggests `--subdir <path>`. Installations that yield more than 20 skills trigger a confirmation prompt (skip with `--yes`).
+
+### Moving skills to another machine: `export` / `import`
+
+A package is a **container, not an installation format**. `export` writes the
+skill files plus a `nexus-package.json` label recording where each entry came
+from; `import` rebuilds those entries on another machine — or from a package
+somebody handed you.
+
+- **A package never contains `.git`**, and no credentials. What it carries is
+  the skills *and their provenance*: `url` / `gitUrl` / `ref` / `commit` /
+  `subdir`, the enabled state and the link names of every entry. `export --all`
+  includes disabled entries, so a migration reproduces the sending machine.
+- **`import` prefers a real clone.** When the label records a remote that
+  answers, the entry is rebuilt through the same install path as `add` — a
+  genuine shallow clone, updatable and switchable. Only when there is no source
+  (or it cannot be reached) does the payload land as a **snapshot** — and even
+  then the exporting machine's state is restored: a skill disabled over there
+  stays disabled here, under the same link names.
+- **`--dry-run` decides without touching anything**, printing one verdict per
+  entry: `will clone from <url> (<ref>)`, `will import as snapshot (<url>
+  unreachable)`, `will import as snapshot (<url> check timed out)` — a 5s probe,
+  because a slow network must never read as a deleted repository — or
+  `will import as snapshot (source unknown)` for an unlabelled package. Another
+  tool's zip is such a package: its skills are found by a more forgiving scan,
+  and `--subdir <path>` names the root explicitly when they are nested deeply.
+- **Packages are for crossing machines, not for installing.** With network
+  access `add` is the direct route; `export` / `import` move a whole nexus (or
+  take delivery of skills someone sent you). `--no-net-check` skips the probe
+  entirely (offline, zero waiting), `--no-remote` always lands a snapshot,
+  `--each` makes one entry per skill, and `--force` replaces an entry that is
+  already registered.
+
+### Giving a frozen entry its identity back: `adopt`
+
+A snapshot cannot `update` or `switch-version` — it has no history to fetch.
+When you later find the repository it came from, attach it:
+
+```bash
+dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo
+dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo --subdir skills/daily-trend-writer
+```
+
+`adopt` keeps the entry name and its `subdir` identity, clones that repository
+into `repos/<name>/` and rebuilds the links, so the entry ends up
+indistinguishable from one `add` created. The previous directory is kept as
+`repos/<name>.pre-adopt-<ts>` (delete it with `--prune`), a source that would
+expose a *different* set of skills is refused unless you pass `--force`, and a
+failure at any step restores the directory, the links and the manifest.
 
 ## Web panel (optional plugin side)
 
