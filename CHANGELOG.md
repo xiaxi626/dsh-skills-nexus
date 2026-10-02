@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+**2026-10-02 · Removed · 退役 zip：删 `add-zip` 路由与 `src/zip.ts` 的安装编排、移除 `source` 字段（`list` 载荷与面板同步改为 `hasGitSource`）**
+
+- **背景**：设计稿 `docs/source-and-migration-design.md` §8 阶段 3。S1 已把"能不能更新"的判据换成 `hasGitSource`、S3 已让 `import` 接管包入口，所以这一步是**纯减法**：摘掉"zip 作为安装方式"的最后一层，不该牵动任何行为。**旧 zip 条目无需任何数据迁移**——它们的 `gitUrl`/`ref`/`commit` 在安装时就是空的，删掉 `source` 后行为与"快照副本"（§2.1 形态 b）完全一致：`list` / `enable` / `disable` / `remove` 照常，`update` / `switch-version` 继续以 `not-a-git-clone` 明确拒绝。
+- **变更**：
+  - 删 `src/http/routes.ts` 的 `add-zip` 路由、手写 multipart 解析器（`multipartBoundary` / `extractMultipartFile`）与 `ZipError` → 400 的错误映射；路由表 12 → 11 条。`src/http/jobs.ts` 与 `src/client/api.ts` 的 `JobKind` 去掉 `'add-zip'`；客户端删 `addZip()` 与 `FormData` 请求体类型（客户端只剩 JSON 体）。
+  - 删 `src/zip.ts` 的安装编排：`installFromZip` / `deriveEntryName` / `extractEntries` / `pathExists` / `MAX_ARCHIVE_BYTES`（HTTP 上传上限，随路由一起消失）以及 `ZipInstallOptions` / `ZipInstallResult`；`parseAndValidate` 不再返回 warnings。**保留 `readZip` / `createZip` / `ZipError` 与体积、条目上限常量**——它们已是包编解码器：`import` 读外部包时的静态加固（zip-slip、`:` 段、NUL、加密、zip64、三重上限）一字未改。
+  - `src/types.ts` 删 `source?: 'github' | 'zip'`。**客户端契约同步**：`list` 载荷的 `source: entry.source ?? 'git'` 换成 `hasGitSource: hasGitSource(entry)`；面板的 `zip` 徽标与"无 git 源就不显示 update / switch"改为直接读这个布尔值——与路由自己的 `400 not-a-git-clone` 判据同源，两边不可能再各说各话。
+  - 面板 `src/client/panel.tsx`：删 `isZip` 分支、`zip` 徽标与 zip 上传整行（选文件 + upload 按钮）；条目元信息直接显示 `url · subdir`，`update` / `switch-version` 由 `hasGitSource` 门控。
+  - 文档同步（双语成对，改一份必改另一份）：`README.md` / `README_CN.md` 的面板能力与 `/skills-nexus/*` 路由清单去掉 zip 上传；`CONTRIBUTING.md` / `CONTRIBUTING.zh-CN.md` 的源码树与两张测试映射表改述为"包编解码器"与"11 条路由"。
+- **不做**：面板的包导入入口（原 zip 上传行）**留空**——`import` 的面板位按 §10.3 后置，那一行等它来占（面板能力因此净减一项，已在上面写明）；不做 zip → git 的来源猜测；`readZip` 对 `.git` 条目仍是**跳过**而非 §5 字面要求的"发现即拒绝该条目"，本次按纯减法原则不改该行为。
+- **测试**：`test/zip.test.ts` **未整文件删除，而是收敛为包编解码器测试**（23 → 19 条：读取 / 往返 / 跳过三类条目 + §9.1 全套拒绝矩阵）——理由是 `readZip` 是**外部输入**的唯一入口，整文件删除等于丢掉 zip-slip、加密、zip64、三重上限的回归网。作为补偿，`test/import.test.ts` 新增一条 collision 用例（技能根里手工放置的真实目录必须被拒绝、绝不被清掉），把随 `installFromZip` 消失的那条守卫补在仍然存在的层上。`test/api.test.ts` 的 2 条 add-zip 用例并为 1 条**退役断言**（路由表中不存在该路径，且总数恰为 11）；`test/client-api.test.ts` 删 add-zip FormData 用例；`test/doctor.test.ts` 的 `makeZipEntry` 夹具改述为 `makeSnapshotEntry`（空 git 字段是结构而非损坏，覆盖点不变）；`update-pipeline` / `switch-version` / `adopt` 三处 `source: 'zip'` 夹具与断言随字段删除。全量 `npm test` **468 条 · 465 通过 · 0 失败 · 3 跳过**（基线 473 · 470 · 0 · 3；净 −5：zip.test.ts −4、api.test.ts −1、client-api.test.ts −1、import.test.ts +1）。
+- **验证方式**：六步门禁 `typecheck` / `lint` / `test:build` / `build` / `build:client` / `npm test` 退出码全 0。第一轮门禁抓到一处真实遗漏——`test/api.test.ts` 的 switch-version 用例仍引用被改名的 `up-zip` 夹具（404 ≠ 400）；改名后第二轮全绿。这条恰好证明该夹具是**跨用例共享**的，改名不能只改一处。
+- **如何辨识改动**：删 `src/zip.ts` 的安装编排与 `src/types.ts` 的 `source` 字段；改 `src/http/routes.ts`、`src/http/jobs.ts`、`src/client/api.ts`、`src/client/panel.tsx`，以及 `src/health.ts` / `src/manifest.ts` / `src/adopt.ts` 的相关注释与写点；改 `test/{zip,api,doctor,client-api,import,update-pipeline,switch-version,adopt}.test.ts`；改 `README.md` / `README_CN.md` / `CONTRIBUTING.md` / `CONTRIBUTING.zh-CN.md`；相应 `lib/` 产物（含 `lib/client.js` 重新打包）与本 CHANGELOG。
+
 **2026-10-02 · Added · `adopt` 命令：给"无 git 源"条目补身份（七步编排 + 失败整体回滚，命令面与四份补全同步）**
 
 - **背景**：设计稿 `docs/source-and-migration-design.md` §6/§10.1 的通道 D。快照条目（包导入落下的、旧 zip 装出来的、别人给的目录）永远不能 `update` / `switch-version`——它们的 `gitUrl` 是空的。上一轮的 `import` 只在**导入那一刻**能按标签重克隆；已经躺在机器上的冻结条目，唯一的转正动作就是 `adopt <name> --url <repo>`。§6 同时禁止 URL 猜测：身份必须由用户显式给出。

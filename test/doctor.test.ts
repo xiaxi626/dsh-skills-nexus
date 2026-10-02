@@ -257,27 +257,26 @@ test('a clone missing .git is git-sanity warn', async () => {
 })
 
 /* ------------------------------------------------------------------ */
-/* Zip entries (§5.3 / §6.2 doctor 分流)                               */
+/* Source-less entries (§2.1 form (b) / §6.2 doctor 分流)              */
 /* ------------------------------------------------------------------ */
 
-/** A zip entry per §5.3: empty git fields are structural, not corruption. */
-function makeZipEntry(overrides: Partial<SkillEntry> = {}): SkillEntry {
+/** A snapshot entry: empty git fields are structural, not corruption. */
+function makeSnapshotEntry(overrides: Partial<SkillEntry> = {}): SkillEntry {
   return {
-    name: 'zip-pack',
-    url: 'zip:pack.zip',
+    name: 'snap-pack',
+    url: 'package:pack.zip',
     gitUrl: '',
     ref: '',
-    path: 'zip-pack',
+    path: 'snap-pack',
     addedAt: new Date().toISOString(),
-    source: 'zip',
     ...overrides,
   }
 }
 
-test('a zip entry passes the manifest shape check (empty git fields are structural)', async () => {
-  const dir = await makeClone('zip-pack', { git: false })
-  await makeLink('zip-skill', dir)
-  await writeManifest([makeZipEntry({ name: 'zip-skill' })])
+test('a source-less entry passes the manifest shape check (empty git fields are structural)', async () => {
+  const dir = await makeClone('snap-pack', { git: false })
+  await makeLink('snap-skill', dir)
+  await writeManifest([makeSnapshotEntry({ name: 'snap-skill' })])
   const report = await doctorMod.runChecks(false)
   assert.equal(findCheck(report, 'manifest').status, 'ok')
   assert.match(findCheck(report, 'manifest').detail ?? '', /1 entry/)
@@ -288,9 +287,9 @@ test('a zip entry passes the manifest shape check (empty git fields are structur
   assert.equal(report.summary.errors, 0)
 })
 
-test('git-sanity skips zip entries entirely (no missing-git, no tally)', async () => {
-  await makeClone('zip-pack', { git: false })
-  await writeManifest([makeZipEntry()])
+test('git-sanity skips source-less entries entirely (no missing-git, no tally)', async () => {
+  await makeClone('snap-pack', { git: false })
+  await writeManifest([makeSnapshotEntry()])
   const report = await doctorMod.runChecks(false)
   const g = findCheck(report, 'git-sanity')
   assert.equal(g.status, 'ok')
@@ -300,8 +299,11 @@ test('git-sanity skips zip entries entirely (no missing-git, no tally)', async (
 
 test('git-sanity counts only git clones in a mixed manifest', async () => {
   await makeClone('nogit-mix', { git: false })
-  await makeClone('zip-mix', { git: false })
-  await writeManifest([makeEntry('nogit-mix'), makeZipEntry({ name: 'zip-mix', path: 'zip-mix' })])
+  await makeClone('snap-mix', { git: false })
+  await writeManifest([
+    makeEntry('nogit-mix'),
+    makeSnapshotEntry({ name: 'snap-mix', path: 'snap-mix' }),
+  ])
   const report = await doctorMod.runChecks(false)
   const g = findCheck(report, 'git-sanity')
   assert.equal(g.issues.length, 1)
@@ -309,25 +311,25 @@ test('git-sanity counts only git clones in a mixed manifest', async () => {
   assert.equal(g.detail, '0/1 clones have .git')
 })
 
-test('missing-target on a zip entry suggests reinstall, not update', async () => {
-  const dir = await makeClone('zip-broken', { git: false })
-  await makeLink('zip-broken-skill', dir)
+test('missing-target on a source-less entry suggests reinstall, not update', async () => {
+  const dir = await makeClone('snap-broken', { git: false })
+  await makeLink('snap-broken-skill', dir)
   await rm(dir, { recursive: true, force: true })
-  await writeManifest([makeZipEntry({ name: 'zip-broken-skill', path: 'zip-broken' })])
+  await writeManifest([makeSnapshotEntry({ name: 'snap-broken-skill', path: 'snap-broken' })])
   const report = await doctorMod.runChecks(false)
   const sym = findCheck(report, 'symlinks')
   assert.equal(sym.issues[0]!.code, 'missing-target')
-  assert.match(sym.issues[0]!.fix ?? '', /remove zip-broken-skill/)
+  assert.match(sym.issues[0]!.fix ?? '', /remove snap-broken-skill/)
   assert.ok(!(sym.issues[0]!.fix ?? '').includes('update'))
 })
 
-test('doctor --updates stays silent for zip entries (not-applicable)', async () => {
-  await makeClone('zip-pack', { git: false })
-  await writeManifest([makeZipEntry()])
+test('doctor --updates stays silent for source-less entries (not-applicable)', async () => {
+  await makeClone('snap-pack', { git: false })
+  await writeManifest([makeSnapshotEntry()])
   const report = await doctorMod.runChecks(true)
   const u = findCheck(report, 'updates')
   assert.equal(
-    u.issues.filter((i) => i.name === 'zip-pack').length,
+    u.issues.filter((i) => i.name === 'snap-pack').length,
     0,
   )
 })

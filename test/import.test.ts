@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -579,6 +579,26 @@ test('importing the same package twice reports the conflict, and force replaces 
   assert.ok(link !== undefined, 'the replacement is linked')
   assert.equal(link.name, 'conflict')
   assert.equal((await stat(join(link.target, 'SKILL.md'))).isFile(), true)
+})
+
+test('a hand-placed directory at an entry name is refused, never clobbered', async () => {
+  await clearManifest()
+  const source = await writeZip('collide.zip', { 'skills/collide/SKILL.md': skillMd('collide') })
+
+  // A real directory the user put in the skills root: the import must refuse
+  // the entry (409 collision on the panel side) instead of deleting it.
+  const planted = join(paths.OFFICIAL_SKILLS_DIR, 'collide')
+  await mkdir(planted, { recursive: true })
+
+  const { result } = await importer.importPackage({ source, io })
+  assert.equal(result!.installed.length, 0)
+  assert.equal(result!.failed.length, 1)
+  assert.match(result!.failed[0]!.reason, /official skills root/)
+
+  const st = await lstat(planted)
+  assert.equal(st.isSymbolicLink(), false, 'the hand-placed directory is untouched')
+  assert.equal(st.isDirectory(), true)
+  assert.equal((await manifest.readManifest()).skills.length, 0)
 })
 
 test('a label that lists sources but carries no payload is manifest-only', async () => {

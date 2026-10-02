@@ -180,19 +180,6 @@ test('job poll encodes the id into the query string', async () => {
   assert.equal(calls[0]!.input, '/skills-nexus/job?id=job%201%26x')
 })
 
-test('add-zip sends a FormData body carrying the file name', async () => {
-  const { fetchFn, calls } = fakeFetch([{ status: 202, body: { data: { jobId: 'j' } } }])
-  const api = createApi(fetchFn)
-  await api.addZip(new File([new Uint8Array([1, 2, 3])], 'demo.zip'))
-  const call = calls[0]!
-  assert.equal(call.input, '/skills-nexus/add-zip')
-  assert.equal(call.init?.method, 'POST')
-  assert.ok(call.init?.body instanceof FormData)
-  const file = (call.init?.body as FormData).get('file')
-  assert.ok(file instanceof File)
-  assert.equal((file as File).name, 'demo.zip')
-})
-
 test('cancelJob posts {id}', async () => {
   const { fetchFn, calls } = fakeFetch([ok({ id: 'j', status: 'running' }, 'done')])
   await createApi(fetchFn).cancelJob('j')
@@ -324,7 +311,7 @@ const listEntry = (name: string, enabled = true): ListEntry => ({
   ref: 'main',
   subdir: null,
   commit: null,
-  source: 'git',
+  hasGitSource: true,
   enabled,
   links: [],
   update: null,

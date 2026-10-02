@@ -21,7 +21,8 @@ export interface ApiFetchResponse {
 export interface ApiFetchInit {
     readonly method?: string;
     readonly headers?: Record<string, string>;
-    readonly body?: string | FormData;
+    /** JSON bodies only — the client has no upload route since `add-zip` retired. */
+    readonly body?: string;
 }
 /** Injectable transport — the real `fetch` satisfies this shape. */
 export type ApiFetch = (input: string, init?: ApiFetchInit) => Promise<ApiFetchResponse>;
@@ -53,7 +54,12 @@ export interface ListEntry {
     ref: string;
     subdir: string | null;
     commit: string | null;
-    source: string;
+    /**
+     * True when the entry records a git source — the server's own
+     * `hasGitSource` predicate, which decides whether `update` /
+     * `switch-version` are accepted or answered `400 not-a-git-clone`.
+     */
+    hasGitSource: boolean;
     enabled: boolean;
     links: ListLink[];
     update: UpdateStatus | null;
@@ -72,7 +78,7 @@ export interface DoctorReport {
         updates: number;
     };
 }
-export type JobKind = 'add' | 'add-zip' | 'update' | 'switch-version';
+export type JobKind = 'add' | 'update' | 'switch-version';
 export type JobStatus = 'running' | 'done' | 'error' | 'cancelled';
 /** §7.5 Job schema as `GET /job` serves it. */
 export interface Job {
@@ -105,9 +111,6 @@ export interface NexusApi {
     }>>;
     doctor(): Promise<Envelope<DoctorReport>>;
     add(body: AddBody): Promise<Envelope<{
-        jobId: string;
-    }>>;
-    addZip(file: File): Promise<Envelope<{
         jobId: string;
     }>>;
     remove(name: string, confirm?: boolean): Promise<Envelope<{

@@ -1,8 +1,12 @@
 /**
  * The Settings panel (§10.4): entry-granularity skill cards, an add form
- * (git url / zip upload), the job progress view (§7.5) and the destructive-
- * action confirm flow (§12.2 — the server's `409 confirm-required` question is
- * the single source of consequence wording; the panel only asks and retries).
+ * (git url), the job progress view (§7.5) and the destructive-action confirm
+ * flow (§12.2 — the server's `409 confirm-required` question is the single
+ * source of consequence wording; the panel only asks and retries).
+ *
+ * The zip upload row is gone with `add-zip` (design §8 phase 3): zip is no
+ * longer an installation method, and the package channel (`import`) has not
+ * reached the panel yet (§10.3). That row is where it will live.
  *
  * Styling stays deliberately structural (semantic elements, no stylesheet
  * dependency): the half runs inside the host Settings shell, and hooking the
@@ -74,7 +78,7 @@ function errorText(err: unknown): string {
 /* §11 reconciliation predicates — what each mutation should make visible in
  * `list` before the host watcher is presumed caught up. */
 
-/** add/add-zip: a name outside the pre-mutation baseline appears. */
+/** add: a name outside the pre-mutation baseline appears. */
 function appearsNewName(baseline: Set<string>): (entries: ListEntry[]) => boolean {
   return (entries) => entries.some((e) => !baseline.has(e.name))
 }
@@ -116,7 +120,6 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   const [jobs, setJobs] = useState<TrackedJob[]>([])
   const [addUrl, setAddUrl] = useState('')
   const [addBusy, setAddBusy] = useState(false)
-  const [zipFile, setZipFile] = useState<File | null>(null)
   const [checking, setChecking] = useState(false)
   const [refInputs, setRefInputs] = useState<Record<string, string>>({})
   const alive = useRef(true)
@@ -281,25 +284,6 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     })
   }
 
-  const onAddZip = (): void => {
-    const file = zipFile
-    if (file === null) {
-      setNotice('choose a .zip file first')
-      return
-    }
-    void run(file.name, async () => {
-      setAddBusy(true)
-      try {
-        const baseline = new Set(entries.map((e) => e.name))
-        const env = await api.addZip(file)
-        setZipFile(null)
-        await track(file.name, env.data, appearsNewName(baseline))
-      } finally {
-        setAddBusy(false)
-      }
-    })
-  }
-
   const onCheckUpdates = (): void => {
     void run('check-updates', async () => {
       setChecking(true)
@@ -384,9 +368,9 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   return (
     <div className="skills-nexus-panel">
       <p>
-        Manage skill repositories: add by git url or zip upload, toggle, update,
-        pin versions. Discovery itself stays with the official provider — this
-        panel only manages the clones and their symlinks.
+        Manage skill repositories: add by git url, toggle, update, pin versions.
+        Discovery itself stays with the official provider — this panel only
+        manages the clones and their symlinks.
       </p>
 
       {notice !== null && (
@@ -417,20 +401,6 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
           add
         </button>
       </form>
-
-      <div>
-        <label>
-          add from zip{' '}
-          <input
-            type="file"
-            accept=".zip"
-            onChange={(e: ChangeEvent<HTMLInputElement>) => setZipFile(e.target.files?.[0] ?? null)}
-          />
-        </label>
-        <button type="button" onClick={onAddZip} disabled={addBusy || zipFile === null}>
-          upload
-        </button>
-      </div>
 
       <div>
         <button type="button" onClick={() => void refresh()} disabled={loading}>
@@ -494,9 +464,13 @@ interface EntryCardProps {
 }
 
 function EntryCard({ entry, refValue, onRefChange, onToggle, onUpdate, onRemove, onSwitchVersion }: EntryCardProps): ReactElement {
-  const isZip = entry.source === 'zip'
+  // Entries without a git source (snapshots, an imported package that had no
+  // reachable remote) cannot be updated or switched — the server answers
+  // `400 not-a-git-clone`, so the buttons are not offered at all.
+  const canUpdate = entry.hasGitSource
   // Update badge only exists for branch-tracking entries (tag/commit pins and
-  // zip entries stay null, §7.2) — the runtime cache decides, no refType here.
+  // source-less entries stay null, §7.2) — the runtime cache decides, no
+  // refType here.
   const update = entry.update
 
   return (
@@ -504,7 +478,7 @@ function EntryCard({ entry, refValue, onRefChange, onToggle, onUpdate, onRemove,
       <header>
         <strong>{entry.name}</strong>{' '}
         <small>
-          {isZip ? 'zip' : `${entry.url}${entry.subdir !== null ? ` · ${entry.subdir}` : ''}`}
+          {`${entry.url}${entry.subdir !== null ? ` · ${entry.subdir}` : ''}`}
         </small>{' '}
         {entry.enabled ? (
           <small>enabled</small>
@@ -531,7 +505,7 @@ function EntryCard({ entry, refValue, onRefChange, onToggle, onUpdate, onRemove,
         <button type="button" onClick={() => onToggle(entry)}>
           {entry.enabled ? 'disable' : 'enable'}
         </button>
-        {!isZip && (
+        {canUpdate && (
           <>
             <button type="button" onClick={() => onUpdate(entry)}>
               update

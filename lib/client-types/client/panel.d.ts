@@ -1,8 +1,12 @@
 /**
  * The Settings panel (§10.4): entry-granularity skill cards, an add form
- * (git url / zip upload), the job progress view (§7.5) and the destructive-
- * action confirm flow (§12.2 — the server's `409 confirm-required` question is
- * the single source of consequence wording; the panel only asks and retries).
+ * (git url), the job progress view (§7.5) and the destructive-action confirm
+ * flow (§12.2 — the server's `409 confirm-required` question is the single
+ * source of consequence wording; the panel only asks and retries).
+ *
+ * The zip upload row is gone with `add-zip` (design §8 phase 3): zip is no
+ * longer an installation method, and the package channel (`import`) has not
+ * reached the panel yet (§10.3). That row is where it will live.
  *
  * Styling stays deliberately structural (semantic elements, no stylesheet
  * dependency): the half runs inside the host Settings shell, and hooking the

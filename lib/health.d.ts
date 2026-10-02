@@ -85,7 +85,7 @@ export declare function findOrphanLinks(entries: SkillEntry[]): Promise<OrphanLi
  * unchecked:
  *   - `locked`         — detached HEAD (tag/commit pin), version-locked by design
  *   - `absent`         — the clone directory does not exist (nothing to compare)
- *   - `not-applicable` — zip entry: no git state, hence no remote (§5.3)
+ *   - `not-applicable` — no git source: no remote to compare against (§5.3)
  *   - `unresolved`     — ls-remote failed (offline / private repo / bad ref)
  */
 export type UpdateCheckStatus = 'behind-remote' | 'current' | 'locked' | 'absent' | 'not-applicable' | 'unresolved';

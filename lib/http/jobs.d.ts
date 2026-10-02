@@ -1,6 +1,6 @@
 /**
- * Long-operation job channel (§7.5): add / add-zip / update / switch-version
- * are accepted as `202 { data: { jobId } }` and execute in the background;
+ * Long-operation job channel (§7.5): add / update / switch-version are
+ * accepted as `202 { data: { jobId } }` and execute in the background;
  * progress is polled via `GET /skills-nexus/job?id=`.
  *
  * Jobs live in an in-process Map — runtime data, never persisted (same rule
@@ -13,7 +13,7 @@
  * rollback standard (rm of partial clones) still applies on the way out.
  */
 import type { OpsIO } from '../ops-io.js';
-export type JobKind = 'add' | 'add-zip' | 'update' | 'switch-version';
+export type JobKind = 'add' | 'update' | 'switch-version';
 export type JobStatus = 'running' | 'done' | 'error' | 'cancelled';
 /** §7.5 Job schema — polling contract for the UI; do not add fields lightly. */
 export interface Job {

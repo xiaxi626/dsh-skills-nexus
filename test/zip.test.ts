@@ -1,27 +1,32 @@
-import { test, before, after } from 'node:test'
+import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { deflateRawSync } from 'node:zlib'
-import type { OpsIO } from '../src/ops-io.js'
+import { createZip, readZip } from '../src/zip.js'
+import type { ZipInputFile } from '../src/zip.js'
 
 /**
- * Tests for ZIP installation (`src/zip.ts`, §9).
+ * Tests for the PKZip codec (`src/zip.ts`) — the package side of the source &
+ * migration design (§5/§9.1).
+ *
+ * `zip.ts` used to be an installer; since zip stopped being an installation
+ * method (§8 phase 3) it is the codec `export` writes with and `import` reads
+ * with, and `readZip` is the only door into it. That door takes **foreign
+ * input** — a package somebody else produced — so the §9.1 rejection matrix is
+ * exactly as load-bearing as it was for installation, and it is measured here
+ * through `readZip`: zip slip, absolute / `:` / NUL / empty names, encrypted
+ * entries, unknown compression methods, zip64 in either form, the three size
+ * caps and the structural rejects.
  *
  * The archives are built by hand (`buildZip`) for two reasons: the suite must
  * stay free of external tools (no `zip` binary on the CI matrix), and the
- * defenses in §9.1 are measured against *malformed* headers — declared sizes
- * that lie, oversized counts, odd external attributes — which no archiver
- * would produce on request.
+ * defenses are measured against *malformed* headers — declared sizes that lie,
+ * oversized counts, odd external attributes — which no archiver would produce
+ * on request.
  *
  * The CRC fields are written as zero: the reader deliberately does not verify
- * them (size and structure checks are what gate extraction), so computing
- * real CRCs here would test nothing.
- *
- * `paths.ts` reads DSH_HOME at import time, so the env var must be set before
- * the first import of the zip→manifest→paths chain (test/update.test.ts
- * pattern).
+ * them (size and structure checks are what gate an entry), so computing real
+ * CRCs here would test nothing. Nothing in this file needs a `DSH_HOME`: the
+ * codec touches no filesystem.
  */
 
 /* ------------------------------------------------------------------ */
@@ -102,256 +107,140 @@ function buildZip(entries: ZipInput[], opts: { declaredCount?: number } = {}): B
   return Buffer.concat([localPart, centralPart, eocd])
 }
 
-/** A minimal SKILL.md; omit the description to exercise normalization. */
-function skillMd(name: string, description?: string): string {
-  const desc = description === undefined ? '' : `description: ${description}\n`
-  return `---\nname: ${name}\n${desc}---\n# ${name}\n`
+/** Hand-built archive → the `{ name, data }` pairs `readZip` is expected to see. */
+function namesOf(zip: Buffer): string[] {
+  return readZip(zip).map((f) => f.name)
 }
 
 /* ------------------------------------------------------------------ */
-/* Environment                                                         */
+/* Reading                                                             */
 /* ------------------------------------------------------------------ */
 
-let home: string
-let zipmod: typeof import('../src/zip.js')
-let manifest: typeof import('../src/manifest.js')
-let paths: typeof import('../src/paths.js')
-let link: typeof import('../src/link.js')
-
-before(async () => {
-  home = await mkdtemp(join(tmpdir(), 'nexus-zip-'))
-  process.env.DSH_HOME = home
-  delete process.env.DSH_SKILLS_NEXUS_HOME
-  zipmod = await import('../src/zip.js')
-  manifest = await import('../src/manifest.js')
-  paths = await import('../src/paths.js')
-  link = await import('../src/link.js')
-})
-
-after(async () => {
-  await rm(home, { recursive: true, force: true })
-  delete process.env.DSH_HOME
-})
-
-/** Collecting OpsIO — no stdout/stderr, records how the core reported. */
-interface TestIO extends OpsIO {
-  emitted: string[]
-  stages: string[]
-}
-
-function makeIO(): TestIO {
-  const emitted: string[] = []
-  const stages: string[] = []
-  return {
-    emitted,
-    stages,
-    confirm: async () => false,
-    progress: (stage, detail) => {
-      stages.push(detail ? `${stage}: ${detail}` : stage)
-    },
-    emit: (line) => {
-      emitted.push(line)
-    },
-    interactive: false,
-  }
-}
-
-async function exists(p: string): Promise<boolean> {
-  try {
-    await lstat(p)
-    return true
-  } catch {
-    return false
-  }
-}
-
-/** Staging directories `.zip-stage-*` left under NEXUS_HOME. */
-async function stageLeftovers(): Promise<string[]> {
-  try {
-    return (await readdir(paths.NEXUS_HOME)).filter((n) => n.startsWith('.zip-stage-'))
-  } catch {
-    return []
-  }
-}
-
-/* ------------------------------------------------------------------ */
-/* Happy paths                                                         */
-/* ------------------------------------------------------------------ */
-
-test('installs a single-skill archive, normalizes it, and registers source:zip', async () => {
-  const io = makeIO()
+test('readZip returns the archive files, deflated entries included', () => {
   const zip = buildZip([
-    { name: 'SKILL.md', data: skillMd('zip-skill'), method: 8 },
-    { name: 'references/', data: '' },
-    { name: 'references/notes.txt', data: 'hello' },
+    { name: 'nexus-package.json', data: '{"schema":"x"}' },
+    { name: 'skills/alpha/SKILL.md', data: '# alpha\n', method: 8 },
+    { name: 'skills/alpha/references/notes.txt', data: 'hello' },
   ])
 
-  const res = await zipmod.installFromZip(zip, { fileName: 'zip-skill.zip' }, io)
-
-  // Entry name derived from the file name; the §5.3 field convention applies.
-  assert.equal(res.entry.name, 'zip-skill')
-  assert.equal(res.entry.source, 'zip')
-  assert.equal(res.entry.ref, '')
-  assert.equal(res.entry.gitUrl, '')
-  assert.equal(res.entry.commit, '')
-  assert.equal(res.entry.url, 'zip:zip-skill.zip')
-  assert.equal(res.entry.path, 'zip-skill')
-
-  // The missing description was filled in at install time (§9.2).
-  assert.equal(res.normalized, 1)
-  assert.equal(res.skills, 1)
-  const written = await readFile(join(paths.repoDir('zip-skill'), 'SKILL.md'), 'utf8')
-  assert.match(written, /description/)
-
-  // Nested files come along; the single-skill entry links under its name.
-  assert.equal(await exists(join(paths.repoDir('zip-skill'), 'references', 'notes.txt')), true)
-  assert.deepEqual(res.links, ['zip-skill'])
-  assert.equal(await link.isLinked('zip-skill'), true)
-
-  const m = await manifest.readManifest()
-  assert.equal(m.skills.find((s) => s.name === 'zip-skill')?.source, 'zip')
-  assert.deepEqual(io.emitted, [], 'installFromZip reports through io only on demand')
-
-  // Nothing git-like ever lands in repos/ for a zip install (§5.3).
-  assert.equal(await exists(join(paths.repoDir('zip-skill'), '.git')), false)
-  assert.deepEqual(await stageLeftovers(), [], 'no staging directory survives')
-})
-
-test('an explicit name wins over the derived file name', async () => {
-  const zip = buildZip([{ name: 'SKILL.md', data: skillMd('inner-name') }])
-  const res = await zipmod.installFromZip(zip, { name: 'outer-name', fileName: 'whatever.zip' }, makeIO())
-  assert.equal(res.entry.name, 'outer-name')
-  assert.equal(res.entry.url, 'zip:whatever.zip')
-  assert.equal(await link.isLinked('outer-name'), true)
-})
-
-test('a multi-skill archive links each skill by its frontmatter name', async () => {
-  const zip = buildZip([
-    { name: 'skill-a.md', data: skillMd('skill-a', 'A') },
-    { name: 'skill-b.md', data: skillMd('skill-b', 'B') },
+  const files = readZip(zip)
+  assert.deepEqual(files.map((f) => f.name), [
+    'nexus-package.json',
+    'skills/alpha/SKILL.md',
+    'skills/alpha/references/notes.txt',
   ])
-  const res = await zipmod.installFromZip(zip, { name: 'bundle' }, makeIO())
-
-  assert.equal(res.entry.name, 'bundle')
-  assert.deepEqual([...res.links].sort(), ['skill-a', 'skill-b'])
-  assert.equal(await link.isLinked('bundle'), false, 'multi-skill entries link per skill, not per entry')
-  assert.equal(await link.isEntryEnabled(res.entry), true)
+  assert.equal(files[1]!.data.toString('utf8'), '# alpha\n', 'a deflate entry is inflated')
+  assert.equal(files[2]!.data.toString('utf8'), 'hello')
 })
 
-test('symlink, .git and directory entries are skipped with warnings', async () => {
+test('a package round-trips through createZip and readZip', () => {
+  // The writer is the export side and the reader the import side; the pair has
+  // to agree on the subset both implement (stored entries, UTF-8 names).
+  const input: ZipInputFile[] = [
+    { name: 'nexus-package.json', data: Buffer.from('{"a":1}\n', 'utf8') },
+    { name: 'skills/中文 名称/SKILL.md', data: Buffer.from('# 标题\n', 'utf8') },
+  ]
+  const back = readZip(createZip(input))
+  assert.deepEqual(back.map((f) => [f.name, f.data.toString('utf8')]), [
+    ['nexus-package.json', '{"a":1}\n'],
+    ['skills/中文 名称/SKILL.md', '# 标题\n'],
+  ])
+})
+
+test('readZip drops symlink, .git and directory entries', () => {
+  // A package must carry neither links nor git state (§5), and a directory
+  // entry carries no data — none of them may reach the importer's file map.
   const zip = buildZip([
-    { name: 'SKILL.md', data: skillMd('linky', 'd') },
+    { name: 'SKILL.md', data: '# skill\n' },
     { name: 'evil-link', data: 'target', attrs: 0xa1ff0000 },
     { name: '.git/config', data: '[core]\n' },
+    { name: 'nested/.git/HEAD', data: 'ref: refs/heads/main\n' },
     { name: 'empty-dir/', data: '' },
   ])
-  const res = await zipmod.installFromZip(zip, { fileName: 'linky.zip' }, makeIO())
 
-  assert.equal(res.entry.name, 'linky')
-  assert.equal(res.warnings.length, 2)
-  assert.match(res.warnings[0]!, /skipped symlink entry "evil-link"/)
-  assert.match(res.warnings[1]!, /skipped \.git entry "\.git\/config"/)
-  assert.equal(await exists(join(paths.repoDir('linky'), 'evil-link')), false)
-  assert.equal(await exists(join(paths.repoDir('linky'), '.git')), false)
+  assert.deepEqual(namesOf(zip), ['SKILL.md'])
 })
 
 /* ------------------------------------------------------------------ */
-/* §9.1 defenses — the archive is rejected before anything is written  */
+/* §9.1 defenses — the archive is rejected before anything is handed out */
 /* ------------------------------------------------------------------ */
 
-test('zip slip: an entry escaping the extraction directory rejects the archive', async () => {
-  const zip = buildZip([{ name: '../evil.txt', data: 'x' }])
-  await assert.rejects(
-    zipmod.installFromZip(zip, { name: 'slip' }, makeIO()),
+test('zip slip: an entry escaping the extraction base rejects the archive', () => {
+  assert.throws(
+    () => readZip(buildZip([{ name: '../evil.txt', data: 'x' }])),
     /escapes the extraction directory/,
   )
-  assert.deepEqual(await stageLeftovers(), [])
 })
 
-test('absolute entry names are rejected', async () => {
-  await assert.rejects(
-    zipmod.installFromZip(buildZip([{ name: '/etc/passwd', data: 'x' }]), {}, makeIO()),
-    /uses an absolute path/,
-  )
+test('absolute entry names are rejected', () => {
+  assert.throws(() => readZip(buildZip([{ name: '/etc/passwd', data: 'x' }])), /uses an absolute path/)
 })
 
-test('a ":" path segment is rejected (drive letter / NTFS ADS)', async () => {
-  await assert.rejects(
-    zipmod.installFromZip(buildZip([{ name: 'c:/evil.txt', data: 'x' }]), {}, makeIO()),
-    /contains a ":" segment/,
-  )
+test('a ":" path segment is rejected (drive letter / NTFS ADS)', () => {
+  assert.throws(() => readZip(buildZip([{ name: 'c:/evil.txt', data: 'x' }])), /contains a ":" segment/)
 })
 
-test('a NUL byte in an entry name is rejected', async () => {
-  await assert.rejects(
-    zipmod.installFromZip(buildZip([{ name: 'bad\0name', data: 'x' }]), {}, makeIO()),
-    /NUL byte/,
-  )
+test('a NUL byte in an entry name is rejected', () => {
+  assert.throws(() => readZip(buildZip([{ name: 'bad\0name', data: 'x' }])), /NUL byte/)
 })
 
-test('an entry with an empty name is rejected', async () => {
-  await assert.rejects(
-    zipmod.installFromZip(buildZip([{ name: '', data: 'x' }]), {}, makeIO()),
-    /empty name/,
-  )
+test('an entry with an empty name is rejected', () => {
+  assert.throws(() => readZip(buildZip([{ name: '', data: 'x' }])), /empty name/)
 })
 
-test('encrypted entries are rejected', async () => {
-  await assert.rejects(
-    zipmod.installFromZip(buildZip([{ name: 'a.txt', data: 'x', flags: 0x1 }]), {}, makeIO()),
+test('encrypted entries are rejected', () => {
+  assert.throws(
+    () => readZip(buildZip([{ name: 'a.txt', data: 'x', flags: 0x1 }])),
     /encrypted entries are not supported/,
   )
 })
 
-test('compression methods other than stored/deflate are rejected', async () => {
-  await assert.rejects(
-    zipmod.installFromZip(buildZip([{ name: 'a.txt', data: 'x', method: 12 }]), {}, makeIO()),
+test('compression methods other than stored/deflate are rejected', () => {
+  assert.throws(
+    () => readZip(buildZip([{ name: 'a.txt', data: 'x', method: 12 }])),
     /unsupported compression method 12/,
   )
 })
 
-test('zip64 archives are rejected (EOCD sentinel)', async () => {
-  await assert.rejects(
-    zipmod.installFromZip(buildZip([{ name: 'a.txt', data: 'x' }], { declaredCount: 0xffff }), {}, makeIO()),
+test('zip64 archives are rejected (EOCD sentinel)', () => {
+  assert.throws(
+    () => readZip(buildZip([{ name: 'a.txt', data: 'x' }], { declaredCount: 0xffff })),
     /zip64 archives are not supported/,
   )
 })
 
-test('zip64 entry sizes are rejected', async () => {
-  await assert.rejects(
-    zipmod.installFromZip(
-      buildZip([{ name: 'a.txt', data: 'x', method: 8, declaredUncompressed: 0xffffffff }]),
-      {},
-      makeIO(),
-    ),
+test('zip64 entry sizes are rejected', () => {
+  assert.throws(
+    () =>
+      readZip(
+        buildZip([{ name: 'a.txt', data: 'x', method: 8, declaredUncompressed: 0xffffffff }]),
+      ),
     /zip64 entries are not supported/,
   )
 })
 
-test('a stored entry with mismatched declared sizes is rejected', async () => {
-  await assert.rejects(
-    zipmod.installFromZip(
-      buildZip([{ name: 'a.txt', data: 'abc', declaredCompressed: 5, declaredUncompressed: 3 }]),
-      {},
-      makeIO(),
-    ),
+test('a stored entry with mismatched declared sizes is rejected', () => {
+  assert.throws(
+    () =>
+      readZip(
+        buildZip([{ name: 'a.txt', data: 'abc', declaredCompressed: 5, declaredUncompressed: 3 }]),
+      ),
     /mismatched sizes/,
   )
 })
 
-test('a file above the per-file uncompressed cap is rejected', async () => {
+test('a file above the per-file uncompressed cap is rejected', () => {
   const hundredMBPlusOne = 100 * 1024 * 1024 + 1
-  await assert.rejects(
-    zipmod.installFromZip(
-      buildZip([{ name: 'a.txt', data: 'x', method: 8, declaredUncompressed: hundredMBPlusOne }]),
-      {},
-      makeIO(),
-    ),
+  assert.throws(
+    () =>
+      readZip(
+        buildZip([{ name: 'a.txt', data: 'x', method: 8, declaredUncompressed: hundredMBPlusOne }]),
+      ),
     /limit 104857600 per file/,
   )
 })
 
-test('an archive whose entries sum above the total cap is rejected', async () => {
+test('an archive whose entries sum above the total cap is rejected', () => {
   const ninetyMB = 90 * 1024 * 1024
   const entries = Array.from({ length: 6 }, (_, i) => ({
     name: `f${i}.txt`,
@@ -359,19 +248,15 @@ test('an archive whose entries sum above the total cap is rejected', async () =>
     method: 8,
     declaredUncompressed: ninetyMB,
   }))
-  await assert.rejects(
-    zipmod.installFromZip(buildZip(entries), {}, makeIO()),
+  assert.throws(
+    () => readZip(buildZip(entries)),
     /unpacks to more than 524288000 bytes in total/,
   )
 })
 
-test('an archive declaring more than the entry cap is rejected', async () => {
-  await assert.rejects(
-    zipmod.installFromZip(
-      buildZip([{ name: 'a.txt', data: 'x' }], { declaredCount: 5001 }),
-      {},
-      makeIO(),
-    ),
+test('an archive declaring more than the entry cap is rejected', () => {
+  assert.throws(
+    () => readZip(buildZip([{ name: 'a.txt', data: 'x' }], { declaredCount: 5001 })),
     /the archive has 5001 entries \(limit 5000\)/,
   )
 })
@@ -380,69 +265,24 @@ test('an archive declaring more than the entry cap is rejected', async () => {
 /* Structural rejects                                                  */
 /* ------------------------------------------------------------------ */
 
-test('a buffer that is not a PKZip archive is rejected', async () => {
-  await assert.rejects(
-    zipmod.installFromZip(Buffer.from('hello world'), {}, makeIO()),
-    /not a PKZip archive/,
-  )
+test('a buffer that is not a PKZip archive is rejected', () => {
+  assert.throws(() => readZip(Buffer.from('hello world')), /end of central directory not found/)
 })
 
-test('an empty archive is rejected', async () => {
-  // A real-world empty zip is EOCD-only; the entry guard rejects it before
-  // any staging directory is created (byte 0 is not a local header).
-  await assert.rejects(
-    zipmod.installFromZip(buildZip([]), {}, makeIO()),
-    /not a PKZip archive/,
-  )
-  assert.deepEqual(await stageLeftovers(), [])
+test('an archive with no entries is rejected', () => {
+  // A real-world empty zip is EOCD-only.
+  assert.throws(() => readZip(buildZip([])), /the archive contains no entries/)
 
-  // The parser's explicit empty check needs a local-header start whose EOCD
-  // declares zero entries — a contradiction no archiver produces.
+  // …and so is the contradictory shape a lying header produces: a local file
+  // header (so a caller's "PKZip?" sniff passes) whose EOCD declares zero
+  // entries. No archiver emits it, which is exactly why it is pinned.
   const contradictory = Buffer.alloc(26)
   contradictory.writeUInt32LE(SIG_LOCAL, 0)
   contradictory.writeUInt32LE(SIG_EOCD, 4)
-  await assert.rejects(
-    zipmod.installFromZip(contradictory, {}, makeIO()),
-    /the archive contains no entries/,
-  )
-  assert.deepEqual(await stageLeftovers(), [])
+  assert.throws(() => readZip(contradictory), /the archive contains no entries/)
 })
 
-test('an archive with its EOCD cut off is rejected', async () => {
-  const zip = buildZip([{ name: 'SKILL.md', data: skillMd('x', 'd') }])
-  await assert.rejects(
-    zipmod.installFromZip(zip.subarray(0, zip.length - 30), {}, makeIO()),
-    /end of central directory not found/,
-  )
-})
-
-test('an archive without installable SKILL.md content is rejected', async () => {
-  await assert.rejects(
-    zipmod.installFromZip(buildZip([{ name: 'README.md', data: 'hi' }]), { name: 'readme' }, makeIO()),
-    /no installable SKILL.md content/,
-  )
-  assert.deepEqual(await stageLeftovers(), [])
-})
-
-/* ------------------------------------------------------------------ */
-/* Registration guards                                                 */
-/* ------------------------------------------------------------------ */
-
-test('re-installing over a registered name is rejected and cleans up staging', async () => {
-  const zip = buildZip([{ name: 'SKILL.md', data: skillMd('zip-skill', 'again') }])
-  await assert.rejects(
-    zipmod.installFromZip(zip, { name: 'zip-skill' }, makeIO()),
-    /a skill named "zip-skill" is already registered/,
-  )
-  assert.deepEqual(await stageLeftovers(), [])
-})
-
-test('a name colliding with a manually placed entry is rejected', async () => {
-  await mkdir(join(paths.OFFICIAL_SKILLS_DIR, 'manual-dir'), { recursive: true })
-  const zip = buildZip([{ name: 'SKILL.md', data: skillMd('manual-dir', 'd') }])
-  await assert.rejects(
-    zipmod.installFromZip(zip, { name: 'manual-dir' }, makeIO()),
-    /already exists in the official skills root/,
-  )
-  assert.deepEqual(await stageLeftovers(), [])
+test('an archive with its EOCD cut off is rejected', () => {
+  const zip = buildZip([{ name: 'SKILL.md', data: '# x\n' }])
+  assert.throws(() => readZip(zip.subarray(0, zip.length - 30)), /end of central directory not found/)
 })

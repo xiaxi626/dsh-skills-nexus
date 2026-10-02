@@ -29,7 +29,7 @@ src/
 ├── ops-io.ts         # OpsIO seam: emit / progress / interactive / confirm + NeedsConfirm
 ├── locks.ts          # three-layer concurrency: in-process single-flight, cache lock, O_EXCL file lock
 ├── switch-version.ts # switch orchestration (fetch → checkout → re-normalize → rebuild links)
-├── zip.ts            # minimal PKZip parser + installFromZip (hardened)
+├── zip.ts            # minimal PKZip reader/writer — the package codec (hardened)
 ├── health.ts         # checkUpdates extraction (six states) + doctor checks
 ├── update-cache.ts   # in-process update cache (never persisted)
 ├── link.ts           # symlink management (link/unlink/collision/target-attribution scan)
@@ -97,10 +97,10 @@ The test suite lives in `test/` and targets the pure-logic modules:
 | `src/resolve.ts` | `test/resolve.test.ts` | `previewSkills` (preview skills), `isValidSkillName` validation |
 | `src/link.ts` | `test/link.test.ts` | `linkSkill` / `isEntryEnabled` / `unlinkSkill` / `hasCollision` against a temp `DSH_HOME` — exercises the real Windows junction vs macOS/Linux symlink code paths |
 | `src/ops-io.ts` | `test/ops-io.test.ts` | byte-equal stdout capture through the OpsIO seam, TTY gating in both directions, `NeedsConfirm` |
-| `src/zip.ts` | `test/zip.test.ts` | hand-built zip fixtures: install / normalization / multi-skill plus the full rejection matrix (zip-slip, size bombs, zip64, encrypted, …) |
+| `src/zip.ts` | `test/zip.test.ts` | hand-built zip fixtures: `readZip` / `createZip` round trip plus the full rejection matrix (zip-slip, size bombs, zip64, encrypted, …) |
 | `src/switch-version.ts` | `test/switch-version.test.ts` | branch↔tag↔sha end-to-end, missing ref leaves zero changes, dirty-clone discard, link rebuild, CLI wrapper |
 | `src/locks.ts` | `test/locks.test.ts` | O_EXCL write/release, live-lock refusal, stale-PID / timeout / corrupt-file recovery, in-process single-flight |
-| `src/http/` (routes) | `test/api.test.ts` | the 12-route table over fake req/res — envelope dialects, 409 confirm-required, toggle target attribution, add-zip job pipeline, hotReload states |
+| `src/http/` (routes) | `test/api.test.ts` | the 11-route table over fake req/res — envelope dialects, 409 confirm-required, toggle target attribution, the retired add-zip route, hotReload states |
 | `src/client/api.ts` | `test/client-api.test.ts` | the typed client over a recording fake fetch — envelopes, confirmable retry, `pollJob`, `reconcileList` |
 
 `npm run test:build` compiles `src/` + `test/` to `test-dist/` for a

@@ -1,41 +1,31 @@
-import { lstat, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
-import { basename, dirname, join, relative, resolve, sep } from 'node:path'
+import { resolve, sep } from 'node:path'
 import { inflateRawSync } from 'node:zlib'
-import { NEXUS_HOME, REPOS_DIR, repoDir } from './paths.js'
-import { addEntry, hasEntry, readManifest } from './manifest.js'
-import { sanitizeName } from './git.js'
-import { previewSkills } from './resolve.js'
-import { hasCollision, linkSkill } from './link.js'
-import { ensureDescription, normalizeSkillName } from './frontmatter.js'
-import type { ParsedSkill } from './resolve.js'
-import type { OpsIO } from './ops-io.js'
-import type { SkillEntry } from './types.js'
 
 /**
- * ZIP installation (§9) — a hand-written minimal PKZip reader plus the
- * `installFromZip` flow. Runtime dependency count stays at zero: only
- * `node:zlib` (inflateRaw) is used for the deflate method.
+ * The PKZip codec — a hand-written minimal reader/writer pair. Runtime
+ * dependency count stays at zero: only `node:zlib` (inflateRaw) is used for
+ * the deflate method.
  *
- * Threat model and defenses (§9.1), enforced before anything is written:
- *   - zip slip (`..` / absolute entry names) — every entry resolves into the
- *     staging directory or the whole archive is rejected;
- *   - symlink entries — skipped entirely (never extracted);
- *   - `.git` entries — skipped (a zip install must not drop git state into
- *     `repos/`, §5.3/§9.3);
- *   - decompression bombs — 200MB upload, 500MB total, 100MB per file,
- *     5000 entries, and `inflateRaw` output bounded per file as a second
- *     line of defense;
+ * Since zip stopped being an installation method (design
+ * `docs/source-and-migration-design.md` §8 phase 3), this module is the
+ * *package* codec: `createZip` writes what `export` produces, `readZip` reads
+ * what `import` consumes. A package is read as whole files into memory — this
+ * layer never unpacks onto disk — and the install orchestration that used to
+ * live here (`installFromZip`, with the `add-zip` route and the `source` field)
+ * is gone.
+ *
+ * Threat model and defenses (§5/§9.1), enforced before a single byte is handed
+ * back — an imported package is *foreign input*:
+ *   - zip slip (`..` / absolute entry names) — every entry must resolve inside
+ *     the extraction base or the whole archive is rejected;
+ *   - symlink entries — skipped entirely (never handed back);
+ *   - `.git` entries — skipped (a package never carries git state, §5);
+ *   - decompression bombs — 500MB total, 100MB per file, 5000 entries, and
+ *     `inflateRaw` output bounded per file as a second line of defense;
  *   - encryption — any encrypted entry rejects the archive; only the stored
  *     (0) and deflate (8) methods are accepted; zip64 is rejected.
- *
- * The archive is staged under `<NEXUS_HOME>/.zip-stage-*` and moved into
- * `repos/<name>/` atomically (rename) only after validation, discovery and
- * normalization succeeded. Any failure removes the staging directory and —
- * once moved — the destination (the add.ts rollback standard, §9.2).
  */
 
-/** Upload cap (§9.1) — also the add-zip route's request-body cap. */
-export const MAX_ARCHIVE_BYTES = 200 * 1024 * 1024
 /** Extracted-size caps (§9.1). */
 const MAX_TOTAL_UNCOMPRESSED_BYTES = 500 * 1024 * 1024
 const MAX_FILE_UNCOMPRESSED_BYTES = 100 * 1024 * 1024
@@ -46,7 +36,7 @@ const SIG_LOCAL = 0x04034b50
 const SIG_CENTRAL = 0x02014b50
 const SIG_EOCD = 0x06054b50
 
-/** A zip archive failed validation or installation. */
+/** An archive failed validation (§9.1) — malformed, unsafe or over a cap. */
 export class ZipError extends Error {
   constructor(message: string) {
     super(message)
@@ -54,36 +44,12 @@ export class ZipError extends Error {
   }
 }
 
-/** Options for {@link installFromZip}. */
-export interface ZipInstallOptions {
-  /** Entry name override; when absent it is derived (see `deriveEntryName`). */
-  name?: string
-  /**
-   * Original upload file name, when there is one — used to derive the entry
-   * name and recorded (with a `zip:` scheme) as the entry's `url`.
-   */
-  fileName?: string
-}
-
-/** Outcome of a successful {@link installFromZip}. */
-export interface ZipInstallResult {
-  entry: SkillEntry
-  /** Link names created in the official skills root, in creation order. */
-  links: string[]
-  /** Non-fatal skips (symlink / `.git` entries, failed symlinks). */
-  warnings: string[]
-  /** Number of frontmatter fields the install-time normalization rewrote. */
-  normalized: number
-  /** Number of skills discovered in the archive. */
-  skills: number
-}
-
 /* ------------------------------------------------------------------ */
 /* Minimal PKZip reader                                                */
 /* ------------------------------------------------------------------ */
 
 interface ZipEntry {
-  /** Entry path with `/` separators (validated); used for extraction. */
+  /** Entry path with `/` separators (validated); used to locate the data. */
   name: string
   /** 0 = stored, 8 = deflate — everything else was rejected up front. */
   method: number
@@ -91,13 +57,6 @@ interface ZipEntry {
   uncompressedSize: number
   /** Byte offset of the entry's local file header. */
   localOffset: number
-}
-
-interface ParsedArchive {
-  /** Entries that passed validation and will be extracted. */
-  entries: ZipEntry[]
-  /** Skipped entries (symlink / `.git`), reported to the caller. */
-  warnings: string[]
 }
 
 /** Locate the end-of-central-directory record (scans back over the comment). */
@@ -113,12 +72,12 @@ function findEocd(buf: Buffer): number {
 
 /**
  * Normalize and validate one raw entry name; throws {@link ZipError} on any
- * name that must reject the whole archive. Returns the path used on disk.
+ * name that must reject the whole archive. Returns the path to expose.
  *
  * Names coming from a zip may use `\` separators (Windows-made archives), so
  * they are unified before resolution. Entry names are decoded as UTF-8 (the
- * `EFS` flag is not required — a mis-decoded name fails extraction safety
- * checks or simply produces an odd file name; it can never escape).
+ * `EFS` flag is not required — a mis-decoded name fails the safety checks
+ * below or simply produces an odd file name; it can never escape).
  */
 function validateEntryName(raw: string, base: string): string {
   if (raw.length === 0) throw new ZipError('the archive contains an entry with an empty name')
@@ -152,12 +111,12 @@ function hasGitSegment(name: string): boolean {
 /**
  * Parse and validate the archive against every static rule of §9.1.
  *
- * All checks run before a single byte is extracted, so a malicious archive
- * is rejected while the staging directory is still empty. Skipped entries
- * (symlinks, `.git`) are reported instead of rejected — §9.1 asks for
- * "skip and record a warning" there.
+ * All checks run before a single entry is handed back, so a malicious archive
+ * is rejected while nothing has been produced. Skipped entries (symlinks,
+ * `.git`) are dropped rather than rejected — a package must carry neither, and
+ * `readZip`'s caller only ever receives the file list it may use.
  */
-function parseAndValidate(buf: Buffer, stage: string): ParsedArchive {
+function parseAndValidate(buf: Buffer, base: string): ZipEntry[] {
   const eocd = findEocd(buf)
   if (eocd < 0) throw new ZipError('end of central directory not found — not a valid zip archive')
 
@@ -175,7 +134,6 @@ function parseAndValidate(buf: Buffer, stage: string): ParsedArchive {
     throw new ZipError('the central directory is out of bounds')
   }
 
-  const warnings: string[] = []
   const entries: ZipEntry[] = []
   let totalUncompressed = 0
   let off = cdOffset
@@ -212,22 +170,16 @@ function parseAndValidate(buf: Buffer, stage: string): ParsedArchive {
     }
 
     const raw = buf.subarray(off + 46, nameEnd).toString('utf8')
-    const name = validateEntryName(raw, stage)
+    const name = validateEntryName(raw, base)
     off = nameEnd + extraLen + commentLen
 
-    // Symlinks — never extracted (§9.1): a link could point anywhere on the
-    // host once the staging directory is moved.
-    if ((externalAttrs >>> 16 & 0xf000) === 0xa000) {
-      warnings.push(`skipped symlink entry "${raw}"`)
-      continue
-    }
-    // git state — a zip install must not drop a `.git` into repos/ (§9.3).
-    if (hasGitSegment(name)) {
-      warnings.push(`skipped .git entry "${raw}"`)
-      continue
-    }
-    // Directory entries: directories are created implicitly by the file
-    // writes below (their names were still validated above).
+    // Symlinks — never handed back (§9.1): a link could point anywhere on the
+    // host once something writes it out.
+    if ((externalAttrs >>> 16 & 0xf000) === 0xa000) continue
+    // git state — a package must not carry a repository (§5).
+    if (hasGitSegment(name)) continue
+    // Directory entries: a package is read as files, and a directory carries no
+    // data (its name was still validated above).
     if (raw.endsWith('/')) continue
 
     if (uncompressedSize > MAX_FILE_UNCOMPRESSED_BYTES) {
@@ -247,7 +199,7 @@ function parseAndValidate(buf: Buffer, stage: string): ParsedArchive {
   }
 
   if (off > cdOffset + cdSize) throw new ZipError('the central directory is truncated')
-  return { entries, warnings }
+  return entries
 }
 
 /** Read and (for deflate) inflate one entry's data, strictly bounded. */
@@ -281,178 +233,6 @@ function readEntryData(buf: Buffer, entry: ZipEntry): Buffer {
   return data
 }
 
-/** Extract every validated entry into the staging directory. */
-async function extractEntries(buf: Buffer, entries: ZipEntry[], stage: string): Promise<void> {
-  for (const entry of entries) {
-    const full = resolve(stage, entry.name)
-    const data = readEntryData(buf, entry)
-    await mkdir(dirname(full), { recursive: true })
-    await writeFile(full, data)
-  }
-}
-
-/* ------------------------------------------------------------------ */
-/* installFromZip                                                      */
-/* ------------------------------------------------------------------ */
-
-/**
- * Pick the entry name: explicit `opts.name`, else the upload file's stem,
- * else — for a single-skill archive — the skill's own (normalized) name.
- * Returns `undefined` when nothing usable exists (multi-skill archive with
- * no name), which the caller rejects.
- */
-function deriveEntryName(opts: ZipInstallOptions, skills: ParsedSkill[]): string | undefined {
-  const explicit = opts.name?.trim()
-  if (explicit) return sanitizeName(explicit)
-  const fromFile = opts.fileName?.trim()
-  if (fromFile) {
-    const stem = basename(fromFile).replace(/\.zip$/i, '').trim()
-    if (stem) return sanitizeName(stem)
-  }
-  if (skills.length === 1) {
-    const only = skills[0]!
-    const name = only.invalidName ? sanitizeName(only.invalidName) : only.name
-    if (name) return sanitizeName(name)
-  }
-  return undefined
-}
-
-/** True when anything exists at `p`. */
-async function pathExists(p: string): Promise<boolean> {
-  try {
-    await lstat(p)
-    return true
-  } catch {
-    return false
-  }
-}
-
-/**
- * Install a skill archive uploaded as a zip buffer (§9.2):
- *
- *   validate → extract to staging → discover → normalize frontmatter →
- *   atomic move into `repos/<name>/` → create links → manifest entry
- *
- * The entry is registered as `source: 'zip'` with empty `ref` / `gitUrl` /
- * `commit` (§5.3); everything else matches the git install path (same skill
- * rules, same normalization, same link naming). On any failure the staging
- * directory and — once moved — the destination are removed.
- */
-export async function installFromZip(
-  buffer: Buffer,
-  opts: ZipInstallOptions,
-  io: OpsIO,
-): Promise<ZipInstallResult> {
-  if (buffer.length > MAX_ARCHIVE_BYTES) {
-    throw new ZipError(`the archive exceeds the ${MAX_ARCHIVE_BYTES} byte upload limit`)
-  }
-  if (buffer.length < 4 || buffer.readUInt32LE(0) !== SIG_LOCAL) {
-    throw new ZipError('not a PKZip archive')
-  }
-
-  await mkdir(NEXUS_HOME, { recursive: true })
-  const stage = await mkdtemp(join(NEXUS_HOME, '.zip-stage-'))
-  let moved = false
-  let dest = ''
-
-  try {
-    io.progress('validating zip', `${buffer.length} bytes`)
-    const parsed = parseAndValidate(buffer, stage)
-
-    io.progress('extracting', `${parsed.entries.length} entries`)
-    await extractEntries(buffer, parsed.entries, stage)
-
-    // Same discovery + normalization code as the git path (§9.2).
-    const skills = await previewSkills(stage)
-    if (skills.length === 0) {
-      throw new ZipError('no installable SKILL.md content was found in the archive')
-    }
-
-    const entryName = deriveEntryName(opts, skills)
-    if (!entryName) {
-      throw new ZipError(
-        'cannot derive an entry name — this is a multi-skill archive; pass a name explicitly',
-      )
-    }
-
-    const manifest = await readManifest()
-    if (hasEntry(manifest, entryName) || manifest.skills.some((s) => s.path === entryName)) {
-      throw new ZipError(`a skill named "${entryName}" is already registered`)
-    }
-    if (await hasCollision(entryName)) {
-      throw new ZipError(
-        `a file or directory named "${entryName}" already exists in the official skills root`,
-      )
-    }
-
-    let normalized = 0
-    for (const s of skills) {
-      const validName = s.invalidName ? sanitizeName(s.invalidName) : (s.name || entryName)
-      if (s.invalidName) {
-        await normalizeSkillName(s.skillFile, validName)
-        normalized++
-      }
-      if (!s.description || s.description.trim().length === 0) {
-        await ensureDescription(s.skillFile, validName)
-        normalized++
-      }
-    }
-
-    // Atomic move into repos/. A resident directory here is unmanaged state
-    // (the manifest check above already ruled out a registered entry).
-    await mkdir(REPOS_DIR, { recursive: true })
-    dest = repoDir(entryName)
-    if (await pathExists(dest)) {
-      throw new ZipError(`"${dest}" already exists — remove it before installing "${entryName}"`)
-    }
-    // Link targets are computed against the staging paths, so map them onto
-    // the final destination before creating anything.
-    const resourceRelBases = skills.map((s) => relative(stage, s.resourceBase))
-    await rename(stage, dest)
-    moved = true
-
-    const links: string[] = []
-    for (let i = 0; i < skills.length; i++) {
-      const s = skills[i]!
-      const fmName = s.invalidName ? sanitizeName(s.invalidName) : s.name
-      const linkName = skills.length === 1 ? entryName : (fmName || entryName)
-      try {
-        await linkSkill(linkName, join(dest, resourceRelBases[i] ?? ''))
-        links.push(linkName)
-      } catch (err) {
-        parsed.warnings.push(
-          `failed to create symlink for "${linkName}": ` +
-            `${err instanceof Error ? err.message : String(err)}`,
-        )
-      }
-    }
-
-    const entry: SkillEntry = {
-      name: entryName,
-      url: `zip:${opts.fileName?.trim() || entryName}`,
-      gitUrl: '',
-      ref: '',
-      commit: '',
-      path: entryName,
-      addedAt: new Date().toISOString(),
-      source: 'zip',
-    }
-    await addEntry(entry)
-
-    return {
-      entry,
-      links,
-      warnings: parsed.warnings,
-      normalized,
-      skills: skills.length,
-    }
-  } catch (err) {
-    await rm(stage, { recursive: true, force: true })
-    if (moved) await rm(dest, { recursive: true, force: true })
-    throw err
-  }
-}
-
 /* ------------------------------------------------------------------ */
 /* Minimal PKZip writer (stored entries — the export side)             */
 /* ------------------------------------------------------------------ */
@@ -465,8 +245,8 @@ export interface ZipInputFile {
 }
 
 /**
- * The export side of the PKZip format: `installFromZip` reads archives, this
- * writes them. Entries are **stored** (method 0), never deflated — a package is
+ * The export side of the PKZip format: `readZip` reads packages, this writes
+ * them. Entries are **stored** (method 0), never deflated — a package is
  * a transport container that any unzip implementation must be able to read
  * without nexus shipping a compressor, and the payload is Markdown.
  *
@@ -599,12 +379,11 @@ function crc32(buf: Buffer): number {
  *
  * Every static rule of §9.1 still applies: absolute paths, `..` escapes, `:`
  * segments, encrypted and zip64 entries, and the count/size caps are all
- * rejected up front. Symlink and `.git` entries are skipped with the same
- * warnings as installation — a package never carries either.
+ * rejected up front. Symlink and `.git` entries are dropped: a package never
+ * carries either, and the caller is handed only the files it may use.
  */
 export function readZip(buf: Buffer): ZipInputFile[] {
-  const parsed = parseAndValidate(buf, '')
-  return parsed.entries.map((entry) => ({
+  return parseAndValidate(buf, '').map((entry) => ({
     name: entry.name,
     data: readEntryData(buf, entry),
   }))

@@ -313,9 +313,9 @@ test('adopt re-sources a snapshot from its real repository and rebuilds the link
   const head = await gitMod.getHeadCommit(remoteDir)
 
   const seeded = await seedSkill('adopted', { 'SKILL.md': skillMd('adopted') })
-  // The frozen entry an old zip install or a package import would have left:
-  // no remote, plus the legacy marker.
-  await addEntry({ name: 'adopted', source: 'zip', commit: '' })
+  // The frozen entry a package import or a handed-over directory would have
+  // left: no remote, so nothing to fetch and nothing to switch.
+  await addEntry({ name: 'adopted', commit: '' })
   await linker.linkSkill('adopted', seeded)
 
   const result = await adopter.adoptSkill({ name: 'adopted', url: remote, io })
@@ -336,8 +336,6 @@ test('adopt re-sources a snapshot from its real repository and rebuilds the link
   assert.equal(manifest.hasGitSource(entry), true)
   assert.equal(entry.commit, head, 'the commit is the lockfile-lite')
   assert.ok(entry.updatedAt !== undefined)
-  assert.equal(entry.source, undefined, 'the legacy zip marker must not survive an adopt')
-  assert.doesNotMatch(await readTextOrMissing(paths.MANIFEST_PATH), /"source"/)
 
   const clone = paths.repoDir('adopted')
   assert.equal((await stat(join(clone, '.git'))).isDirectory(), true, 'a real clone, not a copy')

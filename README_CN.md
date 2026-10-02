@@ -127,13 +127,13 @@ dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>  # 输出对应 
 在面板里你可以：
 
 - 浏览条目卡片——链接名、启用状态、固定的 commit，以及分支跟踪条目的「有更新」徽标；
-- 按 git url 添加 skill，或上传 `.zip` 安装（与 CLI 同一条安装流水线，含 frontmatter 归一化）；
+- 按 git url 添加 skill（与 CLI 同一条安装流水线，含 frontmatter 归一化）；
 - 启用 / 禁用、更新、切换到其他 ref、删除条目——破坏性操作会展示服务端的后果说明，确认接受后才带确认重发；
 - 观看长操作（克隆 / 更新 / 切换）流式进度并带取消按钮，以及对全部条目检查更新。
 
 **热加载。** 链接变化由官方 filesystem provider 的 watcher 拾取，面板操作在稳定窗口内即对运行中的宿主生效——无需重启。宿主未启用 watcher 时，面板会明说该变更在下次宿主启动时生效。
 
-**HTTP 接口（内部）。** 面板与 `/skills-nexus/*` 路由通信——GET 为 ping / list / doctor / job 轮询；POST 为 add / add-zip / remove / update / check-updates / switch-version / toggle / job cancel。成功返回 `{ data, hotReload }`，长操作以 `202 { data: { jobId } }` 受理，所有变更路由均做同源校验（remove 额外仅接受 loopback）。这些路由是面板自身的管道——**不**属于[在 nexus 之上构建](docs/build-on-nexus.zh-CN.md)承诺的稳定机器接口；工具开发者请继续 shell out 调 CLI。
+**HTTP 接口（内部）。** 面板与 `/skills-nexus/*` 路由通信——GET 为 ping / list / doctor / job 轮询；POST 为 add / remove / update / check-updates / switch-version / toggle / job cancel。成功返回 `{ data, hotReload }`，长操作以 `202 { data: { jobId } }` 受理，所有变更路由均做同源校验（remove 额外仅接受 loopback）。这些路由是面板自身的管道——**不**属于[在 nexus 之上构建](docs/build-on-nexus.zh-CN.md)承诺的稳定机器接口；工具开发者请继续 shell out 调 CLI。
 
 ## Shell 补全
 

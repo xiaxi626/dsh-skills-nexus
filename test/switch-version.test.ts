@@ -294,20 +294,19 @@ test('an unknown skill name rejects with SkillNotFoundError', async () => {
 
 test('an entry with no git source rejects with NotAGitCloneError', async () => {
   await manifest.addEntry({
-    name: 'zip-sourced',
-    url: 'zip:z.zip',
+    name: 'source-less',
+    url: 'package:z.zip',
     gitUrl: '',
     ref: '',
     commit: '',
-    path: 'zip-sourced',
+    path: 'source-less',
     addedAt: new Date().toISOString(),
-    source: 'zip',
   })
   await assert.rejects(
-    core.switchVersion('zip-sourced', 'main', undefined, makeIO()),
+    core.switchVersion('source-less', 'main', undefined, makeIO()),
     (err: unknown) => {
       assert.ok(err instanceof core.NotAGitCloneError)
-      assert.equal(err.skillName, 'zip-sourced')
+      assert.equal(err.skillName, 'source-less')
       return true
     },
   )

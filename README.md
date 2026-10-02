@@ -182,8 +182,8 @@ From the panel you can:
 
 - browse entry cards — link names, enabled state, pinned commit, and an
   `update available` badge for branch-tracked entries;
-- add skills by git url or by uploading a `.zip` (the same install pipeline
-  as the CLI, including frontmatter normalization);
+- add skills by git url (the same install pipeline as the CLI, including
+  frontmatter normalization);
 - enable / disable, update, pin to another ref, and remove entries —
   destructive actions show the server's consequence wording and only retry
   with confirmation after you accept;
@@ -197,7 +197,7 @@ the watcher, the panel says plainly that a change takes effect on the next
 host start.
 
 **HTTP surface (internal).** The panel talks to `/skills-nexus/*` routes —
-ping / list / doctor / job polling on GET; add / add-zip / remove / update /
+ping / list / doctor / job polling on GET; add / remove / update /
 check-updates / switch-version / toggle / job cancel on POST. Success answers
 `{ data, hotReload }`, long operations are accepted as `202 { data: { jobId } }`,
 and every mutation is same-origin-checked (remove additionally accepts

@@ -27,7 +27,8 @@ export interface ApiFetchResponse {
 export interface ApiFetchInit {
   readonly method?: string
   readonly headers?: Record<string, string>
-  readonly body?: string | FormData
+  /** JSON bodies only — the client has no upload route since `add-zip` retired. */
+  readonly body?: string
 }
 
 /** Injectable transport — the real `fetch` satisfies this shape. */
@@ -74,7 +75,12 @@ export interface ListEntry {
   ref: string
   subdir: string | null
   commit: string | null
-  source: string
+  /**
+   * True when the entry records a git source — the server's own
+   * `hasGitSource` predicate, which decides whether `update` /
+   * `switch-version` are accepted or answered `400 not-a-git-clone`.
+   */
+  hasGitSource: boolean
   enabled: boolean
   links: ListLink[]
   update: UpdateStatus | null
@@ -86,7 +92,7 @@ export interface DoctorReport {
   summary: { errors: number; warnings: number; updates: number }
 }
 
-export type JobKind = 'add' | 'add-zip' | 'update' | 'switch-version'
+export type JobKind = 'add' | 'update' | 'switch-version'
 export type JobStatus = 'running' | 'done' | 'error' | 'cancelled'
 
 /** §7.5 Job schema as `GET /job` serves it. */
@@ -125,7 +131,6 @@ export interface NexusApi {
   list(): Promise<Envelope<{ entries: ListEntry[] }>>
   doctor(): Promise<Envelope<DoctorReport>>
   add(body: AddBody): Promise<Envelope<{ jobId: string }>>
-  addZip(file: File): Promise<Envelope<{ jobId: string }>>
   remove(name: string, confirm?: boolean): Promise<Envelope<{ name: string; removed: boolean; links: string[] }>>
   update(name: string, confirm?: boolean): Promise<Envelope<{ jobId: string }>>
   checkUpdates(): Promise<Envelope<{ results: unknown }>>
@@ -178,11 +183,6 @@ export function createApi(fetchImpl: ApiFetch = (input, init) => fetch(input, in
     list: () => request(fetchImpl, '/skills-nexus/list'),
     doctor: () => request(fetchImpl, '/skills-nexus/doctor'),
     add: (body) => postJson(fetchImpl, '/skills-nexus/add', body as unknown as Record<string, unknown>),
-    addZip: (file) => {
-      const form = new FormData()
-      form.append('file', file)
-      return request(fetchImpl, '/skills-nexus/add-zip', { method: 'POST', body: form })
-    },
     remove: (name, confirm) => postJson(fetchImpl, '/skills-nexus/remove', { name, confirm: confirm === true }),
     update: (name, confirm) => postJson(fetchImpl, '/skills-nexus/update', { name, confirm: confirm === true }),
     checkUpdates: () => postJson(fetchImpl, '/skills-nexus/check-updates', {}),

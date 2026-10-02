@@ -23,12 +23,6 @@ export interface SkillEntry {
      */
     commit?: string;
     /**
-     * Where the entry was installed from (§5.1). Absent = `github` — old
-     * manifests need no migration. `zip` entries carry an empty
-     * ref/gitUrl/commit and a clone directory without `.git`.
-     */
-    source?: 'github' | 'zip';
-    /**
      * Path of the skill root *inside* the clone, e.g. `skills/foo` — set when
      * the repo was installed piecemeal via `--subdir`. Absent = the clone root
      * is the skill root. Always a repo-relative path (no `..`, no leading `/`).

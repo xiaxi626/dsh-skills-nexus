@@ -163,16 +163,15 @@ test('checkUpdates classifies every git state and fills the cache per §7.2', as
   await register('locked-skill', src, 'v1.0.0', staleSha)
   // absent — registered but never cloned
   await register('absent-skill', src, 'main', upstreamSha)
-  // not-applicable — zip source has no git state (§5.3)
+  // not-applicable — no git source, hence no remote to compare against (§5.3)
   await manifest.addEntry({
-    name: 'zip-skill',
-    url: 'zip:z.zip',
+    name: 'snap-skill',
+    url: 'package:z.zip',
     gitUrl: '',
     ref: '',
     commit: '',
-    path: 'zip-skill',
+    path: 'snap-skill',
     addedAt: new Date().toISOString(),
-    source: 'zip',
   })
   // unresolved — clone exists with an attached HEAD, but the entry ref does
   // not exist on the remote (ls-remote exits 0 with empty output)
@@ -187,7 +186,7 @@ test('checkUpdates classifies every git state and fills the cache per §7.2', as
     { name: 'current-skill', status: 'current', local: upstreamSha, remote: upstreamSha },
     { name: 'locked-skill', status: 'locked' },
     { name: 'absent-skill', status: 'absent' },
-    { name: 'zip-skill', status: 'not-applicable' },
+    { name: 'snap-skill', status: 'not-applicable' },
     { name: 'unresolved-skill', status: 'unresolved' },
   ])
   // Only entries that reached the network comparison announce progress.
@@ -215,7 +214,7 @@ test('checkUpdates classifies every git state and fills the cache per §7.2', as
   // …while pinned / absent / non-git entries stay out of the cache entirely.
   assert.equal(cache.getUpdateStatus('locked-skill'), undefined)
   assert.equal(cache.getUpdateStatus('absent-skill'), undefined)
-  assert.equal(cache.getUpdateStatus('zip-skill'), undefined)
+  assert.equal(cache.getUpdateStatus('snap-skill'), undefined)
 })
 
 test('checkUpdates honors the names filter and keeps manifest order', async () => {
@@ -247,7 +246,7 @@ test('listEntries merges enabled/links (reverse-inferred) and the cached update 
   const list = await manifest.listEntries()
   assert.deepEqual(
     list.map((l) => l.entry.name),
-    ['behind-skill', 'current-skill', 'locked-skill', 'absent-skill', 'zip-skill', 'unresolved-skill'],
+    ['behind-skill', 'current-skill', 'locked-skill', 'absent-skill', 'snap-skill', 'unresolved-skill'],
     'every manifest entry is listed, in manifest order',
   )
 

@@ -3,7 +3,7 @@ import type { OpsIO } from './ops-io.js';
  * `adopt` — channel D of the source & migration design
  * (`docs/source-and-migration-design.md` §6): give an entry that has no git
  * source an identity, so it stops being frozen. A snapshot that came off a
- * package, a directory somebody handed over, an old zip install — all of them
+ * package, a directory somebody handed over, a legacy zip install — all of them
  * become ordinary updatable entries, indistinguishable from one `add` created.
  *
  * Seven steps, isomorphic with `switch-version` (§6): clone the new source into

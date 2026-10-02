@@ -136,8 +136,8 @@ export async function removeSkillDir(path: string): Promise<void> {
  *   - `enabled` / `links` — reverse-inferred from the symlinks in the
  *     official skills root, never persisted (§5.1/§6.4);
  *   - `update` — the last network comparison from the runtime cache (§5.2),
- *     `null` when the entry was never checked (pinned and zip entries are
- *     never written to the cache, so they stay `null` too).
+ *     `null` when the entry was never checked (pinned and source-less entries
+ *     are never written to the cache, so they stay `null` too).
  */
 export interface ListedEntry {
   entry: SkillEntry

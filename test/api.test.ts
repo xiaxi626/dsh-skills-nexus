@@ -21,8 +21,8 @@ import type { SkillEntry } from '../src/types.js'
  *
  * Nothing here may touch the network: the network cores (add / update /
  * switch-version jobs, check-updates) are exercised only through pre-flight
- * branches that throw before any git call. The one real job in this file is
- * the add-zip upload, which is pure local filesystem work.
+ * branches that throw before any git call. The real jobs in this file are the
+ * ones whose work is pure local filesystem work (remove / toggle / cancel).
  */
 
 let home: string
@@ -185,62 +185,6 @@ async function waitForJob(id: string, timeoutMs = 5000): Promise<Job> {
 }
 
 /* ------------------------------------------------------------------ */
-/* Zip + multipart builders (stored entries; CRCs are not verified)    */
-/* ------------------------------------------------------------------ */
-
-function storedZip(files: Array<{ name: string; data: string }>): Buffer {
-  const locals: Buffer[] = []
-  const centrals: Buffer[] = []
-  let offset = 0
-
-  for (const f of files) {
-    const data = Buffer.from(f.data, 'utf8')
-    const name = Buffer.from(f.name, 'utf8')
-
-    const local = Buffer.alloc(30)
-    local.writeUInt32LE(0x04034b50, 0)
-    local.writeUInt16LE(20, 4)
-    local.writeUInt32LE(data.length, 18)
-    local.writeUInt32LE(data.length, 22)
-    local.writeUInt16LE(name.length, 26)
-
-    const central = Buffer.alloc(46)
-    central.writeUInt32LE(0x02014b50, 0)
-    central.writeUInt16LE(20, 4)
-    central.writeUInt16LE(20, 6)
-    central.writeUInt32LE(data.length, 20)
-    central.writeUInt32LE(data.length, 24)
-    central.writeUInt16LE(name.length, 28)
-    central.writeUInt32LE(offset, 42)
-
-    locals.push(local, name, data)
-    centrals.push(central, name)
-    offset += 30 + name.length + data.length
-  }
-
-  const localPart = Buffer.concat(locals)
-  const centralPart = Buffer.concat(centrals)
-  const eocd = Buffer.alloc(22)
-  eocd.writeUInt32LE(0x06054b50, 0)
-  eocd.writeUInt16LE(files.length, 8)
-  eocd.writeUInt16LE(files.length, 10)
-  eocd.writeUInt32LE(centralPart.length, 12)
-  eocd.writeUInt32LE(localPart.length, 16)
-  return Buffer.concat([localPart, centralPart, eocd])
-}
-
-function multipartBody(boundary: string, fileName: string, file: Buffer): Buffer {
-  const head = Buffer.from(
-    `--${boundary}\r\n` +
-      `content-disposition: form-data; name="file"; filename="${fileName}"\r\n` +
-      'content-type: application/zip\r\n\r\n',
-    'latin1',
-  )
-  const tail = Buffer.from(`\r\n--${boundary}--\r\n`, 'latin1')
-  return Buffer.concat([head, file, tail])
-}
-
-/* ------------------------------------------------------------------ */
 /* Envelope + method gating                                            */
 /* ------------------------------------------------------------------ */
 
@@ -290,11 +234,13 @@ test('list reports derived link state and runtime nulls per entry', async () => 
   await clearEntries()
   const alphaDir = await seedClone('list-alpha')
   await link.linkSkill('list-alpha', alphaDir)
+  // The second entry records no remote (a snapshot): the payload has to say so,
+  // because that is what the panel gates update/switch-version on.
   await manifest.addEntry({
     name: 'list-beta',
-    url: 'github:owner/list-beta',
-    gitUrl: 'https://github.com/owner/list-beta.git',
-    ref: 'main',
+    url: 'package:snapshot.zip',
+    gitUrl: '',
+    ref: '',
     path: 'list-beta',
     addedAt: new Date().toISOString(),
   })
@@ -308,18 +254,18 @@ test('list reports derived link state and runtime nulls per entry', async () => 
     ref: 'main',
     subdir: null,
     commit: null,
-    source: 'git',
+    hasGitSource: true,
     enabled: true,
     links: [{ linkName: 'list-alpha', skillName: 'list-alpha', enabled: true }],
     update: null,
   })
   assert.deepEqual(entries[1], {
     name: 'list-beta',
-    url: 'github:owner/list-beta',
-    ref: 'main',
+    url: 'package:snapshot.zip',
+    ref: '',
     subdir: null,
     commit: null,
-    source: 'git',
+    hasGitSource: false,
     enabled: false,
     links: [],
     update: null,
@@ -614,10 +560,10 @@ test('update requires confirmation and an existing entry (409/404)', async () =>
 })
 
 test('update refuses an entry with no git source with 400 not-a-git-clone', async () => {
-  await seedClone('up-zip', { source: 'zip', gitUrl: '', ref: '' })
+  await seedClone('up-snapshot', { gitUrl: '', ref: '' })
   const res = await call('/skills-nexus/update', {
     method: 'POST',
-    body: JSON.stringify({ name: 'up-zip', confirm: true }),
+    body: JSON.stringify({ name: 'up-snapshot', confirm: true }),
   })
   assert.equal(res.status, 400)
   assert.equal(errorsOf(res).error, 'not-a-git-clone')
@@ -689,7 +635,7 @@ test('switch-version validates ref and refType (400)', async () => {
   assert.equal(errorsOf(badType).error, 'invalid-ref-type')
 })
 
-test('switch-version requires confirmation and refuses zip entries (409/400)', async () => {
+test('switch-version requires confirmation and refuses source-less entries (409/400)', async () => {
   const noConfirm = await call('/skills-nexus/switch-version', {
     method: 'POST',
     body: JSON.stringify({ name: 'x', ref: 'v1.0.0' }),
@@ -697,12 +643,13 @@ test('switch-version requires confirmation and refuses zip entries (409/400)', a
   assert.equal(noConfirm.status, 409)
   assert.equal(errorsOf(noConfirm).error, 'confirm-required')
 
-  const zip = await call('/skills-nexus/switch-version', {
+  // `up-snapshot` was registered without a remote by the update test above.
+  const sourceLess = await call('/skills-nexus/switch-version', {
     method: 'POST',
-    body: JSON.stringify({ name: 'up-zip', ref: 'v1.0.0', confirm: true }),
+    body: JSON.stringify({ name: 'up-snapshot', ref: 'v1.0.0', confirm: true }),
   })
-  assert.equal(zip.status, 400)
-  assert.equal(errorsOf(zip).error, 'not-a-git-clone')
+  assert.equal(sourceLess.status, 400)
+  assert.equal(errorsOf(sourceLess).error, 'not-a-git-clone')
 })
 
 /* ------------------------------------------------------------------ */
@@ -720,63 +667,20 @@ test('check-updates rejects a cross-origin request before any network (403)', as
 })
 
 /* ------------------------------------------------------------------ */
-/* POST /add-zip (multipart → 202 job → real local install)            */
+/* POST /add-zip — retired                                             */
 /* ------------------------------------------------------------------ */
 
-test('add-zip requires a multipart body (400)', async () => {
-  const notMultipart = await call('/skills-nexus/add-zip', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({}),
-  })
-  assert.equal(notMultipart.status, 400)
-  assert.equal(errorsOf(notMultipart).error, 'multipart-required')
-
-  const noFile = await call('/skills-nexus/add-zip', {
-    method: 'POST',
-    headers: { 'content-type': 'multipart/form-data; boundary=ZZ' },
-    body: 'hello',
-  })
-  assert.equal(noFile.status, 400)
-})
-
-test('add-zip accepts an upload as a 202 job and installs it', async () => {
-  const boundary = 'NEXUSBOUNDARY'
-  const zip = storedZip([{ name: 'zipkit/SKILL.md', data: skillMd('zipkit') }])
-  const res = await call('/skills-nexus/add-zip', {
-    method: 'POST',
-    headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
-    body: multipartBody(boundary, 'zipkit.zip', zip),
-  })
-
-  // The async-acceptance envelope is exactly `202 { data: { jobId } }`.
-  assert.equal(res.status, 202)
-  const env = envelope(res)
-  assert.deepEqual(Object.keys(env), ['data'])
-  assert.deepEqual(Object.keys(env.data as object), ['jobId'])
-  const { jobId } = env.data as { jobId: string }
-
-  const job = await waitForJob(jobId)
-  assert.equal(job.status, 'done')
-  assert.equal(job.kind, 'add-zip')
-  assert.ok(job.output.some((line) => line.includes('Installed zip entry "zipkit"')))
-
-  // Registered from the upload: source zip, linked into the official root.
-  const entry = manifest.findEntry(await manifest.readManifest(), 'zipkit')
-  assert.ok(entry)
-  assert.equal(entry.source, 'zip')
-  assert.ok(await exists(paths.skillLinkPath('zipkit')))
-
-  const poll = await call('/skills-nexus/job', { url: `/skills-nexus/job?id=${jobId}` })
-  assert.equal(poll.status, 200)
-  assert.equal(dataOf<{ job: Job }>(poll).job.status, 'done')
-
-  const cancel = await call('/skills-nexus/job/cancel', {
-    method: 'POST',
-    body: JSON.stringify({ id: jobId }),
-  })
-  assert.equal(cancel.status, 200)
-  assert.equal(dataOf<{ id: string; status: string }>(cancel).status, 'done')
+test('the add-zip route is gone: zip is not an installation method any more', () => {
+  // §8 phase 3: the route, its hand-written multipart reader and the
+  // `installFromZip` orchestration behind it were deleted together. Pinned as
+  // an absence so a later refactor cannot quietly bring the upload path back;
+  // the panel row it occupied is where `import` will live (§10.3).
+  assert.equal(
+    table.some((s) => s.path === '/skills-nexus/add-zip'),
+    false,
+    'no route may answer /skills-nexus/add-zip',
+  )
+  assert.equal(table.length, 11, 'the §7.1 table lost exactly that one route')
 })
 
 /* ------------------------------------------------------------------ */

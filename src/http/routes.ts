@@ -1,5 +1,5 @@
 /**
- * The 12 `/skills-nexus/*` routes (§7.1) as plain route specs over an
+ * The 11 `/skills-nexus/*` routes (§7.1) as plain route specs over an
  * injected request/response surface — tests drive them without a server, and
  * `src/index.ts` owns the single `webServer.register` adaption (§7.4).
  *
@@ -8,11 +8,15 @@
  * mismatches answer `405 + allow`. The mutation/network routes check same
  * origin (§12.1); `remove` additionally requires loopback.
  *
- * Long operations (add / add-zip / update / switch-version) are accepted as
+ * Long operations (add / update / switch-version) are accepted as
  * jobs (§7.5): locks are taken at acceptance (受理即锁 — per-skill in-process
  * flight, then the cross-process file lock), the handler answers
  * `202 { data: { jobId } }`, and the work runs in the background. remove /
  * toggle are second-scale local operations and stay synchronous (§7.5).
+ *
+ * `add-zip` is gone (§8 phase 3): zip is no longer an installation method, and
+ * the package channel hasn't reached the panel yet (§10.3) — that row is where
+ * `import` will live.
  *
  * The route cores call the same shared primitives as the CLI commands but
  * route all messaging through the job's OpsIO — the CLI commands keep their
@@ -27,10 +31,8 @@ import type { RouteRequest, RouteResponse, RouteSpec } from './types.js'
 import {
   JSON_HEADERS,
   boolField,
-  header,
   isLoopback,
   queryOf,
-  readBody,
   readJson,
   requireMethod,
   requireMutationSafe,
@@ -71,7 +73,6 @@ import { previewSkills } from '../resolve.js'
 import { normalizeSkillName, ensureDescription } from '../frontmatter.js'
 import { classifyRepo } from '../repo-kind.js'
 import { checkUpdates as healthCheckUpdates } from '../health.js'
-import { installFromZip, MAX_ARCHIVE_BYTES, ZipError } from '../zip.js'
 import {
   NotAGitCloneError,
   RefNotFoundError,
@@ -137,10 +138,6 @@ function fail(res: RouteResponse, err: unknown): void {
   }
   if (err instanceof NotAGitCloneError) {
     sendError(res, 400, 'not-a-git-clone', { name: err.skillName })
-    return
-  }
-  if (err instanceof ZipError) {
-    sendError(res, 400, 'zip-error', { message: err.message })
     return
   }
   process.stderr.write(`[${PLUGIN_ID}] route error: ${err instanceof Error ? err.stack : String(err)}\n`)
@@ -219,7 +216,10 @@ async function listRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
       ref: l.entry.ref,
       subdir: l.entry.subdir ?? null,
       commit: l.entry.commit ?? null,
-      source: l.entry.source ?? 'git',
+      // The update/switch buttons are gated on the same predicate the routes
+      // themselves use (`400 not-a-git-clone`), so the panel cannot disagree
+      // with the server about what is updatable.
+      hasGitSource: hasGitSource(l.entry),
       enabled: l.enabled,
       links: await Promise.all(
         l.links.map(async (link) => {
@@ -308,29 +308,6 @@ async function add(req: RouteRequest, res: RouteResponse): Promise<void> {
   await accept(res, 'add', skillName, (io) =>
     installGitCore(spec, { ref, normalizedSubdir, path, skillName, yes }, io),
   )
-}
-
-/** POST /add-zip — multipart upload (§9) → job (§7.5). */
-async function addZip(req: RouteRequest, res: RouteResponse): Promise<void> {
-  if (!requireMethod(req, res, 'POST')) return
-  if (!requireMutationSafe(req, res)) return
-  const boundary = multipartBoundary(req)
-  if (boundary === undefined) throw new HttpError(400, 'multipart-required')
-  const raw = await readBody(req, MAX_ARCHIVE_BYTES + 1024 * 1024)
-  const { fileName, data } = extractMultipartFile(raw, boundary)
-
-  // Provisional lock claim: the final entry name is derived inside
-  // installFromZip, so the install itself is fenced under the upload name.
-  const claim = `zip:${sanitizeName(fileName) || 'upload'}`
-  await accept(res, 'add-zip', claim, async (io) => {
-    io.progress('installing zip', fileName)
-    const result = await installFromZip(data, { fileName }, io)
-    io.emit(
-      `Installed zip entry "${result.entry.name}" ` +
-        `(${result.skills} skill(s), ${result.links.length} link(s))\n`,
-    )
-    for (const warning of result.warnings) io.emit(`  ⚠ ${warning}\n`)
-  })
 }
 
 /** POST /remove — `{ name, confirm: true }`, synchronous; loopback + same-origin. */
@@ -732,43 +709,6 @@ async function toggleEntryCore(
 }
 
 /* ------------------------------------------------------------------ */
-/* Minimal multipart/form-data reader (single file part)               */
-/* ------------------------------------------------------------------ */
-
-function multipartBoundary(req: RouteRequest): string | undefined {
-  const ct = header(req, 'content-type') ?? ''
-  const m = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(ct)
-  return m?.[1] ?? m?.[2]?.trim()
-}
-
-function extractMultipartFile(buf: Buffer, boundary: string): { fileName: string; data: Buffer } {
-  const dash = Buffer.from(`--${boundary}`)
-  let idx = buf.indexOf(dash)
-  if (idx === -1) throw new HttpError(400, 'invalid-multipart')
-
-  while (idx !== -1) {
-    let partStart = idx + dash.length
-    if (buf.slice(partStart, partStart + 2).toString('latin1') === '--') break
-    if (buf.slice(partStart, partStart + 2).toString('latin1') === '\r\n') partStart += 2
-    const headerEnd = buf.indexOf('\r\n\r\n', partStart)
-    if (headerEnd === -1) throw new HttpError(400, 'invalid-multipart')
-
-    const head = buf.slice(partStart, headerEnd).toString('latin1')
-    const bodyStart = headerEnd + 4
-    const next = buf.indexOf(dash, bodyStart)
-    let bodyEnd = next === -1 ? buf.length : next
-    if (buf.slice(bodyEnd - 2, bodyEnd).toString('latin1') === '\r\n') bodyEnd -= 2
-
-    const disp = /filename="([^"]*)"/i.exec(head)
-    if (disp?.[1] !== undefined && disp[1].length > 0) {
-      return { fileName: disp[1], data: buf.slice(bodyStart, bodyEnd) }
-    }
-    idx = next
-  }
-  throw new HttpError(400, 'no-file-field')
-}
-
-/* ------------------------------------------------------------------ */
 /* Route table (§7.1)                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -778,7 +718,6 @@ export function createNexusRoutes(): RouteSpec[] {
     { kind: 'exact', path: '/skills-nexus/list', handler: wrap(listRoute) },
     { kind: 'exact', path: '/skills-nexus/doctor', handler: wrap(doctorRoute) },
     { kind: 'exact', path: '/skills-nexus/add', handler: wrap(add) },
-    { kind: 'exact', path: '/skills-nexus/add-zip', handler: wrap(addZip) },
     { kind: 'exact', path: '/skills-nexus/remove', handler: wrap(remove) },
     { kind: 'exact', path: '/skills-nexus/update', handler: wrap(updateRoute) },
     { kind: 'exact', path: '/skills-nexus/check-updates', handler: wrap(checkUpdatesRoute) },

@@ -27,7 +27,7 @@ src/
 ├── ops-io.ts         # OpsIO 接缝：emit / progress / interactive / confirm + NeedsConfirm
 ├── locks.ts          # 三层并发：进程内 single-flight、缓存锁、O_EXCL 文件锁
 ├── switch-version.ts # 切换编排（fetch → checkout → 重归一化 → 重建链接）
-├── zip.ts            # 极简 PKZip 解析器 + installFromZip（加固版）
+├── zip.ts            # 极简 PKZip 读写器——包编解码器（加固版）
 ├── health.ts         # checkUpdates 抽取（六态）+ doctor 检查
 ├── update-cache.ts   # 进程内更新缓存（从不落盘）
 ├── link.ts           # symlink 管理（link/unlink/碰撞/按目标归属扫描）
@@ -93,10 +93,10 @@ npm run build:client  # tsdown + tsc → lib/client.js + lib/client-types/（浏
 | `src/resolve.ts` | `test/resolve.test.ts` | `previewSkills`（预览 skill）、`isValidSkillName` 校验 |
 | `src/link.ts` | `test/link.test.ts` | 在临时 `DSH_HOME` 上跑 `linkSkill` / `isEntryEnabled` / `unlinkSkill` / `hasCollision`——真实覆盖 Windows junction 与 macOS/Linux symlink 两条代码路径 |
 | `src/ops-io.ts` | `test/ops-io.test.ts` | 经 OpsIO 接缝的字节级 stdout 捕获、双向 TTY 门控、`NeedsConfirm` |
-| `src/zip.ts` | `test/zip.test.ts` | 手工构造的 zip fixture：安装 / 归一化 / 多 skill，及完整拒绝矩阵（zip-slip、体积炸弹、zip64、加密……） |
+| `src/zip.ts` | `test/zip.test.ts` | 手工构造的 zip fixture：`readZip` / `createZip` 往返，及完整拒绝矩阵（zip-slip、体积炸弹、zip64、加密……） |
 | `src/switch-version.ts` | `test/switch-version.test.ts` | 分支↔tag↔sha 端到端、缺 ref 零改动、脏克隆丢弃、链接重建、CLI 包装 |
 | `src/locks.ts` | `test/locks.test.ts` | O_EXCL 写入/释放、活锁拒绝、stale-PID / 超时 / 损坏文件恢复、进程内 single-flight |
-| `src/http/`（routes） | `test/api.test.ts` | 基于 fake req/res 的 12 条路由全表——信封方言、409 confirm-required、toggle 目标归属、add-zip job 流水线、hotReload 状态 |
+| `src/http/`（routes） | `test/api.test.ts` | 基于 fake req/res 的 11 条路由全表——信封方言、409 confirm-required、toggle 目标归属、已退役的 add-zip 路由、hotReload 状态 |
 | `src/client/api.ts` | `test/client-api.test.ts` | 基于录制式 fake fetch 的类型化客户端——信封、confirmable 重试、`pollJob`、`reconcileList` |
 
 `npm run test:build` 把 `src/` + `test/` 编译到 `test-dist/`，可无 loader 直接跑
