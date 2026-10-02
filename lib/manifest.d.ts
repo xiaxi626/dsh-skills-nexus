@@ -17,6 +17,14 @@ export declare function writeManifest(manifest: Manifest): Promise<void>;
 export declare function findEntry(manifest: Manifest, name: string): SkillEntry | undefined;
 /** True if a name (or path) is already taken in the manifest. */
 export declare function hasEntry(manifest: Manifest, name: string): boolean;
+/**
+ * True when the entry has a git source — a remote URL was recorded at install
+ * time. Entries without one (archive imports, hand-written snapshots) can be
+ * listed, toggled and removed, but there is no history to fetch, update or
+ * switch: every git-bound path refuses them explicitly instead of running git
+ * in a directory that has no repository.
+ */
+export declare function hasGitSource(entry: SkillEntry): boolean;
 /** Append a new entry and persist. Throws on duplicate name/path. */
 export declare function addEntry(entry: SkillEntry): Promise<void>;
 /** Remove an entry by name and persist. Returns the removed entry, if any. */

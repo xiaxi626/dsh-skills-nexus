@@ -30,8 +30,8 @@ export declare class RefNotFoundError extends Error {
     readonly ref: string;
     constructor(ref: string);
 }
-/** Zip-source entries have no git history to switch (§9.3 → 400 zip-not-updatable). */
-export declare class ZipNotUpdatableError extends Error {
+/** Entries without a git source have no history to switch (→ 400 not-a-git-clone). */
+export declare class NotAGitCloneError extends Error {
     readonly skillName: string;
     constructor(skillName: string);
 }

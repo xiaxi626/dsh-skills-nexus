@@ -613,14 +613,14 @@ test('update requires confirmation and an existing entry (409/404)', async () =>
   assert.equal(unknown.status, 404)
 })
 
-test('update refuses zip-installed entries with 400 zip-not-updatable', async () => {
+test('update refuses an entry with no git source with 400 not-a-git-clone', async () => {
   await seedClone('up-zip', { source: 'zip', gitUrl: '', ref: '' })
   const res = await call('/skills-nexus/update', {
     method: 'POST',
     body: JSON.stringify({ name: 'up-zip', confirm: true }),
   })
   assert.equal(res.status, 400)
-  assert.equal(errorsOf(res).error, 'zip-not-updatable')
+  assert.equal(errorsOf(res).error, 'not-a-git-clone')
 })
 
 test('update answers 409 busy while the skill flight is held', async () => {
@@ -702,7 +702,7 @@ test('switch-version requires confirmation and refuses zip entries (409/400)', a
     body: JSON.stringify({ name: 'up-zip', ref: 'v1.0.0', confirm: true }),
   })
   assert.equal(zip.status, 400)
-  assert.equal(errorsOf(zip).error, 'zip-not-updatable')
+  assert.equal(errorsOf(zip).error, 'not-a-git-clone')
 })
 
 /* ------------------------------------------------------------------ */

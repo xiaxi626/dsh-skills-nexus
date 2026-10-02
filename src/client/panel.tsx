@@ -56,8 +56,8 @@ function errorText(err: unknown): string {
         return 'a skill with this name is already registered'
       case 'collision':
         return 'a file or directory with this name already exists in the skills root'
-      case 'zip-not-updatable':
-        return 'zip-installed entries cannot be updated or switched'
+      case 'not-a-git-clone':
+        return 'this entry has no git source — remove it and install it again from its repository'
       case 'ref-not-found':
         return 'the ref does not exist on the remote'
       case 'not-found':

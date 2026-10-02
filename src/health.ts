@@ -353,8 +353,8 @@ export async function checkUpdates(
 }
 
 async function checkEntryUpdate(e: SkillEntry, io: OpsIO): Promise<UpdateCheck> {
-  // Zip entries carry no git state to compare against (§5.3).
-  if (e.source === 'zip' || e.gitUrl.length === 0) {
+  // Entries without a git source have no remote to compare against.
+  if (e.gitUrl.length === 0) {
     return { name: e.name, status: 'not-applicable' }
   }
 

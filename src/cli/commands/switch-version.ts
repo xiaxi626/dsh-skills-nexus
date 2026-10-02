@@ -3,9 +3,9 @@ import type { OpsIO } from '../../ops-io.js'
 import { withSkillFileLock, SkillLockedError } from '../../locks.js'
 import { findEntry, readManifest } from '../../manifest.js'
 import {
+  NotAGitCloneError,
   RefNotFoundError,
   SkillNotFoundError,
-  ZipNotUpdatableError,
   switchVersion as coreSwitchVersion,
 } from '../../switch-version.js'
 import type { SwitchVersionResult } from '../../switch-version.js'
@@ -19,7 +19,7 @@ import { withSpinner } from '../progress.js'
  * checkout → re-normalize frontmatter → rebuild links, with rollback); this
  * wrapper parses argv, keeps a spinner running while the core works, and maps
  * the core's error classes to exit codes:
- *   0 = switched, 1 = no such skill / ref not found / zip entry / other
+ *   0 = switched, 1 = no such skill / ref not found / no git source / other
  *   failure, 2 = usage error.
  *
  * `--type` is the caller's hint (§8.2): the fetch result decides the checkout
@@ -128,7 +128,7 @@ export async function switchVersion(argv: string[], io: OpsIO = cliIO): Promise<
     if (
       err instanceof SkillNotFoundError ||
       err instanceof RefNotFoundError ||
-      err instanceof ZipNotUpdatableError ||
+      err instanceof NotAGitCloneError ||
       err instanceof SkillLockedError
     ) {
       process.stderr.write(`${err.message}\n`)

@@ -292,7 +292,7 @@ test('an unknown skill name rejects with SkillNotFoundError', async () => {
   )
 })
 
-test('a zip-sourced entry rejects with ZipNotUpdatableError', async () => {
+test('an entry with no git source rejects with NotAGitCloneError', async () => {
   await manifest.addEntry({
     name: 'zip-sourced',
     url: 'zip:z.zip',
@@ -306,7 +306,7 @@ test('a zip-sourced entry rejects with ZipNotUpdatableError', async () => {
   await assert.rejects(
     core.switchVersion('zip-sourced', 'main', undefined, makeIO()),
     (err: unknown) => {
-      assert.ok(err instanceof core.ZipNotUpdatableError)
+      assert.ok(err instanceof core.NotAGitCloneError)
       assert.equal(err.skillName, 'zip-sourced')
       return true
     },

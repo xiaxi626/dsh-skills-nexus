@@ -63,6 +63,17 @@ export function hasEntry(manifest: Manifest, name: string): boolean {
   )
 }
 
+/**
+ * True when the entry has a git source — a remote URL was recorded at install
+ * time. Entries without one (archive imports, hand-written snapshots) can be
+ * listed, toggled and removed, but there is no history to fetch, update or
+ * switch: every git-bound path refuses them explicitly instead of running git
+ * in a directory that has no repository.
+ */
+export function hasGitSource(entry: SkillEntry): boolean {
+  return entry.gitUrl.length > 0
+}
+
 /** Append a new entry and persist. Throws on duplicate name/path. */
 export async function addEntry(entry: SkillEntry): Promise<void> {
   const manifest = await readManifest()

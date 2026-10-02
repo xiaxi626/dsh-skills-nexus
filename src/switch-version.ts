@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { findEntry, markUpdated, readManifest } from './manifest.js'
+import { findEntry, hasGitSource, markUpdated, readManifest } from './manifest.js'
 import { repoDir } from './paths.js'
 import {
   checkoutBranch,
@@ -61,15 +61,15 @@ export class RefNotFoundError extends Error {
   }
 }
 
-/** Zip-source entries have no git history to switch (§9.3 → 400 zip-not-updatable). */
-export class ZipNotUpdatableError extends Error {
+/** Entries without a git source have no history to switch (→ 400 not-a-git-clone). */
+export class NotAGitCloneError extends Error {
   readonly skillName: string
   constructor(skillName: string) {
     super(
-      `Skill "${skillName}" was installed from a zip archive — ` +
+      `Skill "${skillName}" has no git source — ` +
         `version switching requires a git clone.`,
     )
-    this.name = 'ZipNotUpdatableError'
+    this.name = 'NotAGitCloneError'
     this.skillName = skillName
   }
 }
@@ -107,7 +107,7 @@ export async function switchVersion(
   const manifest = await readManifest()
   const entry = findEntry(manifest, name)
   if (!entry) throw new SkillNotFoundError(name)
-  if (entry.source === 'zip') throw new ZipNotUpdatableError(name)
+  if (!hasGitSource(entry)) throw new NotAGitCloneError(name)
 
   const dest = repoDir(entry.path)
   const skillRoot = entry.subdir ? join(dest, entry.subdir) : dest

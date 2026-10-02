@@ -60,6 +60,7 @@ import {
   addEntry,
   findEntry,
   hasEntry,
+  hasGitSource,
   listEntries,
   markUpdated,
   readManifest,
@@ -72,9 +73,9 @@ import { classifyRepo } from '../repo-kind.js'
 import { checkUpdates as healthCheckUpdates } from '../health.js'
 import { installFromZip, MAX_ARCHIVE_BYTES, ZipError } from '../zip.js'
 import {
+  NotAGitCloneError,
   RefNotFoundError,
   SkillNotFoundError,
-  ZipNotUpdatableError,
   switchVersion as coreSwitchVersion,
 } from '../switch-version.js'
 import {
@@ -134,8 +135,8 @@ function fail(res: RouteResponse, err: unknown): void {
     sendError(res, 400, 'ref-not-found')
     return
   }
-  if (err instanceof ZipNotUpdatableError) {
-    sendError(res, 400, 'zip-not-updatable')
+  if (err instanceof NotAGitCloneError) {
+    sendError(res, 400, 'not-a-git-clone', { name: err.skillName })
     return
   }
   if (err instanceof ZipError) {
@@ -384,7 +385,7 @@ async function updateRoute(req: RouteRequest, res: RouteResponse): Promise<void>
   const manifest = await readManifest()
   const entry = findEntry(manifest, name)
   if (entry === undefined) throw new HttpError(404, 'not-found', { name })
-  if (entry.source === 'zip') throw new HttpError(400, 'zip-not-updatable', { name })
+  if (!hasGitSource(entry)) throw new HttpError(400, 'not-a-git-clone', { name })
 
   await accept(res, 'update', name, (io) => updateEntryCore(entry, io))
 }
@@ -419,7 +420,7 @@ async function switchVersionRoute(req: RouteRequest, res: RouteResponse): Promis
   const manifest = await readManifest()
   const entry = findEntry(manifest, name)
   if (entry === undefined) throw new HttpError(404, 'not-found', { name })
-  if (entry.source === 'zip') throw new HttpError(400, 'zip-not-updatable', { name })
+  if (!hasGitSource(entry)) throw new HttpError(400, 'not-a-git-clone', { name })
 
   await accept(res, 'switch-version', name, async (io) => {
     const result = await coreSwitchVersion(name, ref, refType, io)

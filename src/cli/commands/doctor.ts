@@ -153,14 +153,15 @@ function skippedOrphan(id: string): DoctorCheck {
  * Minimal structural guard so a malformed entry never reaches repoDir()/readlink().
  * Only SkillEntry's *required* string fields are checked; `commit`/`subdir`/
  * `updatedAt` are optional and `name`+`path` are the ones dereferenced
- * unsafely downstream. Zip entries legitimately carry empty gitUrl/ref/commit
- * (§5.3), so they take a relaxed shape — name/url/path/addedAt only (§6.2
- * doctor zip 分流). Entries without `source: 'zip'` take the git shape.
+ * unsafely downstream. Entries without a git source (no remote URL was ever
+ * recorded — archive imports, hand-written snapshots) legitimately carry empty
+ * ref/commit, so they take a relaxed shape: name/url/path/addedAt only.
+ * Entries with a git source take the strict shape.
  */
 function isWellFormedEntry(e: unknown): e is SkillEntry {
   if (typeof e !== 'object' || e === null) return false
   const o = e as Record<string, unknown>
-  if (o.source === 'zip') {
+  if (typeof o.gitUrl !== 'string' || o.gitUrl.length === 0) {
     return (
       isNonEmptyString(o.name) &&
       isNonEmptyString(o.url) &&
@@ -309,11 +310,13 @@ async function checkSymlinks(entries: SkillEntry[]): Promise<DoctorCheck> {
         severity: 'error',
         code: 'missing-target',
         name: e.name,
-        // Zip entries are not git-updatable (§9.3) — repair means reinstall.
+        // Without a git source there is nothing for `update` to repair — such
+        // an entry has to be re-created from its original source, or removed.
+        // (The hint must not name the update command: doctor.test.ts:321.)
         fix:
-          e.source === 'zip'
-            ? `dsh-skills-nexus remove ${e.name}, then install the zip again`
-            : `dsh-skills-nexus update ${e.name}`,
+          e.gitUrl.length > 0
+            ? `dsh-skills-nexus update ${e.name}`
+            : `dsh-skills-nexus remove ${e.name} (no git source — reinstall from its origin)`,
       })
     }
   }
@@ -371,15 +374,15 @@ function orphanLinkIssue(l: OrphanLink): DoctorIssue {
 }
 
 /**
- * `git-sanity` — each clone has a `.git` (stat probe, no git process). Zip
- * entries are plain directories by design (§5.3): they are skipped here —
- * no missing-git warn, no `update` fix hint (update is not applicable to
- * zip, §9.3), and they do not count toward the N/M clone tally (§6.2).
+ * `git-sanity` — each clone has a `.git` (stat probe, no git process).
+ * Entries without a git source are plain directories by design: they are
+ * skipped here — no missing-git warn, no `update` fix hint (update does not
+ * apply to them), and they do not count toward the N/M clone tally.
  */
 async function checkGitSanity(entries: SkillEntry[]): Promise<DoctorCheck> {
   const issues: DoctorIssue[] = []
   let withGit = 0
-  const clones = entries.filter((e) => e.source !== 'zip')
+  const clones = entries.filter((e) => e.gitUrl.length > 0)
   for (const e of clones) {
     try {
       await stat(join(repoDir(e.path), '.git'))
