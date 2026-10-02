@@ -28,17 +28,24 @@ import { withSpinner } from './cli/progress.js'
  * and `adopt` must reuse the very implementation the CLI already runs, the way
  * `src/switch-version.ts` and `src/remove.ts` already do — a second copy of
  * this sequence would drift from the first, and the two front ends would
- * disagree about what "installed" means. This module is that one
- * implementation, so a future `src/import.ts` installs a git source without
- * carrying a third copy of the logic.
+ * disagree about what "installed" means.
  *
- * `src/http/routes.ts` still holds a mirror of this phase (the panel half
- * predates the extraction), and unifying it is deliberately out of scope here.
+ * This module is that one implementation — `src/import.ts` installs a git
+ * source without carrying a third copy of the logic.
+ *
+ * Both front ends call it: `src/cli/commands/add.ts` for the CLI and the `add`
+ * route in `src/http/routes.ts` for the panel. The route used to carry a mirror
+ * of it (`installGitCore`), which is exactly the drift §10.1 warns about — the
+ * panel now installs through the same code path, and its former `400` codes are
+ * rebuilt by the caller from `GitInstallResult.code` (see `GitInstallFailCode`).
  *
  * The caller keeps the read-only preflight and the locking: `add` validates
  * `--subdir`, detects the default branch and refuses re-registration /
  * collisions before anything is created, then holds the per-skill
- * cross-process lock around this call.
+ * cross-process lock around this call. Both front ends therefore resolve the
+ * default branch themselves — the step is presentation-bound (the CLI wraps it
+ * in its own spinner and its own "Detecting default branch" line) and must not
+ * be duplicated inside this phase.
  *
  * This module is not presentation-free yet: the install-time spinner comes
  * from `cli/progress.js` (`withSpinner`), which the caller cannot inject —
@@ -84,6 +91,17 @@ export interface GitInstallResult {
    * A clone or network error still throws, exactly as it always has.
    */
   status: 'installed' | 'skipped' | 'failed'
+  /**
+   * Why a `failed` / `skipped` run stopped — one code per return site, and
+   * exactly the five codes the panel's former `installGitCore` answered with
+   * (the CLI ignores this and keeps its own stderr wording). Never set on
+   * `installed`.
+   *
+   * It lives on the result because the status alone cannot express it: the
+   * panel maps each code to its own `error` payload, and collapsing them into
+   * one would silently change what the panel reports.
+   */
+  code?: GitInstallFailCode
   /** Registered entry; only present when `status === 'installed'`. */
   entry?: SkillEntry
   /** Link names created in the official skills root, in creation order. */
@@ -92,6 +110,20 @@ export interface GitInstallResult {
   normalized: number
   clone: CloneResult
 }
+
+/**
+ * The five stop reasons of a non-`installed` run (§10.4 dialect). Each is a
+ * former `installGitCore` 400 in `src/http/routes.ts`; `dsh-plugin-repo` and
+ * `aborted` are unreachable behind the panel's OpsIO (`jobIO.confirm` always
+ * raises `NeedsConfirm` instead of answering "no") but stay in the union so the
+ * route can keep its documented mapping.
+ */
+export type GitInstallFailCode =
+  | 'subdir-not-found'
+  | 'dsh-plugin-repo'
+  | 'no-skill-md'
+  | 'no-installable-skills'
+  | 'aborted'
 
 /**
  * The filesystem-mutating phase of `add` — clone → classify → normalize →
@@ -151,7 +183,7 @@ export async function installFromGit(params: GitInstallParams): Promise<GitInsta
         `Subdirectory "${normalizedSubdir}" does not exist as a real directory in the cloned repository.\n`,
       )
       await rm(dest, { recursive: true, force: true })
-      return { status: 'failed', links: [], normalized: 0, clone }
+      return { status: 'failed', code: 'subdir-not-found', links: [], normalized: 0, clone }
     }
   }
 
@@ -166,7 +198,7 @@ export async function installFromGit(params: GitInstallParams): Promise<GitInsta
       `  dsh plugin --profile <name> add "${spec}"\n`,
     )
     await rm(dest, { recursive: true, force: true })
-    return { status: 'skipped', links: [], normalized: 0, clone }
+    return { status: 'skipped', code: 'dsh-plugin-repo', links: [], normalized: 0, clone }
   }
 
   if (repoKind.kind === 'unknown') {
@@ -176,15 +208,16 @@ export async function installFromGit(params: GitInstallParams): Promise<GitInsta
       (await nestedHint(dest)),
     )
     await rm(dest, { recursive: true, force: true })
-    return { status: 'failed', links: [], normalized: 0, clone }
+    return { status: 'failed', code: 'no-skill-md', links: [], normalized: 0, clone }
   }
 
   // SKILL.md + DSH 薄包装层：询问是否忽略包装层、按普通 SKILL.md 仓库管理。
   if (repoKind.kind === 'wrapped-skill') {
-    const proceed = yes || await io.confirm(
+    const proceed = yes || await confirmOrCleanUp(
+      io,
       `This repo has both SKILL.md and a DSH plugin wrapper (${repoKind.markers.join(', ')}).\n` +
       `Install as a plain SKILL.md repo via nexus? (y = ignore wrapper, n = abort and use dsh plugin add)`,
-      false,
+      dest,
     )
     if (!proceed) {
       io.emit(
@@ -192,7 +225,7 @@ export async function installFromGit(params: GitInstallParams): Promise<GitInsta
         `  dsh plugin --profile <name> add "${spec}"\n`,
       )
       await rm(dest, { recursive: true, force: true })
-      return { status: 'skipped', links: [], normalized: 0, clone }
+      return { status: 'skipped', code: 'aborted', links: [], normalized: 0, clone }
     }
   }
 
@@ -205,20 +238,21 @@ export async function installFromGit(params: GitInstallParams): Promise<GitInsta
       (await nestedHint(dest)),
     )
     await rm(dest, { recursive: true, force: true })
-    return { status: 'failed', links: [], normalized: 0, clone }
+    return { status: 'failed', code: 'no-installable-skills', links: [], normalized: 0, clone }
   }
 
   // Guard against accidental full installs of large collections.
   if (preview.length > LARGE_COLLECTION_THRESHOLD && !normalizedSubdir && !yes) {
-    const proceed = await io.confirm(
+    const proceed = await confirmOrCleanUp(
+      io,
       `This repository yields ${preview.length} skills.\n` +
       `Do you want to install all of them? (Use --subdir <path> to install a single subdirectory instead.)`,
-      false,
+      dest,
     )
     if (!proceed) {
       io.emit(`Aborted.\n`)
       await rm(dest, { recursive: true, force: true })
-      return { status: 'skipped', links: [], normalized: 0, clone }
+      return { status: 'skipped', code: 'aborted', links: [], normalized: 0, clone }
     }
   }
 
@@ -303,6 +337,26 @@ export async function installFromGit(params: GitInstallParams): Promise<GitInsta
 
 /** Repos with > this many skills trigger the "install all?" guard (unless --subdir/--yes). */
 export const LARGE_COLLECTION_THRESHOLD = 20
+
+/**
+ * `io.confirm` for the two guards that run *after* the clone landed: a front
+ * end whose confirm never answers "no" but *raises* instead — the panel's
+ * `jobIO` raises `NeedsConfirm` for every question, and a cancelled job raises
+ * `JobCancelledError` — must still leave the filesystem as it found it. Without
+ * this the partially-created clone survived, so nothing was registered while
+ * `repos/<path>` stayed behind and the retry hit "directory already in use".
+ *
+ * The answer itself is returned untouched, so both CLI paths (`false` from a
+ * non-TTY prompt, `true` from `--yes`) behave exactly as before.
+ */
+async function confirmOrCleanUp(io: OpsIO, question: string, dest: string): Promise<boolean> {
+  try {
+    return await io.confirm(question, false)
+  } catch (err) {
+    await rm(dest, { recursive: true, force: true })
+    throw err
+  }
+}
 
 /**
  * Hint for nested collection repos: if any direct subdirectory of the clone

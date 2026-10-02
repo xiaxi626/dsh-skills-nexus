@@ -14,9 +14,12 @@
  * `202 { data: { jobId } }`, and the work runs in the background. remove /
  * toggle are second-scale local operations and stay synchronous (§7.5).
  *
- * `add-zip` is gone (§8 phase 3): zip is no longer an installation method, and
- * the package channel hasn't reached the panel yet (§10.3) — that row is where
- * `import` will live.
+ * `add` installs through the one shared git core (`src/install.ts`, §10.1):
+ * the panel's former `installGitCore` mirror is gone, and its five `400` codes
+ * are rebuilt from the core's `GitInstallResult.code`. `add-zip` stays gone
+ * (§8 phase 3): zip is no longer an installation method, and the package
+ * channel hasn't reached the panel yet (§10.3) — that row is where `import`
+ * will live.
  *
  * The route cores call the same shared primitives as the CLI commands but
  * route all messaging through the job's OpsIO — the CLI commands keep their
@@ -24,7 +27,7 @@
  * later phase).
  */
 
-import { mkdir, rm, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { HttpError, PLUGIN_ID } from './types.js'
 import type { RouteRequest, RouteResponse, RouteSpec } from './types.js'
@@ -42,13 +45,11 @@ import {
 } from './util.js'
 import {
   checkoutRef,
-  cloneRepo,
   discardLocalChanges,
   getDefaultBranch,
   getHeadCommit,
   isDetachedHead,
   isDirtyWorktree,
-  isRealDirectory,
   normalizeSubdir,
   parseGitSpec,
   pullRepo,
@@ -56,22 +57,12 @@ import {
   resolveRefCommit,
   sanitizeName,
 } from '../git.js'
-import type { CloneResult } from '../git.js'
-import { REPOS_DIR, repoDir } from '../paths.js'
-import {
-  addEntry,
-  findEntry,
-  hasEntry,
-  hasGitSource,
-  listEntries,
-  markUpdated,
-  readManifest,
-} from '../manifest.js'
+import { repoDir } from '../paths.js'
+import { findEntry, hasEntry, hasGitSource, listEntries, markUpdated, readManifest } from '../manifest.js'
 import { entryLinks, hasCollision, linkSkill, unlinkSkill } from '../link.js'
 import { removeSkill } from '../remove.js'
 import { previewSkills } from '../resolve.js'
 import { normalizeSkillName, ensureDescription } from '../frontmatter.js'
-import { classifyRepo } from '../repo-kind.js'
 import { checkUpdates as healthCheckUpdates } from '../health.js'
 import {
   NotAGitCloneError,
@@ -90,7 +81,7 @@ import {
 } from '../locks.js'
 import type { SkillFileLock } from '../locks.js'
 import { runChecks } from '../cli/commands/doctor.js'
-import { LARGE_COLLECTION_THRESHOLD } from '../cli/commands/add.js'
+import { installFromGit } from '../install.js'
 import { createJob, getJob, requestCancel, runJob } from './jobs.js'
 import type { JobKind } from './jobs.js'
 import { quietIO } from './io.js'
@@ -285,9 +276,25 @@ async function add(req: RouteRequest, res: RouteResponse): Promise<void> {
   const subdir = strField(body, 'subdir')
   const yes = boolField(body, 'confirm') === true
 
-  // Preflight (no network, no writes): derive the entry name exactly like the
-  // CLI does, then reject duplicates and name collisions before any job.
-  const gitSpec = parseGitSpec(spec, ref ?? 'main')
+  // Preflight (no writes): the entry name is derived exactly like the CLI does,
+  // and the remote's default branch is detected when the caller pinned no ref —
+  // the same read-only step `addOne` runs, so the panel never assumes `main`.
+  // Like every other preflight failure this one is decided *before* the 202
+  // (the CLI answers it with exit 1 for the same reason); the CLI's
+  // "Detecting default branch" line is deliberately not reproduced — the job
+  // record does not exist yet and the resolved ref shows up in the job's
+  // `Cloning <url> (ref: <ref>)` line anyway.
+  let gitSpec = parseGitSpec(spec, ref ?? 'main')
+  if (ref === undefined && !spec.includes('#')) {
+    try {
+      gitSpec = { ...gitSpec, ref: await getDefaultBranch(gitSpec.url) }
+    } catch (err) {
+      throw new HttpError(400, 'clone-failed', {
+        url: gitSpec.url,
+        reason: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
   let normalizedSubdir: string | undefined
   if (subdir !== undefined) normalizedSubdir = normalizeSubdir(subdir)
   const repoBase = sanitizeName(repoSlug(gitSpec))
@@ -305,9 +312,27 @@ async function add(req: RouteRequest, res: RouteResponse): Promise<void> {
     throw new HttpError(409, 'collision', { name: skillName })
   }
 
-  await accept(res, 'add', skillName, (io) =>
-    installGitCore(spec, { ref, normalizedSubdir, path, skillName, yes }, io),
-  )
+  // The install phase itself is the one shared core (§10.1) — the panel runs
+  // the very code the CLI runs, under the per-skill flight + file lock that
+  // `accept` takes at acceptance time.
+  await accept(res, 'add', skillName, async (io) => {
+    const result = await installFromGit({
+      spec,
+      gitSpec,
+      subdir: normalizedSubdir,
+      skillName,
+      path,
+      name: undefined,
+      subdirLeaf,
+      yes,
+      io,
+    })
+    // `installFromGit` reports why it stopped; the five codes the panel used to
+    // throw are rebuilt here so the client sees the same §10.4 dialect.
+    if (result.status === 'failed' || result.status === 'skipped') {
+      throw new HttpError(400, result.code ?? 'install-failed', { name: skillName })
+    }
+  })
 }
 
 /** POST /remove — `{ name, confirm: true }`, synchronous; loopback + same-origin. */
@@ -448,139 +473,11 @@ function requireConfirm(res: RouteResponse, body: Record<string, unknown>, quest
 
 /* ------------------------------------------------------------------ */
 /* Cores (shared primitives, OpsIO for all messaging)                  */
+/*                                                                     */
+/* `add` is not here: its install phase is the one shared core in      */
+/* `src/install.ts` (§10.1). update / toggle are still panel-side      */
+/* mirrors of their CLI commands and are deliberately out of scope.    */
 /* ------------------------------------------------------------------ */
-
-interface GitInstallPlan {
-  ref?: string
-  normalizedSubdir?: string
-  path: string
-  skillName: string
-  yes: boolean
-}
-
-/**
- * The filesystem-mutating phase of `add`, mirroring the CLI flow
- * (clone → classify → normalize → register → link) with io-based messaging.
- */
-async function installGitCore(spec: string, plan: GitInstallPlan, io: OpsIO): Promise<void> {
-  let gitSpec = parseGitSpec(spec, plan.ref ?? 'main')
-  if (!plan.ref && !spec.includes('#')) {
-    gitSpec = { ...gitSpec, ref: await getDefaultBranch(gitSpec.url) }
-  }
-
-  const dest = repoDir(plan.path)
-  await mkdir(dest, { recursive: true })
-  await rm(dest, { recursive: true, force: true })
-
-  io.progress('cloning', `${gitSpec.url} (${gitSpec.ref})`)
-  let clone: CloneResult
-  try {
-    clone = await cloneRepo(gitSpec, dest, { subdir: plan.normalizedSubdir })
-  } catch (err) {
-    await rm(dest, { recursive: true, force: true })
-    throw err
-  }
-  for (const warning of clone.warnings) io.emit(`  ⚠ ${warning}\n`)
-
-  let commit: string | undefined
-  try {
-    commit = await getHeadCommit(dest)
-  } catch {
-    commit = undefined
-  }
-
-  const skillRoot = plan.normalizedSubdir !== undefined ? join(dest, plan.normalizedSubdir) : dest
-  if (plan.normalizedSubdir !== undefined && !(await isRealDirectory(skillRoot))) {
-    await rm(dest, { recursive: true, force: true })
-    throw new HttpError(400, 'subdir-not-found', { subdir: plan.normalizedSubdir })
-  }
-
-  const repoKind = await classifyRepo(skillRoot, { markerDir: dest })
-  if (repoKind.kind === 'dsh-plugin') {
-    await rm(dest, { recursive: true, force: true })
-    throw new HttpError(400, 'dsh-plugin-repo')
-  }
-  if (repoKind.kind === 'unknown') {
-    await rm(dest, { recursive: true, force: true })
-    throw new HttpError(400, 'no-skill-md')
-  }
-  if (repoKind.kind === 'wrapped-skill') {
-    const proceed =
-      plan.yes ||
-      (await io.confirm(
-        `This repo has both SKILL.md and a DSH plugin wrapper (${repoKind.markers.join(', ')}). ` +
-          `Install as a plain SKILL.md repo via nexus?`,
-        false,
-      ))
-    if (!proceed) {
-      await rm(dest, { recursive: true, force: true })
-      throw new HttpError(400, 'aborted')
-    }
-  }
-
-  const preview = await previewSkills(skillRoot)
-  if (preview.length === 0) {
-    await rm(dest, { recursive: true, force: true })
-    throw new HttpError(400, 'no-installable-skills')
-  }
-  if (preview.length > LARGE_COLLECTION_THRESHOLD && plan.normalizedSubdir === undefined && !plan.yes) {
-    const proceed = await io.confirm(
-      `This repository yields ${preview.length} skills. Install all of them?`,
-      false,
-    )
-    if (!proceed) {
-      await rm(dest, { recursive: true, force: true })
-      throw new HttpError(400, 'aborted')
-    }
-  }
-
-  let normalizedCount = 0
-  for (const s of preview) {
-    const validName = s.invalidName ? sanitizeName(s.invalidName) : s.name || plan.skillName
-    if (s.invalidName) {
-      await normalizeSkillName(s.skillFile, validName)
-      normalizedCount++
-      io.emit(`  ⚠ frontmatter name "${s.invalidName}" normalized to "${validName}"\n`)
-    }
-    if (!s.description || s.description.trim().length === 0) {
-      await ensureDescription(s.skillFile, validName)
-      normalizedCount++
-      io.emit(`  ⚠ frontmatter description was missing — added fallback: "${validName}"\n`)
-    }
-  }
-
-  await addEntry({
-    name: plan.skillName,
-    url: spec,
-    gitUrl: gitSpec.url,
-    ref: gitSpec.ref,
-    commit,
-    subdir: plan.normalizedSubdir,
-    path: plan.path,
-    addedAt: new Date().toISOString(),
-  })
-  await mkdir(REPOS_DIR, { recursive: true })
-
-  let linkedCount = 0
-  for (const s of preview) {
-    const fmName = s.invalidName ? sanitizeName(s.invalidName) : s.name
-    const linkName = preview.length === 1 ? plan.skillName : fmName || plan.skillName
-    try {
-      await linkSkill(linkName, s.resourceBase)
-      linkedCount++
-    } catch (err) {
-      io.emit(
-        `  ⚠ failed to link "${linkName}": ${err instanceof Error ? err.message : String(err)}\n`,
-      )
-    }
-  }
-
-  io.emit(
-    `Added skill "${plan.skillName}" from ${spec}\n` +
-      `  symlinks: ${linkedCount} skill(s) linked\n` +
-      (normalizedCount > 0 ? `  normalized: ${normalizedCount} frontmatter field(s)\n` : ''),
-  )
-}
 
 /**
  * The per-entry update body, mirroring `update.ts` (§8.1 分流): discard →

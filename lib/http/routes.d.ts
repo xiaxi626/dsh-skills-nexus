@@ -14,9 +14,12 @@
  * `202 { data: { jobId } }`, and the work runs in the background. remove /
  * toggle are second-scale local operations and stay synchronous (§7.5).
  *
- * `add-zip` is gone (§8 phase 3): zip is no longer an installation method, and
- * the package channel hasn't reached the panel yet (§10.3) — that row is where
- * `import` will live.
+ * `add` installs through the one shared git core (`src/install.ts`, §10.1):
+ * the panel's former `installGitCore` mirror is gone, and its five `400` codes
+ * are rebuilt from the core's `GitInstallResult.code`. `add-zip` stays gone
+ * (§8 phase 3): zip is no longer an installation method, and the package
+ * channel hasn't reached the panel yet (§10.3) — that row is where `import`
+ * will live.
  *
  * The route cores call the same shared primitives as the CLI commands but
  * route all messaging through the job's OpsIO — the CLI commands keep their

@@ -10,17 +10,24 @@ import type { SkillEntry } from './types.js';
  * and `adopt` must reuse the very implementation the CLI already runs, the way
  * `src/switch-version.ts` and `src/remove.ts` already do — a second copy of
  * this sequence would drift from the first, and the two front ends would
- * disagree about what "installed" means. This module is that one
- * implementation, so a future `src/import.ts` installs a git source without
- * carrying a third copy of the logic.
+ * disagree about what "installed" means.
  *
- * `src/http/routes.ts` still holds a mirror of this phase (the panel half
- * predates the extraction), and unifying it is deliberately out of scope here.
+ * This module is that one implementation — `src/import.ts` installs a git
+ * source without carrying a third copy of the logic.
+ *
+ * Both front ends call it: `src/cli/commands/add.ts` for the CLI and the `add`
+ * route in `src/http/routes.ts` for the panel. The route used to carry a mirror
+ * of it (`installGitCore`), which is exactly the drift §10.1 warns about — the
+ * panel now installs through the same code path, and its former `400` codes are
+ * rebuilt by the caller from `GitInstallResult.code` (see `GitInstallFailCode`).
  *
  * The caller keeps the read-only preflight and the locking: `add` validates
  * `--subdir`, detects the default branch and refuses re-registration /
  * collisions before anything is created, then holds the per-skill
- * cross-process lock around this call.
+ * cross-process lock around this call. Both front ends therefore resolve the
+ * default branch themselves — the step is presentation-bound (the CLI wraps it
+ * in its own spinner and its own "Detecting default branch" line) and must not
+ * be duplicated inside this phase.
  *
  * This module is not presentation-free yet: the install-time spinner comes
  * from `cli/progress.js` (`withSpinner`), which the caller cannot inject —
@@ -64,6 +71,17 @@ export interface GitInstallResult {
      * A clone or network error still throws, exactly as it always has.
      */
     status: 'installed' | 'skipped' | 'failed';
+    /**
+     * Why a `failed` / `skipped` run stopped — one code per return site, and
+     * exactly the five codes the panel's former `installGitCore` answered with
+     * (the CLI ignores this and keeps its own stderr wording). Never set on
+     * `installed`.
+     *
+     * It lives on the result because the status alone cannot express it: the
+     * panel maps each code to its own `error` payload, and collapsing them into
+     * one would silently change what the panel reports.
+     */
+    code?: GitInstallFailCode;
     /** Registered entry; only present when `status === 'installed'`. */
     entry?: SkillEntry;
     /** Link names created in the official skills root, in creation order. */
@@ -72,6 +90,14 @@ export interface GitInstallResult {
     normalized: number;
     clone: CloneResult;
 }
+/**
+ * The five stop reasons of a non-`installed` run (§10.4 dialect). Each is a
+ * former `installGitCore` 400 in `src/http/routes.ts`; `dsh-plugin-repo` and
+ * `aborted` are unreachable behind the panel's OpsIO (`jobIO.confirm` always
+ * raises `NeedsConfirm` instead of answering "no") but stay in the union so the
+ * route can keep its documented mapping.
+ */
+export type GitInstallFailCode = 'subdir-not-found' | 'dsh-plugin-repo' | 'no-skill-md' | 'no-installable-skills' | 'aborted';
 /**
  * The filesystem-mutating phase of `add` — clone → classify → normalize →
  * register → link — run under the per-skill cross-process lock (§7.3 layer 3).

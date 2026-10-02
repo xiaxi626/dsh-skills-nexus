@@ -195,8 +195,8 @@ async function addOne(
 
 /**
  * Re-exported from the shared install core (`src/install.ts`, §10.1): the
- * large-collection guard threshold is part of `add`'s surface — the HTTP mirror
- * in `src/http/routes.ts` reads it from this module — so the name and value
- * stay here although the guard itself now lives in the shared module.
+ * large-collection guard threshold is part of `add`'s surface, so the name and
+ * value are still reachable from this module; `src/http/routes.ts` now imports
+ * it straight from `../../install.js` like every other consumer.
  */
 export { LARGE_COLLECTION_THRESHOLD } from '../../install.js'

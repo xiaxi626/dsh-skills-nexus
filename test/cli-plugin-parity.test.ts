@@ -23,6 +23,13 @@ import type { RouteRequest, RouteResponse, RouteSpec } from '../src/http/types.j
  * pointing into it survives (attribution-based deletion would have taken it).
  * A face that goes back to attribution turns that assertion red.
  *
+ * `add` is the third: §10.1 makes the install phase (`src/install.ts`) the one
+ * implementation both faces call, so the CLONE-level outcomes must match field
+ * for field and link for link. The route-side `400` codes are part of that
+ * promise too — they are rebuilt from the shared core's `GitInstallResult.code`,
+ * and the panel's five codes have no other test anywhere, so they are pinned
+ * here as well (a wrong mapping would otherwise be invisible to the whole suite).
+ *
  * Remotes are local `file://` fixtures: no network.
  *
  * `paths.ts` reads DSH_HOME at import time, so the env var is set in `before()`
@@ -67,6 +74,7 @@ let paths: typeof import('../src/paths.js')
 let gitMod: typeof import('../src/git.js')
 let updateCmd: typeof import('../src/cli/commands/update.js')
 let removeCmd: typeof import('../src/cli/commands/remove.js')
+let addCmd: typeof import('../src/cli/commands/add.js')
 
 before(async () => {
   home = await mkdtemp(join(tmpdir(), 'nexus-parity-'))
@@ -78,6 +86,7 @@ before(async () => {
   gitMod = await import('../src/git.js')
   updateCmd = await import('../src/cli/commands/update.js')
   removeCmd = await import('../src/cli/commands/remove.js')
+  addCmd = await import('../src/cli/commands/add.js')
   const routes = await import('../src/http/routes.js')
   table = routes.createNexusRoutes()
   assert.ok(
@@ -329,4 +338,187 @@ test('remove: both faces delete the same derived links and keep a hand-made alia
   // … and dropped both clone directories.
   await assert.rejects(stat(paths.skillDir('rm-cli')), { code: 'ENOENT' })
   await assert.rejects(stat(paths.skillDir('rm-api')), { code: 'ENOENT' })
+})
+
+/* ------------------------------------------------------------------ */
+/* add — install parity through the one shared core (§10.1)            */
+/* ------------------------------------------------------------------ */
+
+/** The `add` route, settled through the job channel (§7.5). */
+async function addViaRoute(body: Record<string, unknown>): Promise<JobView> {
+  const accepted = await call('/skills-nexus/add', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+  assert.equal(accepted.status, 202, 'add is accepted as a job')
+  const { jobId } = dataOf<{ jobId: string }>(accepted)
+  return await waitForJob(jobId)
+}
+
+/**
+ * The install phase is one shared core (§10.1), so both faces must produce the
+ * same clone-level facts: same entry shape, same derived link set, same commit.
+ * The fixture markers (`-cli` / `-api`) are normalized away before comparing.
+ */
+test('add: CLI and the HTTP route install into the same entry shape and link set', async () => {
+  const srcCli = join(home, 'src-add-cli')
+  const srcApi = join(home, 'src-add-api')
+  await mkdir(srcCli, { recursive: true })
+  await mkdir(srcApi, { recursive: true })
+  // Same layout on both sides, one marker apart: `<root>/alpha/SKILL.md`.
+  await makeBundledRepo(srcCli, 'alpha-add-cli', 'beta-add-cli')
+  await makeBundledRepo(srcApi, 'alpha-add-api', 'beta-add-api')
+
+  // No `#ref` and no `ref` field on either face → both must resolve the
+  // remote's default branch themselves (§10.1's read-only preflight).
+  assert.equal(await addCmd.add([fileUrl(srcCli)]), 0)
+  const settled = await addViaRoute({ url: fileUrl(srcApi) })
+  assert.equal(settled.status, 'done', `route add failed: ${settled.error ?? ''}`)
+
+  const cliEntry = manifest.findEntry(await manifest.readManifest(), 'src-add-cli')
+  const apiEntry = manifest.findEntry(await manifest.readManifest(), 'src-add-api')
+  assert.ok(cliEntry, 'CLI registered its entry')
+  assert.ok(apiEntry, 'the route registered its entry')
+
+  // Everything except the fixture-specific strings (name / url / path / clone
+  // dir / timestamps) has to be identical — that is what "one core" means.
+  // `url` / `gitUrl` record the spec verbatim, in URL form (`file:///C:/…`),
+  // so the fixture roots are normalized with forward slashes before comparing.
+  const slash = (p: string): string => p.replaceAll('\\', '/')
+  const shape = (e: typeof cliEntry, tag: string): Record<string, unknown> => ({
+    name: e.name.replace(tag, '-TAG'),
+    url: e.url.replace(slash(srcCli), '<SRC>').replace(slash(srcApi), '<SRC>'),
+    gitUrl: e.gitUrl.replace(slash(srcCli), '<SRC>').replace(slash(srcApi), '<SRC>'),
+    ref: e.ref,
+    subdir: e.subdir ?? null,
+    path: e.path.replace(tag, '-TAG'),
+    commit: e.commit === undefined ? 'none' : 'sha',
+    hasGitSource: manifest.hasGitSource(e),
+  })
+  assert.deepEqual(shape(cliEntry, '-cli'), shape(apiEntry, '-api'))
+
+  // The default branch was resolved (not assumed) on both faces.
+  assert.equal(apiEntry.ref, 'main')
+  assert.equal(cliEntry.ref, 'main')
+
+  // Same derived link set, renamed the same way as the `update` cases above.
+  const cliNames = await linkNames('src-add-cli')
+  const apiNames = await linkNames('src-add-api')
+  assert.deepEqual(cliNames, ['alpha-add-cli', 'beta-add-cli'])
+  assert.deepEqual(apiNames, ['alpha-add-api', 'beta-add-api'])
+  assert.deepEqual(normalize(cliNames, '-cli'), normalize(apiNames, '-api'))
+
+  // Both clones are real clones carrying their own git state — not one-sided
+  // snapshots — and each manifest recorded the commit it actually installed.
+  // (The two fixtures are separate repositories, so their SHAs differ by
+  // construction; what parity requires is that both faces record one at all.)
+  const cliSha = await gitMod.getHeadCommit(paths.skillDir('src-add-cli'))
+  const apiSha = await gitMod.getHeadCommit(paths.skillDir('src-add-api'))
+  assert.match(cliSha, /^[0-9a-f]{40}$/)
+  assert.match(apiSha, /^[0-9a-f]{40}$/)
+  assert.equal(cliEntry.commit, cliSha)
+  assert.equal(apiEntry.commit, apiSha)
+  await stat(join(paths.skillDir('src-add-cli'), '.git'))
+  await stat(join(paths.skillDir('src-add-api'), '.git'))
+})
+
+/* ------------------------------------------------------------------ */
+/* add — the five §10.4 codes the route rebuilds from the core         */
+/* ------------------------------------------------------------------ */
+
+/** A repo whose root holds exactly one skill directory `alpha`. */
+async function makeOneSkillRepo(dir: string, name: string): Promise<void> {
+  await mkdir(join(dir, 'alpha'), { recursive: true })
+  await git(dir, ['init'])
+  await git(dir, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  await git(dir, ['config', 'user.email', 'test@example.com'])
+  await git(dir, ['config', 'user.name', 'Nexus Test'])
+  await writeFile(join(dir, 'alpha', 'SKILL.md'), `---\nname: ${name}\ndescription: a\n---\nv1\n`, 'utf8')
+  await git(dir, ['add', '.'])
+  await git(dir, ['commit', '-m', 'skill'])
+}
+
+test('add: --subdir pointing nowhere answers the former 400 subdir-not-found', async () => {
+  const src = join(home, 'src-code-subdir')
+  await makeOneSkillRepo(src, 'code-subdir')
+  const settled = await addViaRoute({
+    url: fileUrl(src),
+    ref: 'main',
+    subdir: 'skills/nowhere',
+  })
+  assert.equal(settled.status, 'error')
+  assert.equal(settled.error, 'subdir-not-found')
+})
+
+test('add: a repo with neither SKILL.md nor a plugin marker answers 400 no-skill-md', async () => {
+  const src = join(home, 'src-code-unknown')
+  await mkdir(src, { recursive: true })
+  await git(src, ['init'])
+  await git(src, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  await git(src, ['config', 'user.email', 'test@example.com'])
+  await git(src, ['config', 'user.name', 'Nexus Test'])
+  await writeFile(join(src, 'notes.txt'), 'nothing to see\n', 'utf8')
+  await git(src, ['add', '.'])
+  await git(src, ['commit', '-m', 'empty'])
+
+  const settled = await addViaRoute({ url: fileUrl(src), ref: 'main' })
+  assert.equal(settled.status, 'error')
+  assert.equal(settled.error, 'no-skill-md')
+})
+
+test('add: a root that yields zero installable skills answers 400 no-installable-skills', async () => {
+  const src = join(home, 'src-code-noskills')
+  await mkdir(src, { recursive: true })
+  await git(src, ['init'])
+  await git(src, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  await git(src, ['config', 'user.email', 'test@example.com'])
+  await git(src, ['config', 'user.name', 'Nexus Test'])
+  // A root-level markdown file is *discovered* (so the repo is a plain skill
+  // repo, neither unknown nor a plugin), while the full skill rules reject it:
+  // no frontmatter name and no description, so it is a doc rather than a skill.
+  await writeFile(join(src, 'notes.md'), 'not a skill\n', 'utf8')
+  await git(src, ['add', '.'])
+  await git(src, ['commit', '-m', 'docs only'])
+
+  const settled = await addViaRoute({ url: fileUrl(src), ref: 'main' })
+  assert.equal(settled.status, 'error')
+  assert.equal(settled.error, 'no-installable-skills')
+})
+
+test('add: a pure DSH plugin repo answers 400 dsh-plugin-repo', async () => {
+  const src = join(home, 'src-code-plugin')
+  await mkdir(src, { recursive: true })
+  await git(src, ['init'])
+  await git(src, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  await git(src, ['config', 'user.email', 'test@example.com'])
+  await git(src, ['config', 'user.name', 'Nexus Test'])
+  await writeFile(join(src, 'cordis.patch.yml'), 'plugins: {}\n', 'utf8')
+  await git(src, ['add', '.'])
+  await git(src, ['commit', '-m', 'plugin only'])
+
+  const settled = await addViaRoute({ url: fileUrl(src), ref: 'main' })
+  assert.equal(settled.status, 'error')
+  assert.equal(settled.error, 'dsh-plugin-repo')
+})
+
+test('add: a wrapped skill with no confirm reaches the panel as a needs-confirm error', async () => {
+  const src = join(home, 'src-code-wrapped')
+  await makeOneSkillRepo(src, 'code-wrapped')
+  // SKILL.md next to a plugin marker → wrapped-skill, which asks before taking
+  // over. The panel's OpsIO can never answer "no" (it raises NeedsConfirm), so
+  // the wrapped-skill branch surfaces the question rather than the `aborted`
+  // code the CLI's non-TTY default produces.
+  await writeFile(join(src, 'cordis.patch.yml'), 'plugins: {}\n', 'utf8')
+  await git(src, ['add', '.'])
+  await git(src, ['commit', '-m', 'wrapper'])
+
+  const settled = await addViaRoute({ url: fileUrl(src), ref: 'main' })
+  assert.equal(settled.status, 'error')
+  assert.match(String(settled.error), /^confirmation required: /)
+  assert.match(String(settled.error), /DSH plugin wrapper/)
+
+  // Nothing was registered and no partial clone was left behind.
+  const after = await manifest.readManifest()
+  assert.equal(manifest.findEntry(after, 'src-code-wrapped'), undefined)
+  await assert.rejects(stat(paths.skillDir('src-code-wrapped')), { code: 'ENOENT' })
 })
