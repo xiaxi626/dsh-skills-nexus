@@ -49,6 +49,7 @@ let home: string
 let update: typeof import('../src/cli/commands/update.js')
 let manifest: typeof import('../src/manifest.js')
 let paths: typeof import('../src/paths.js')
+let link: typeof import('../src/link.js')
 
 before(async () => {
   home = await mkdtemp(join(tmpdir(), 'nexus-update-'))
@@ -57,6 +58,15 @@ before(async () => {
   update = await import('../src/cli/commands/update.js')
   manifest = await import('../src/manifest.js')
   paths = await import('../src/paths.js')
+  // `link` must arrive through the same dynamic chain: a *static* import of
+  // src/link.ts would evaluate paths.ts while the module graph loads — before
+  // DSH_HOME is repointed — so every symlink write lands in the real ~/.dsh
+  // (observed once: the whole suite registered into the user's home).
+  link = await import('../src/link.js')
+  assert.ok(
+    paths.OFFICIAL_SKILLS_DIR.startsWith(home),
+    `test isolation broken: paths bound to ${paths.OFFICIAL_SKILLS_DIR}`,
+  )
 })
 
 after(async () => {
@@ -373,4 +383,131 @@ test('updating one subdir clone leaves its sibling subdir clone untouched', { sk
   await assert.rejects(stat(join(destB, 'skills', 'alpha')), { code: 'ENOENT' })
   const m = await manifest.readManifest()
   assert.equal(m.skills.find((s) => s.name === 'pair-beta')!.commit, base)
+})
+
+/* ------------------------------------------------------------------ */
+/* Stale links: upstream rename / deletion must not leave residue      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Single-level bundle: `<root>/alpha/SKILL.md` + `<root>/beta/SKILL.md`, each
+ * naming its own skill.
+ *
+ * Unlike `makeCollectionRepo` (nested `skills/<name>/`, discoverable only via
+ * `--subdir`), this layout is found by the root scan — so one entry yields two
+ * skills, and `add` links each under its frontmatter name. Callers pass unique
+ * skill names per test: every test in this file shares one fixture home, so a
+ * name reused across tests would leak a link into the next test's assertions.
+ */
+async function makeBundledRepo(dir: string, alphaName: string, betaName: string): Promise<void> {
+  await mkdir(join(dir, 'alpha'), { recursive: true })
+  await mkdir(join(dir, 'beta'), { recursive: true })
+  await git(dir, ['init'])
+  await git(dir, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  await git(dir, ['config', 'user.email', 'test@example.com'])
+  await git(dir, ['config', 'user.name', 'Nexus Test'])
+  await writeFile(join(dir, 'alpha', 'SKILL.md'), `---\nname: ${alphaName}\ndescription: a\n---\nv1\n`, 'utf8')
+  await writeFile(join(dir, 'beta', 'SKILL.md'), `---\nname: ${betaName}\ndescription: b\n---\nv1\n`, 'utf8')
+  await git(dir, ['add', '.'])
+  await git(dir, ['commit', '-m', 'bundled'])
+}
+
+/** Register a whole-repo clone plus the two links `add` would have created. */
+async function addBundledEntry(
+  name: string,
+  src: string,
+  commit: string,
+  alphaName: string,
+  betaName: string,
+): Promise<string> {
+  const dest = paths.skillDir(name)
+  await cloneRepo(parseGitSpec(`${fileUrl(src)}#main`), dest)
+  await manifest.addEntry({
+    name,
+    url: fileUrl(src),
+    gitUrl: fileUrl(src),
+    ref: 'main',
+    commit,
+    path: name,
+    addedAt: new Date().toISOString(),
+  })
+  await link.linkSkill(alphaName, join(dest, 'alpha'))
+  await link.linkSkill(betaName, join(dest, 'beta'))
+  return dest
+}
+
+test('update drops the stale link of a skill renamed upstream', async () => {
+  const src = join(home, 'src-bundled-rename')
+  await mkdir(src, { recursive: true })
+  await makeBundledRepo(src, 'alpha-ren', 'beta-ren')
+  const base = await getHeadCommit(src)
+  await addBundledEntry('bundled-rename', src, base, 'alpha-ren', 'beta-ren')
+
+  // Both links exist as `add` created them.
+  assert.equal(await link.isLinked('alpha-ren'), true)
+  assert.equal(await link.isLinked('beta-ren'), true)
+
+  // Upstream renames beta's frontmatter name.
+  await writeFile(join(src, 'beta', 'SKILL.md'), '---\nname: beta-ren2\ndescription: b\n---\nv2\n', 'utf8')
+  await git(src, ['add', '.'])
+  await git(src, ['commit', '-m', 'rename beta'])
+
+  assert.equal(await update.update(['bundled-rename']), 0)
+
+  // The new name is linked; the old one is gone instead of shadowing the same
+  // SKILL.md under a second name.
+  assert.equal(await link.isLinked('beta-ren2'), true)
+  assert.equal(await link.isLinked('beta-ren'), false)
+  assert.equal(await link.isLinked('alpha-ren'), true)
+})
+
+test('update removes the link of a skill deleted upstream instead of leaving it dangling', async () => {
+  const src = join(home, 'src-bundled-drop')
+  await mkdir(src, { recursive: true })
+  await makeBundledRepo(src, 'alpha-drop', 'beta-drop')
+  const base = await getHeadCommit(src)
+  await addBundledEntry('bundled-drop', src, base, 'alpha-drop', 'beta-drop')
+
+  // Upstream deletes the alpha skill outright.
+  await rm(join(src, 'alpha'), { recursive: true, force: true })
+  await git(src, ['add', '-A'])
+  await git(src, ['commit', '-m', 'drop alpha'])
+
+  assert.equal(await update.update(['bundled-drop']), 0)
+
+  // The deleted skill's link is gone (before this change it survived, pointing
+  // at a directory the pull had just removed). The survivor is relinked under
+  // the single-skill rule — the entry name — since only one skill is left.
+  assert.equal(await link.isLinked('alpha-drop'), false)
+  assert.equal(await link.isLinked('bundled-drop'), true)
+
+  const m = await manifest.readManifest()
+  const entry = m.skills.find((s) => s.name === 'bundled-drop')!
+  const names = (await link.entryLinks(entry)).map((l) => l.name).sort()
+  assert.deepEqual(names, ['bundled-drop'])
+})
+
+test('update does not re-enable an entry whose links were removed', async () => {
+  const src = join(home, 'src-bundled-disabled')
+  await mkdir(src, { recursive: true })
+  await makeBundledRepo(src, 'alpha-dis', 'beta-dis')
+  const base = await getHeadCommit(src)
+  const dest = await addBundledEntry('bundled-disabled', src, base, 'alpha-dis', 'beta-dis')
+
+  // `disable` semantics: no link points into the clone any more.
+  await link.unlinkSkill('alpha-dis')
+  await link.unlinkSkill('beta-dis')
+
+  await writeFile(join(src, 'beta', 'SKILL.md'), '---\nname: beta-dis2\ndescription: b\n---\nv2\n', 'utf8')
+  await git(src, ['add', '.'])
+  await git(src, ['commit', '-m', 'rename beta'])
+
+  assert.equal(await update.update(['bundled-disabled']), 0)
+  // The pull happened …
+  assert.match(await readFile(join(dest, 'beta', 'SKILL.md'), 'utf8'), /beta-dis2/)
+  // … but a disabled entry stays disabled: no link is resurrected, under the
+  // old name or the new one.
+  assert.equal(await link.isLinked('alpha-dis'), false)
+  assert.equal(await link.isLinked('beta-dis'), false)
+  assert.equal(await link.isLinked('beta-dis2'), false)
 })

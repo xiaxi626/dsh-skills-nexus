@@ -13,7 +13,7 @@ import {
 } from '../../git.js'
 import { previewSkills } from '../../resolve.js'
 import { normalizeSkillName, ensureDescription } from '../../frontmatter.js'
-import { linkSkill, isEntryEnabled } from '../../link.js'
+import { entryLinks, isEntryEnabled, linkSkill, unlinkSkill } from '../../link.js'
 import { cliIO } from '../../ops-io.js'
 import type { OpsIO } from '../../ops-io.js'
 import { acquireSkillFileLock } from '../../locks.js'
@@ -117,13 +117,30 @@ export async function update(argv: string[], io: OpsIO = cliIO): Promise<number>
         }
       }
 
-      // --- Re-create symlinks (in case names changed or new skills appeared) ---
-      const wasLinked = await isEntryEnabled(s)
-      if (wasLinked) {
+      // --- Rebuild links: drop the previously attributed set first (§8.1) ---
+      //
+      // Upstream may have renamed a skill or deleted one entirely: a link kept
+      // under its old name would either surface the same SKILL.md under two
+      // names or dangle once its skill directory is gone — and a later `remove`
+      // (which derives names from the current clone) could not clean it up
+      // either. Same record → unlink → relink rule as switch-version (§8.2
+      // step 6); like there, an entry with no attributed links is disabled and
+      // must not be silently re-enabled.
+      const oldLinks = await entryLinks(s)
+      for (const l of oldLinks) await unlinkSkill(l.name)
+      if (oldLinks.length > 0) {
+        const rebuilt = new Set<string>()
         for (const ps of skills) {
           const fmName = ps.invalidName ? sanitizeName(ps.invalidName) : ps.name
           const linkName = skills.length === 1 ? s.name : (fmName || s.name)
           await linkSkill(linkName, ps.resourceBase)
+          rebuilt.add(linkName)
+        }
+        const dropped = oldLinks.map((l) => l.name).filter((n) => !rebuilt.has(n))
+        if (dropped.length > 0) {
+          io.emit(
+            `  ⚠ dropped ${dropped.length} stale link(s) no longer provided upstream: ${dropped.join(', ')}\n`,
+          )
         }
       }
 
