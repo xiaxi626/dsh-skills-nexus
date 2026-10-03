@@ -16,6 +16,7 @@
 - **测试**：新增 **4 条**。`test/api.test.ts` +2：显式 name 经 preflight 409 固定重算结果（旧链下 repo slug 不冲突会走到 202）、两个不同来源共享同一显式 name 时因名字碰撞回 409（两条 clone path 不同，固定「同名不得注册第二条」）；`test/client-api.test.ts` +1：未提供的可选字段不进 JSON 体（另把既有请求形状用例扩为 name / ref / subdir 全字段）；`test/panel-render.test.ts` +1：折叠区默认收起但三个输入与 ref 优先级 placeholder 在静态标记中。
 - **验证方式**：本轮门禁 `npm run typecheck`（tsc strict）/ `npm run lint`（0 error；一条 unused-directive warning 在干净 HEAD 已存在）/ `npm test` 退出码全 0；`npm run build` 与 `npm run build:client` 重建入库产物（`lib/`、`lib/client.js` 与 `lib/client-types/`）。面板无自动化点击测试，未引入 jsdom 等新依赖：折叠区由 `react-dom/server` 静态渲染断言，请求形状与路由契约分别由 client-api / api 测试覆盖。
 - **如何辨识改动**：改 `src/http/routes.ts`（skillName 重算 + 注释；`name: undefined` 原样）、`src/client/api.ts`（`AddBody.name`）、`src/client/panel.tsx`（state + onAdd 载荷/复位 + details 折叠区）、`test/{api,client-api,panel-render}.test.ts`、`README.md` / `README_CN.md`（面板能力清单）与相应 `lib/` 重建产物，以及本 CHANGELOG。
+- **已知遗留（暂不处理）**：`npm run lint` 在 `src/client/panel.tsx:40` 报一条 `Unused eslint-disable directive` warning（`@typescript-eslint/no-unused-vars`）。该 disable 是为 `import React` 写的防御性抑制，但现行规则配置下该违规不会触发，ESLint 9 的 `reportUnusedDisableDirectives` 因此抓出它。**在干净 HEAD（e5598f5）上复现一致，属基线既有问题、非本轮引入**；修法是删掉那条指令并复验 `no-unused-vars` 确实不报（React 导入本身仍被 classic JSX runtime 需要，不能删）。经讨论确认暂不处理，留作独立小改动。
 
 **2026-10-03 · Fixed · `dsh plugin --profile web add "github:…"` 装不上：host peer 范围 `*` 改为 `>=0.1.0-rc.6`，修掉 pnpm 对预发布版本的范围推导死路（`ERR_PNPM_NO_MATCHING_VERSION @ >=0.1.0`）**
 
