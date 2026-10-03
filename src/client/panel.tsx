@@ -145,6 +145,11 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   const [jobs, setJobs] = useState<TrackedJob[]>([])
   const [addUrl, setAddUrl] = useState('')
   const [addBusy, setAddBusy] = useState(false)
+  /** Collapsed optional add channels: name override / ref / subdir. */
+  const [addOptionsOpen, setAddOptionsOpen] = useState(false)
+  const [addName, setAddName] = useState('')
+  const [addRef, setAddRef] = useState('')
+  const [addSubdir, setAddSubdir] = useState('')
   const [checking, setChecking] = useState(false)
   const [refInputs, setRefInputs] = useState<Record<string, string>>({})
   const [adoptInputs, setAdoptInputs] = useState<Record<string, string>>({})
@@ -302,12 +307,27 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     ev.preventDefault()
     const url = addUrl.trim()
     if (url.length === 0) return
+    const name = addName.trim()
+    const ref = addRef.trim()
+    const subdir = addSubdir.trim()
     void run(url, async () => {
       setAddBusy(true)
       try {
         const baseline = new Set(entries.map((e) => e.name))
-        const env = await api.add({ url, confirm: true })
+        const env = await api.add({
+          url,
+          ...(name.length > 0 ? { name } : {}),
+          ...(ref.length > 0 ? { ref } : {}),
+          ...(subdir.length > 0 ? { subdir } : {}),
+          confirm: true,
+        })
+        // Every input resets on success — a collapsed value left behind would
+        // silently apply to the next add instead of this one.
         setAddUrl('')
+        setAddName('')
+        setAddRef('')
+        setAddSubdir('')
+        setAddOptionsOpen(false)
         await track(url, env.data, appearsNewName(baseline))
       } finally {
         setAddBusy(false)
@@ -496,6 +516,42 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
             disabled={addBusy}
           />
         </label>
+        <details
+          open={addOptionsOpen}
+          onToggle={(e: ChangeEvent<HTMLDetailsElement>) => setAddOptionsOpen(e.currentTarget.open)}
+        >
+          <summary>optional: name / ref / subdir</summary>
+          <label>
+            name{' '}
+            <input
+              type="text"
+              placeholder="entry name override (default: subdir leaf or repo slug)"
+              value={addName}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setAddName(e.target.value)}
+              disabled={addBusy}
+            />
+          </label>
+          <label>
+            ref{' '}
+            <input
+              type="text"
+              placeholder="branch/tag (a #ref in the url wins)"
+              value={addRef}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setAddRef(e.target.value)}
+              disabled={addBusy}
+            />
+          </label>
+          <label>
+            subdir{' '}
+            <input
+              type="text"
+              placeholder="skills/foo (a repository-relative directory)"
+              value={addSubdir}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setAddSubdir(e.target.value)}
+              disabled={addBusy}
+            />
+          </label>
+        </details>
         <button type="submit" disabled={addBusy || addUrl.trim().length === 0}>
           add
         </button>

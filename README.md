@@ -237,8 +237,10 @@ From the panel you can:
 
 - browse entry cards — link names, enabled state, pinned commit, and an
   `update available` badge for branch-tracked entries;
-- add skills by git url (the same install pipeline as the CLI, including
-  frontmatter normalization);
+- add skills by git url — with optional `name` (entry-name override), `ref`
+  and `subdir` (a directory inside a monorepo) fields under a collapsed
+  disclosure — on the same install pipeline as the CLI, including frontmatter
+  normalization;
 - import a package — pick a file, read the same per-entry verdicts `import
   --dry-run` prints (clone or snapshot, and why), then confirm. The upload is a
   raw body with the filename beside it; there is no multipart endpoint;

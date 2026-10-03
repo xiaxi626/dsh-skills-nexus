@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+**2026-10-03 · Added · 面板 `add` 表单补齐 CLI 已有的三个输入通道：`name`（条目名覆盖）/ `ref` / `subdir`；注册名按 CLI 的 `??` 链重算，clone 目录不跟随名字**
+
+- **背景**：`docs/panel-field-coverage-assessment.zh-CN.md` 的核查确认面板 add 只发 `{ url, confirm: true }`，而 CLI add 早有 `--name` / `--ref` / `--subdir`；更关键的是路由在 preflight 里按 `sanitizeName(subdirLeaf ?? repoBase)` 推导注册名，与 CLI 的 `sanitizeName(name ?? subdirLeaf ?? repoBase)`（`src/cli/commands/add.ts`）在同一个函数上分叉——面板用户给 monorepo 子目录取短名、指定分支或子目次都只能回 CLI。原方案以为 `AddBody` 字段齐全、只需把 `installFromGit` 的 `name: undefined` 改成读 body；核实后两点都不成立：`AddBody` 没有 `name` 字段，而 `installFromGit` 的 `name` 入参只用于一行中文提示、根本不参与命名，改它等于没改。
+- **变更**：
+  - `src/http/routes.ts` 的 add preflight：`const explicitName = strField(body, 'name')` 后按 `sanitizeName(explicitName ?? subdirLeaf ?? repoBase)` 重算 `skillName`——与 CLI `src/cli/commands/add.ts` 的同一条 `??` 链。`path` 刻意不进这条链（仍是 `repoBase` 或 `repoBase-subdirLeaf`）：名字覆盖不改 clone 目录，同一仓库经 CLI 装与经面板装共享 `repos/` 下一个目录。`already-registered` / `collision` 两个 preflight 409 用的都是重算后的 `skillName`，自动覆盖新名字。
+  - 调用 `installFromGit` 时 **`name: undefined` 保持不变**：该入参在 `src/install.ts` 里只承载一行「`--name` 与默认条目名相同」的中文提示，传值会让这行中文泄漏进 Web job 日志且不改变任何命名。
+  - `src/client/api.ts`：`AddBody` 新增 `name?: string`（条目名覆盖的契约通道）。
+  - `src/client/panel.tsx`：add 表单在 url 行下新增默认收起的 `<details>` 折叠区（summary：`optional: name / ref / subdir`），含三个输入；ref 的 placeholder 写死优先级说明 `branch/tag (a #ref in the url wins)`（url 中 `#ref` 覆盖输入框是 `parseGitSpec` 的既有行为）；add 成功后 url 与 name / ref / subdir 全部复位、折叠区收起，避免收起值静默套用到下一次 add。`api` 实例的惰性 `useState` 初始化未动，render-stable 约束保持。
+- **不做**：不做 P2 import 面板扩展（面板无 mid-job 交互通道）；不做评估文档 §7 的 `§N` 引用清理（独立任务）；adopt 的 subdir 输入、备份 notice 与 `--force` 兜底文案是下一轮 P0-2 / P1；不开始 export 面板化（先做 host 二进制探针）；不在面板复刻 `--force`；add 的 `confirm: true` 是面板有意设定，不动。
+- **测试**：新增 **4 条**。`test/api.test.ts` +2：显式 name 经 preflight 409 固定重算结果（旧链下 repo slug 不冲突会走到 202）、两个不同来源共享同一显式 name 时因名字碰撞回 409（两条 clone path 不同，固定「同名不得注册第二条」）；`test/client-api.test.ts` +1：未提供的可选字段不进 JSON 体（另把既有请求形状用例扩为 name / ref / subdir 全字段）；`test/panel-render.test.ts` +1：折叠区默认收起但三个输入与 ref 优先级 placeholder 在静态标记中。
+- **验证方式**：本轮门禁 `npm run typecheck`（tsc strict）/ `npm run lint`（0 error；一条 unused-directive warning 在干净 HEAD 已存在）/ `npm test` 退出码全 0；`npm run build` 与 `npm run build:client` 重建入库产物（`lib/`、`lib/client.js` 与 `lib/client-types/`）。面板无自动化点击测试，未引入 jsdom 等新依赖：折叠区由 `react-dom/server` 静态渲染断言，请求形状与路由契约分别由 client-api / api 测试覆盖。
+- **如何辨识改动**：改 `src/http/routes.ts`（skillName 重算 + 注释；`name: undefined` 原样）、`src/client/api.ts`（`AddBody.name`）、`src/client/panel.tsx`（state + onAdd 载荷/复位 + details 折叠区）、`test/{api,client-api,panel-render}.test.ts`、`README.md` / `README_CN.md`（面板能力清单）与相应 `lib/` 重建产物，以及本 CHANGELOG。
+
 **2026-10-03 · Fixed · `dsh plugin --profile web add "github:…"` 装不上：host peer 范围 `*` 改为 `>=0.1.0-rc.6`，修掉 pnpm 对预发布版本的范围推导死路（`ERR_PNPM_NO_MATCHING_VERSION @ >=0.1.0`）**
 
 - **背景**：0.4.0 之后的 c66ee20（Phase 2 http routes）给包加了 optional peer `@deepseek-ai/dsh-host-webserver: "*"`（v0.3.0 / v0.4.0 两个 tag 里没有 peerDependencies，所以当时安装正常）。`dsh plugin add` 只是在 profile 目录转发 `pnpm add`：当 profile 依赖图里**已存在**该 peer 的预发布实例（web profile 的 `dsh-research@0.4.3` 经 `autoInstallPeers` 拉入 host `0.1.0-rc.8`，其自身 peer 是 `>=0.1.0-rc.6`），pnpm 11.16 面对 `*` 会按现有实例合成复用范围 `>=0.1.0`——丢掉预发布后缀。按 semver 规则，不含预发布比较符的范围**不匹配任何 `-rc`/`-alpha` 版本**，而该包 registry 的 `latest` 停在 `0.0.1-rc.1`、0.1.x/0.2.x 全部是预发布，于是范围一个版本都匹配不到，安装在解析阶段（代码尚未下载）即失败。**不是新版 dsh harness 变严**：0.1.5-rc.3 与 0.2.0-rc.2 两版的插件转发逻辑相同；CLI 全局安装（npm 跳过顶层包 peer 自动安装，optional peer 缺失合法）与 `dsh web --patch overlay.yml`（运行时按路径直接挂载，完全不经过 pnpm/registry）都不走这条解析路径，因此一直正常——只有"profile 图里已有预发布 host + git 规格装本包"二者叠加才触发。

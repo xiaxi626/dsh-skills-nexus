@@ -531,6 +531,39 @@ test('add rejects a duplicate registration before any clone (409 already-registe
   assert.equal(data.name, 'dup-skill')
 })
 
+test('add recomputes the entry name from an explicit name field', async () => {
+  // The preflight 409 pins the recompute: under the old chain the repo slug
+  // 'some-repo' would be the name and no entry would collide.
+  await seedClone('custom-name')
+  const res = await call('/skills-nexus/add', {
+    method: 'POST',
+    body: JSON.stringify({ url: 'github:owner/some-repo', name: 'custom-name' }),
+  })
+  assert.equal(res.status, 409)
+  const { error, data } = errorsOf(res)
+  assert.equal(error, 'already-registered')
+  assert.equal(data.name, 'custom-name')
+})
+
+test('add: two sources sharing one explicit name collide on the name (409)', async () => {
+  // The clone path stays repo-based, so the two paths differ — this 409 is
+  // decided by the shared name: a second source must not register a second
+  // entry (and therefore a second link name) behind the same override.
+  await seedClone('shared-name', { path: 'first-repo-tools' })
+  const res = await call('/skills-nexus/add', {
+    method: 'POST',
+    body: JSON.stringify({
+      url: 'github:owner/second-repo',
+      subdir: 'skills/tools',
+      name: 'shared-name',
+    }),
+  })
+  assert.equal(res.status, 409)
+  const { error, data } = errorsOf(res)
+  assert.equal(error, 'already-registered')
+  assert.equal(data.name, 'shared-name')
+})
+
 test('add rejects a skills-root collision with 409', async () => {
   const colliding = paths.skillLinkPath('col-skill')
   await mkdir(colliding, { recursive: true })

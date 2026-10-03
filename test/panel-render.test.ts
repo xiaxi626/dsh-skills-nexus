@@ -48,6 +48,18 @@ function mountApi(): NexusApi {
   } as unknown as NexusApi
 }
 
+test('the add form offers collapsed optional name / ref / subdir channels', () => {
+  const html = renderToStaticMarkup(createElement(NexusPanel, { api: mountApi() }))
+  // Collapsed by default — the disclosure carries no open attribute …
+  assert.match(html, /<summary>optional: name \/ ref \/ subdir<\/summary>/)
+  assert.doesNotMatch(html, /<details open/)
+  // … but the three fields are in the markup, with the ref-precedence note
+  // pinned in the placeholder (a #ref in the url wins over the ref input).
+  assert.match(html, /placeholder="entry name override \(default: subdir leaf or repo slug\)"/)
+  assert.match(html, /placeholder="branch\/tag \(a #ref in the url wins\)"/)
+  assert.match(html, /placeholder="skills\/foo \(a repository-relative directory\)"/)
+})
+
 test('the panel renders the package import row (§10.3)', () => {
   const html = renderToStaticMarkup(createElement(NexusPanel, { api: mountApi() }))
   assert.match(html, /import package/)

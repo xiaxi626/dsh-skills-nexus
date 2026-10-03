@@ -102,6 +102,8 @@ export interface Job {
 }
 export interface AddBody {
     url: string;
+    /** Overrides the derived entry name; the panel's optional field. */
+    name?: string;
     ref?: string;
     subdir?: string;
     confirm?: boolean;

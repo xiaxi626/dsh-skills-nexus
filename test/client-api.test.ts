@@ -133,12 +133,33 @@ test('an error body without a known error code degrades gracefully', async () =>
 
 test('add posts the url body as JSON with the content-type header', async () => {
   const { fetchFn, calls } = fakeFetch([{ status: 202, body: { data: { jobId: 'j' } } }])
-  await createApi(fetchFn).add({ url: 'github:owner/repo', ref: 'main' })
+  await createApi(fetchFn).add({
+    url: 'github:owner/repo',
+    name: 'short',
+    ref: 'main',
+    subdir: 'skills/foo',
+  })
   const call = calls[0]!
   assert.equal(call.input, '/skills-nexus/add')
   assert.equal(call.init?.method, 'POST')
   assert.equal(call.init?.headers?.['content-type'], 'application/json')
-  assert.deepEqual(JSON.parse(call.init?.body as string), { url: 'github:owner/repo', ref: 'main' })
+  assert.deepEqual(JSON.parse(call.init?.body as string), {
+    url: 'github:owner/repo',
+    name: 'short',
+    ref: 'main',
+    subdir: 'skills/foo',
+  })
+})
+
+test('add omits optional fields the caller did not provide', async () => {
+  // The panel's own payload shape: stripped values must not ride along as
+  // empty strings or undefined keys.
+  const { fetchFn, calls } = fakeFetch([{ status: 202, body: { data: { jobId: 'j' } } }])
+  await createApi(fetchFn).add({ url: 'github:owner/repo', confirm: true })
+  assert.deepEqual(JSON.parse(calls[0]!.init?.body as string), {
+    url: 'github:owner/repo',
+    confirm: true,
+  })
 })
 
 test('remove/update default to confirm:false and forward confirm:true on demand', async () => {

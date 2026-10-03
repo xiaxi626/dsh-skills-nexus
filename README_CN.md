@@ -154,7 +154,7 @@ dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo --subdir skill
 在面板里你可以：
 
 - 浏览条目卡片——链接名、启用状态、固定的 commit，以及分支跟踪条目的「有更新」徽标；
-- 按 git url 添加 skill（与 CLI 同一条安装流水线，含 frontmatter 归一化）；
+- 按 git url 添加 skill——可在折叠区填写可选项 `name`（覆盖条目名）、`ref`、`subdir`（monorepo 内的目录）——与 CLI 同一条安装流水线，含 frontmatter 归一化；
 - **导入包**——选好文件后先看逐条目判定（与 `import --dry-run` **同一套措辞**：真克隆还是落快照、以及为什么），确认后才真正导入。上传走**裸 body**、文件名放在旁边，没有 multipart 端点；
 - 给快照**接上来源**——`adopt` 动作只出现在无 git 源的条目上，仓库 url 由你填（永不猜测）；
 - 启用 / 禁用、更新、切换到其他 ref、删除条目——破坏性操作会展示服务端的后果说明，确认接受后才带确认重发；

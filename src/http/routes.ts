@@ -357,7 +357,13 @@ async function add(req: RouteRequest, res: RouteResponse): Promise<void> {
     ? sanitizeName(normalizedSubdir.split('/').filter(Boolean).pop() ?? 'skill')
     : undefined
   const path = normalizedSubdir !== undefined ? `${repoBase}-${subdirLeaf}` : repoBase
-  const skillName = sanitizeName(subdirLeaf ?? repoBase)
+  // The same `??` chain the CLI uses (`src/cli/commands/add.ts`): an explicit
+  // name wins, then the subdir leaf, then the repo slug. `path` deliberately
+  // stays out of this chain — an override must never rename the clone
+  // directory, so the same repo installed from the CLI and from the panel
+  // shares one directory under repos/.
+  const explicitName = strField(body, 'name')
+  const skillName = sanitizeName(explicitName ?? subdirLeaf ?? repoBase)
 
   const manifest = await readManifest()
   if (hasEntry(manifest, skillName) || manifest.skills.some((s) => s.path === path)) {
