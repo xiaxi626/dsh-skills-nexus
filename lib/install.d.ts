@@ -5,7 +5,7 @@ import type { SkillEntry } from './types.js';
  * The one filesystem-mutating install phase for a git source
  * (`clone → classify → normalize → register → link`).
  *
- * §10.1 of `docs/source-and-migration-design.md` requires the new channels to
+ * `docs/sources-and-packages.md` requires the new channels to
  * share one core: `import` (installing an entry from a recorded git source)
  * and `adopt` must reuse the very implementation the CLI already runs, the way
  * `src/switch-version.ts` and `src/remove.ts` already do — a second copy of

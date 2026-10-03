@@ -11,8 +11,8 @@ import type { ImportDecision, ImportError, ImportOptions, ImportPlan } from '../
 import type { OpsIO } from '../src/ops-io.js'
 
 /**
- * Module-level tests for the `import` core — channel C of the source &
- * migration design (`docs/source-and-migration-design.md` §4.2/§10).
+ * Module-level tests for the `import` core — channel C of the sources &
+ * packages design (`docs/sources-and-packages.md`).
  *
  * The promise under test is that a package is more than an archive. When the
  * label records a remote that answers, the entry comes back as a real clone —

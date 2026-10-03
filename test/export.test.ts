@@ -8,8 +8,8 @@ import type { NexusPackage } from '../src/export.js'
 import type { OpsIO } from '../src/ops-io.js'
 
 /**
- * Module-level tests for the `export` core — channel C of the source &
- * migration design (`docs/source-and-migration-design.md` §4.1/§5).
+ * Module-level tests for the `export` core — channel C of the sources &
+ * packages design (`docs/sources-and-packages.md`).
  *
  * They assert on the package itself: the label (what the importer needs to
  * restore an entry) and the payload (files, minus `.git`), plus the PKZip codec

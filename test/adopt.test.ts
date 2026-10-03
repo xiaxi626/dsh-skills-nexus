@@ -11,8 +11,8 @@ import type { AdoptError, AdoptOptions } from '../src/adopt.js'
 import type { OpsIO } from '../src/ops-io.js'
 
 /**
- * Module-level tests for the `adopt` core — channel D of the source &
- * migration design (`docs/source-and-migration-design.md` §6/§10.1).
+ * Module-level tests for the `adopt` core — channel D of the sources &
+ * packages design (`docs/sources-and-packages.md`).
  *
  * The promise under test is that a frozen entry can be given an identity
  * without becoming a different entry: it keeps its name and its `path`, its

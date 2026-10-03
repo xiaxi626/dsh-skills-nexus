@@ -21,7 +21,7 @@
 
 **2026-10-02 · Added · 面板入口：`import`（裸 body 上传 → 同步 dry-run 预览 → 确认后 202 任务）与 `adopt`（条目行内 attach source）**
 
-- **背景**：设计稿 `docs/source-and-migration-design.md` §10.3 要求面板与 CLI 同构——`import` 复用今天 `add-zip` 那一行（选文件 → `--dry-run` 预览 → 确认导入），`adopt` 是条目行内动作、**仅在无 git 源条目上出现**。S5 退役 zip 时把那一行留了空，本轮把它补上，并且两侧都调用 §10.1 的共享核心（`src/import.ts` / `src/adopt.ts`），不新增第三份实现。
+- **背景**：设计稿 `docs/sources-and-packages.md` §10.3 要求面板与 CLI 同构——`import` 复用今天 `add-zip` 那一行（选文件 → `--dry-run` 预览 → 确认导入），`adopt` 是条目行内动作、**仅在无 git 源条目上出现**。S5 退役 zip 时把那一行留了空，本轮把它补上，并且两侧都调用 §10.1 的共享核心（`src/import.ts` / `src/adopt.ts`），不新增第三份实现。
 - **变更**：
   - **上传通道决策（乙：裸 body）**：S5 删掉手写 multipart 解析器之后，这里没有恢复它。`POST /skills-nexus/import` 直接读 **raw body**，文件名走 `x-nexus-filename` 头（或 `?name=`），选项走查询串。理由是单文件整传根本不需要解析器：`fetch(body: file)` 原样发字节，没有 boundary 扫描、没有头解析，路由就只是 `readBody` 的一层薄壳（上限 `MAX_PACKAGE_BYTES = 200MB`，即 §5 的量级，随通道一起回来；包自身的静态规则与体积上限仍由 `readZip` 把关）。**这是 §10.3 面板入口的传输选择，不是新增安装档位。**
   - **`stagePackage` 只吃路径**，所以 body 先落盘：`stageUpload` 用 `mkdtemp(NEXUS_HOME/upload-)` 建临时**目录**、文件按上传原名写进去，`finally` 里整目录删除（预览与正式两条路径都删）。目录负责唯一性、文件名保持原样，是因为**无标签包会按文件名推导条目名**——内部命名会把条目注册成 `upload-…-1730000000`（这条是测试逼出来的，见下）。
@@ -52,7 +52,7 @@
 
 **2026-10-02 · Changed · 面板 `add` 改为调用共享安装核心 `src/install.ts`：删掉 `routes.ts` 的 `installGitCore` 镜像，5 个 400 码从核心的失败码重建（首次补测）**
 
-- **背景**：设计稿 `docs/source-and-migration-design.md` §10.1 要求 `import` / `adopt` 由 CLI 与面板调用**同一实现**，并点名"当前 `installFromZip` 只被 `add-zip` 路由调用、CLI 无对应命令"正是两侧不一致的反例。S3a 已把 CLI 侧抽成 `src/install.ts`，但 `src/http/routes.ts` 里还留着同一段编排的第二份手写镜像（`installGitCore` + `GitInstallPlan`）：它会独立漂移，而下一步的 `import` / `adopt` 面板入口正要复用这条路径。本次就是把面板这半也收到同一核心上。
+- **背景**：设计稿 `docs/sources-and-packages.md` §10.1 要求 `import` / `adopt` 由 CLI 与面板调用**同一实现**，并点名"当前 `installFromZip` 只被 `add-zip` 路由调用、CLI 无对应命令"正是两侧不一致的反例。S3a 已把 CLI 侧抽成 `src/install.ts`，但 `src/http/routes.ts` 里还留着同一段编排的第二份手写镜像（`installGitCore` + `GitInstallPlan`）：它会独立漂移，而下一步的 `import` / `adopt` 面板入口正要复用这条路径。本次就是把面板这半也收到同一核心上。
 - **变更**：
   - **失败码显式化**：`GitInstallResult` 新增可选 `code?: GitInstallFailCode`（`'subdir-not-found' | 'dsh-plugin-repo' | 'no-skill-md' | 'no-installable-skills' | 'aborted'`），每个非 `installed` 的返回点各自标一个。**没有它就无法统一**——`status` 三态是压缩信息（三条 `failed` 路径塌成一个），光看状态无法把面板原先的 5 个码还原回去。CLI 侧读 `status` 的既有映射一字未改。
   - `src/http/routes.ts`：删 `installGitCore` 与 `GitInstallPlan`（净 −159 行），`add` 路由在 `accept()` 的 op 里调用 `installFromGit({ spec, gitSpec, subdir, skillName, path, name: undefined, subdirLeaf, yes, io })`，并把 `failed` / `skipped` 按 `code` 抛回 `HttpError(400, code, { name })`。**只读预检（`parseGitSpec` / `normalizeSubdir` / 名字推导 / 409 重复登记 / 409 碰撞）按原样留在路由里**——`installFromGit` 明确把预检留给调用方，受理前拒绝的语义不变。
@@ -66,7 +66,7 @@
 
 **2026-10-02 · Removed · 退役 zip：删 `add-zip` 路由与 `src/zip.ts` 的安装编排、移除 `source` 字段（`list` 载荷与面板同步改为 `hasGitSource`）**
 
-- **背景**：设计稿 `docs/source-and-migration-design.md` §8 阶段 3。S1 已把"能不能更新"的判据换成 `hasGitSource`、S3 已让 `import` 接管包入口，所以这一步是**纯减法**：摘掉"zip 作为安装方式"的最后一层，不该牵动任何行为。**旧 zip 条目无需任何数据迁移**——它们的 `gitUrl`/`ref`/`commit` 在安装时就是空的，删掉 `source` 后行为与"快照副本"（§2.1 形态 b）完全一致：`list` / `enable` / `disable` / `remove` 照常，`update` / `switch-version` 继续以 `not-a-git-clone` 明确拒绝。
+- **背景**：设计稿 `docs/sources-and-packages.md` §8 阶段 3。S1 已把"能不能更新"的判据换成 `hasGitSource`、S3 已让 `import` 接管包入口，所以这一步是**纯减法**：摘掉"zip 作为安装方式"的最后一层，不该牵动任何行为。**旧 zip 条目无需任何数据迁移**——它们的 `gitUrl`/`ref`/`commit` 在安装时就是空的，删掉 `source` 后行为与"快照副本"（§2.1 形态 b）完全一致：`list` / `enable` / `disable` / `remove` 照常，`update` / `switch-version` 继续以 `not-a-git-clone` 明确拒绝。
 - **变更**：
   - 删 `src/http/routes.ts` 的 `add-zip` 路由、手写 multipart 解析器（`multipartBoundary` / `extractMultipartFile`）与 `ZipError` → 400 的错误映射；路由表 12 → 11 条。`src/http/jobs.ts` 与 `src/client/api.ts` 的 `JobKind` 去掉 `'add-zip'`；客户端删 `addZip()` 与 `FormData` 请求体类型（客户端只剩 JSON 体）。
   - 删 `src/zip.ts` 的安装编排：`installFromZip` / `deriveEntryName` / `extractEntries` / `pathExists` / `MAX_ARCHIVE_BYTES`（HTTP 上传上限，随路由一起消失）以及 `ZipInstallOptions` / `ZipInstallResult`；`parseAndValidate` 不再返回 warnings。**保留 `readZip` / `createZip` / `ZipError` 与体积、条目上限常量**——它们已是包编解码器：`import` 读外部包时的静态加固（zip-slip、`:` 段、NUL、加密、zip64、三重上限）一字未改。
@@ -80,7 +80,7 @@
 
 **2026-10-02 · Added · `adopt` 命令：给"无 git 源"条目补身份（七步编排 + 失败整体回滚，命令面与四份补全同步）**
 
-- **背景**：设计稿 `docs/source-and-migration-design.md` §6/§10.1 的通道 D。快照条目（包导入落下的、旧 zip 装出来的、别人给的目录）永远不能 `update` / `switch-version`——它们的 `gitUrl` 是空的。上一轮的 `import` 只在**导入那一刻**能按标签重克隆；已经躺在机器上的冻结条目，唯一的转正动作就是 `adopt <name> --url <repo>`。§6 同时禁止 URL 猜测：身份必须由用户显式给出。
+- **背景**：设计稿 `docs/sources-and-packages.md` §6/§10.1 的通道 D。快照条目（包导入落下的、旧 zip 装出来的、别人给的目录）永远不能 `update` / `switch-version`——它们的 `gitUrl` 是空的。上一轮的 `import` 只在**导入那一刻**能按标签重克隆；已经躺在机器上的冻结条目，唯一的转正动作就是 `adopt <name> --url <repo>`。§6 同时禁止 URL 猜测：身份必须由用户显式给出。
 - **变更**：
   - 新增 `src/adopt.ts`（`adoptSkill`）：§6 的七步与 `switch-version` 同构——① 解析 `--url`/`--ref`（未给 ref 时照 `add` 的做法探测远端默认分支）并克隆到 `repos/.adopt-stage-<name>-<pid>-<ts>`；② 用**安装自己的发现规则**（`previewSkills`，规则一字未改）算出"这个源会链接出哪些名字"，与现有目录算出的集合比对，不一致默认拒绝；③ 现目录备份为 `repos/<path>.pre-adopt-<ts>`；④ 暂存目录就位；⑤ 先按归属删旧链接集、再按新发现建（单技能→条目名、多技能→frontmatter 名，与 `switch-version` 第 6 步同一套判据），**原本禁用的条目不会被静默启用**；⑥ 写回 `url/gitUrl/ref/commit/subdir` 并刷新 `updatedAt`；⑦ `--prune` 删备份，否则报出备份路径。
   - **失败整体回滚**：任一步失败 → 按归属卸掉当前链接 → 删掉新克隆 → 备份改名回 `repos/<path>` → 重建旧链接；回滚自身的错误 best-effort 吞掉（照 `rollbackSwitch`）。§9 的不变量"目录、链接、manifest 三者与操作前一致"由逐字节对照钉住。**manifest 写入之前失败绝不动 manifest；`--prune` 删备份失败也不回滚**——否则会造出"manifest 说有 git 源、目录却是旧快照"的分裂状态。
@@ -95,7 +95,7 @@
 
 **2026-10-02 · Added · `import` 命令：包 → 条目（优先按标签恢复远端，否则落快照并还原状态）**
 
-- **背景**：设计稿 `docs/source-and-migration-design.md` §4.2/§10.1/§10.3 里通道 C 的消费侧。它的价值全在标签：**有标签且远端可达时走 `installFromGit`**（与 `add` 同一条安装路径 → 真克隆、可更新、可切版本），否则落成快照；**裸包**（别人打的 zip）则靠剥壳扫描找到技能。§10.1 要求 CLI 与面板共用同一核心，因此全部逻辑在 `src/import.ts`，命令只是薄壳。
+- **背景**：设计稿 `docs/sources-and-packages.md` §4.2/§10.1/§10.3 里通道 C 的消费侧。它的价值全在标签：**有标签且远端可达时走 `installFromGit`**（与 `add` 同一条安装路径 → 真克隆、可更新、可切版本），否则落成快照；**裸包**（别人打的 zip）则靠剥壳扫描找到技能。§10.1 要求 CLI 与面板共用同一核心，因此全部逻辑在 `src/import.ts`，命令只是薄壳。
 - **变更**：
   - `src/import.ts`：`stagePackage`（zip → 临时目录展开、目录包就地读）/ `planStaged`（决策，零副作用）/ `importPackage`（规划 + 应用，返回 `{ plan, result? }`）。**剥壳扫描**：先按安装自己的三条规则判断根是否命中，未命中且根下**恰有一个子目录**就剥一层（≤3 层）——规则本身一字未改，`skills/alpha/SKILL.md` 剥 1 层、`export-2026/skills/alpha/SKILL.md` 剥 2 层。
   - **四态可达性**（§10.2）：`reachable` / `unreachable` / `timeout`（5s，**与失败分开**）/ `not-checked`；同一 remote 只探一次。
@@ -109,7 +109,7 @@
 
 **2026-10-02 · Changed · 抽出共享 git 安装核心 `src/install.ts`：`add` 的"克隆 → 归一化 → 注册 → 建链"逐字搬迁，行为等价**
 
-- **背景**：设计稿 `docs/source-and-migration-design.md` §10.1 要求 `import` / `adopt` 与既有安装走**同一条实现**——新的"按标签恢复远端"若另写一份克隆 + 注册 + 建链，本仓库就会立刻拥有**第三份**会各自漂移的实现（已有 CLI `src/cli/commands/add.ts` 与面板 `src/http/routes.ts:installGitCore` 两份镜像）。本次先把 CLI 侧那份抽成共享核心，`import` 直接复用。
+- **背景**：设计稿 `docs/sources-and-packages.md` §10.1 要求 `import` / `adopt` 与既有安装走**同一条实现**——新的"按标签恢复远端"若另写一份克隆 + 注册 + 建链，本仓库就会立刻拥有**第三份**会各自漂移的实现（已有 CLI `src/cli/commands/add.ts` 与面板 `src/http/routes.ts:installGitCore` 两份镜像）。本次先把 CLI 侧那份抽成共享核心，`import` 直接复用。
 - **变更**：新增 `src/install.ts` —— `installFromGit(params)` 即原 `src/cli/commands/add.ts` 的 `installOne` **逐字搬迁**（43 处 `io.emit`/stderr 字符串字面量逐一核对：值与顺序均一致；`nestedHint` / `hasNestedSkills` / `LARGE_COLLECTION_THRESHOLD` 同块搬迁且与 HEAD 逐字节相同）。`src/cli/commands/add.ts` 保留只读预检（`--subdir` 校验、默认分支探测、重复登记与碰撞检查）与按技能的文件锁，改调核心，并把结果映射回原来的 `AddResult`（`installed → added`，`skipped` / `failed` 透传）——输出与退出码逐字不变。
 - **返回形状**：`GitInstallResult = { status: 'installed' | 'skipped' | 'failed'; entry?: SkillEntry; links; normalized; clone }`。引入判别式是因为**跳过的两条路径**（DSH-plugin 包装确认被拒、大集合确认被拒）与**失败的三条路径**（`--subdir` 不是真实目录、仓库既非 SKILL.md 仓库也非 DSH 插件、未发现可安装技能）本就没有条目可返回；`clone` 保持必填（这些返回都发生在克隆成功之后，克隆/网络错误仍照原样抛出）。**没有新增任何失败模式。**
 - **`LARGE_COLLECTION_THRESHOLD` 由 `add.ts` 再导出**：`src/http/routes.ts` 从 `add.ts` 导入它，而本次不动路由文件（面板侧镜像留待退役阶段）；若改在 `add.ts` 内定义，`install.ts` 就会反向依赖自己的调用方。
@@ -132,7 +132,7 @@
 
 **2026-10-02 · Added · `export` 核心与 PKZip 写入器（来源与移植 §4.1/§5）：包 = 技能文件 + 来源标签；并引入 `ownership: 'external'` 标记（`remove` 不再删除非 nexus 所有的目录）**
 
-- **背景**：设计稿 `docs/source-and-migration-design.md` §4.1 把"把技能搬到另一台机器"定义为通道 C：包是**搬运容器**而非第二种安装格式——它必须携带**来源标签**（`url`/`gitUrl`/`ref`/`commit`/`subdir`、启用态与链接名），导入方才能优先按标签重新取货，把"永久冻结的副本"变成"可更新条目"。本提交落地产方（核心模块 + 编解码器），命令面留待下一提交。
+- **背景**：设计稿 `docs/sources-and-packages.md` §4.1 把"把技能搬到另一台机器"定义为通道 C：包是**搬运容器**而非第二种安装格式——它必须携带**来源标签**（`url`/`gitUrl`/`ref`/`commit`/`subdir`、启用态与链接名），导入方才能优先按标签重新取货，把"永久冻结的副本"变成"可更新条目"。本提交落地产方（核心模块 + 编解码器），命令面留待下一提交。
 - **变更**：
   - 新增 `src/export.ts`（`exportSkills`）：按 `--all` 或显式名字选取条目 → 逐条写入 `skills/<条目名>/…` 与 `nexus-package.json`；输出以 `.zip` 结尾走归档，否则写目录树（两种形态共用同一标签与载荷）。
   - **标签结构（v1）**：`schema` / `version` / `exportedAt` / `generator` / `skipped[]` / `entries[]`，每条为 `{ name, url, gitUrl, ref, commit, subdir?, enabled, skills[] }`，`skills[]` 记 `root`（包内相对路径）、`name`、`description`、`links[]`。`links` 按**链接目标归属**分配（复用 `entryLinks` 的同一 `pointsInto` 判据），因此集合仓库里未链接的兄弟技能不会被算到别人头上，手工别名也会被原样带出。
@@ -146,7 +146,7 @@
 
 **2026-10-02 · Changed · "无 git 源"判据抽成 `hasGitSource`（7 处替换），错误码 `zip-not-updatable` → `not-a-git-clone`；为退役 `source` 字段铺路（行为等价）**
 
-- **背景**：`entry.source === 'zip'` 这一判据此前散在 7 处——`health.ts` 的 check-updates 分流、`switch-version.ts` 的核心守卫、`doctor.ts` 三处（manifest 形状检查的宽松分支 / missing-target 的修复提示 / git-sanity 的 clone 计数）、`http/routes.ts` 两处预检（update 与 switch-version）。它把"能不能 update / switch-version"绑在"来源是不是 zip"上；而 zip 条目与 git 条目的**唯一实质差别是有没有 `gitUrl`**（`src/zip.ts` 安装时写入空 `gitUrl`/`ref`/`commit`）。设计稿 `docs/source-and-migration-design.md` §2 因此把"有 git 源"定为唯一判据，本次先落地判据本身（该稿 §8 阶段 2 的第一步），为后续 `export`/`import`/`adopt` 与最终删除 `source` 字段铺路。
+- **背景**：`entry.source === 'zip'` 这一判据此前散在 7 处——`health.ts` 的 check-updates 分流、`switch-version.ts` 的核心守卫、`doctor.ts` 三处（manifest 形状检查的宽松分支 / missing-target 的修复提示 / git-sanity 的 clone 计数）、`http/routes.ts` 两处预检（update 与 switch-version）。它把"能不能 update / switch-version"绑在"来源是不是 zip"上；而 zip 条目与 git 条目的**唯一实质差别是有没有 `gitUrl`**（`src/zip.ts` 安装时写入空 `gitUrl`/`ref`/`commit`）。设计稿 `docs/sources-and-packages.md` §2 因此把"有 git 源"定为唯一判据，本次先落地判据本身（该稿 §8 阶段 2 的第一步），为后续 `export`/`import`/`adopt` 与最终删除 `source` 字段铺路。
 - **变更**：`src/manifest.ts` 新增 `hasGitSource(entry)`（`gitUrl.length > 0`）作为判据的单一来源；7 处替换分别为——`health.ts` 的 `if (e.source === 'zip' || e.gitUrl.length === 0)` → `if (!hasGitSource(e))`（等价化简）、`switch-version.ts:110` 的核心守卫 → `if (!hasGitSource(entry)) throw new NotAGitCloneError(name)`、`doctor.ts` 的 `isWellFormedEntry` 宽松分支改由 `gitUrl` 是否为空判定（而非 `source: 'zip'`）、`doctor.ts` 的 missing-target 修复提示改为按 `gitUrl` 分流（无 git 源者提示 remove 而非 update）、`doctor.ts` 的 git-sanity 计数改为 `entries.filter(hasGitSource)`、`http/routes.ts` 的两处预检 → `if (!hasGitSource(entry)) throw new HttpError(400, 'not-a-git-clone', { name })`。错误类 `ZipNotUpdatableError` → `NotAGitCloneError`（消息改为 `has no git source — version switching requires a git clone`），HTTP 400 码 `zip-not-updatable` → `not-a-git-clone` 并**新增负载 `{ name }`**（此前无负载），`src/client/panel.tsx` 的 errorText 同步改文案。
 - **行为等价性（本提交的核心论证）**：所有真实 zip 条目（由 `installFromZip` 写入）本就有空 `gitUrl`，故新判据在真实数据上与原判据**逐条等价**；唯一差异是"手工写入的、`gitUrl` 为空且无 `source` 字段"的条目——它们此前被误当作 git 条目（doctor 报 missing-git、`update` 会对非 git 目录发起 git 操作），现在被正确归为无 git 源条目并明确拒绝。这正是设计稿要求"判据替换先行、行为等价"的原因：阶段 3 删除 `source` 字段时将是纯减法。
 - **不做**：`source` 字段保留（`src/types.ts`）；`add-zip` 路由、`src/zip.ts` 的安装编排、`list` 载荷中的 `source` 字段与面板 `zip` 徽标**均未改动**——全部留给退役阶段 3。届时**无需数据迁移**：旧条目的 `gitUrl` 已为空，行为天然等同"快照副本"。

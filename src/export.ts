@@ -11,8 +11,8 @@ import type { SkillEntry } from './types.js'
 import type { ZipInputFile } from './zip.js'
 
 /**
- * `export` — channel C of the source & migration design
- * (`docs/source-and-migration-design.md` §4.1/§5): turn one or more registered
+ * `export` — channel C of the sources & packages design
+ * (`docs/sources-and-packages.md`): turn one or more registered
  * entries into a portable package.
  *
  * A package is a transport container, **not** a second install format. It

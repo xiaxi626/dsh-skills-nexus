@@ -19,8 +19,8 @@ import type { NexusPackage, PackageEntry, PackageSkipped } from './export.js'
 import type { ParsedSkill } from './resolve.js'
 
 /**
- * `import` — channel C of the source & migration design
- * (`docs/source-and-migration-design.md` §4.2/§5/§10.2): rebuild entries from a
+ * `import` — channel C of the sources & packages design
+ * (`docs/sources-and-packages.md`): rebuild entries from a
  * package that `export` produced, or from a package somebody else did.
  *
  * What makes this more than "unzip into repos/" is the label. When the package

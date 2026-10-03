@@ -27,23 +27,23 @@ import type { ParsedSkill } from './resolve.js'
 import type { SkillEntry } from './types.js'
 
 /**
- * `adopt` — channel D of the source & migration design
- * (`docs/source-and-migration-design.md` §6): give an entry that has no git
+ * `adopt` — channel D of the sources & packages design
+ * (`docs/sources-and-packages.md`): give an entry that has no git
  * source an identity, so it stops being frozen. A snapshot that came off a
  * package, a directory somebody handed over, a legacy zip install — all of them
  * become ordinary updatable entries, indistinguishable from one `add` created.
  *
- * Seven steps, isomorphic with `switch-version` (§6): clone the new source into
+ * Seven steps, isomorphic with `switch-version`: clone the new source into
  * a staging directory under `repos/` → compare what it yields with what the
  * entry exposes today → back the current directory up as
  * `repos/<path>.pre-adopt-<ts>` → move the stage into place → rebuild the link
  * set → write `url/gitUrl/ref/commit/subdir` into the manifest → prune the
  * backup, or report where it is.
  *
- * §10.1 requires CLI and panel to call one implementation, so everything lives
+ * CLI and panel call one implementation, so everything lives
  * here and `src/cli/commands/adopt.ts` is a thin shell over it.
  *
- * Three deltas from the §6 sketch, each of them keeping an existing invariant
+ * Three deltas from the design, each of them keeping an existing invariant
  * rather than adding a feature:
  *
  *   - **the new clone is normalized before it lands.** The checkout holds the
@@ -55,11 +55,11 @@ import type { SkillEntry } from './types.js'
  *     at a name the new source wants is not something to discover halfway
  *     through a link rebuild.
  *   - **`ownership: 'external'` entries are refused outright.** They only link
- *     a directory the user owns, and §2.1's hard invariant (`external ⇒
+ *     a directory the user owns, and the hard invariant (`external ⇒
  *     gitUrl === ''`) exists so nexus never touches that directory. Adopting
  *     one would have to replace it.
  *
- * Everything else follows §6 literally: the entry keeps its name and its
+ * Everything else follows the design literally: the entry keeps its name and its
  * `path`, no URL is ever guessed (the caller must pass `--url`), and a failure
  * at any step restores "directory, links, manifest" to exactly what they were
  * — best-effort, swallowing the rollback's own errors the way
