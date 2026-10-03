@@ -26,7 +26,8 @@ export interface RouteRequest {
 /** Minimal response surface (mirrors the Phase 0 ping probe's RouteResponse). */
 export interface RouteResponse {
   writeHead(status: number, headers: Record<string, string>): unknown
-  end(body?: string): unknown
+  /** The host passes a raw Node ServerResponse; `end` accepts Buffer natively. */
+  end(body?: string | Buffer): unknown
 }
 
 /** One `webServer.register` route spec. */

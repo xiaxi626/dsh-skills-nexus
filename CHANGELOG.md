@@ -4,6 +4,30 @@
 
 ## [Unreleased]
 
+**2026-10-03 · Added · export 面板化：同步 POST /export 路由 + 面板「export all」按钮，路径以可复制 notice 展示**
+
+- **背景**：export 是 CLI 已有、面板缺失的最后一个通道（channel C）。第 3 轮探针已证实 host 能原样透传 Buffer / 大响应，内容类型不被改写——export 面板化没有 transport 障碍。设计按 assessment §4.5 的保守形态：路径文本，不做下载按钮。
+- **变更**：
+  - `src/http/types.ts`：`RouteResponse.end` 的 `body` 参数从 `string` 放宽为 `string | Buffer`（镜像类型对齐 Node 原生 ServerResponse；探针已验证 host 行为）。
+  - `src/http/routes.ts`：新增 `POST /export`（同步、loopback、same-origin）。接受 `{ names?: string[], all?: boolean }`，把 zip 写到 `<NEXUS_HOME>/exports/`（按 CLI 同名默认），返回 `200 { data: ExportResult, hotReload: 'done' }`。`ExportError` 映射为 `400 export-failed`。zip 内容不包含 `.git`，不携带凭证。
+  - `src/client/api.ts`：`NexusApi` 新增 `export(body: ExportBody): Promise<Envelope<ExportResult>>`；新增 `ExportResult` / `ExportBody` 类型。
+  - `src/client/panel.tsx`：底部操作行新增「export all」按钮（`exportBusy` 态）。成功后以 notice 展示服务端正路径（可复制）+ `skipped[]` 逐条 ⚠ 说明。
+  - `docs/sources-and-packages.md` / `zh-CN`：Panel mirror 表 export 行从「CLI only」改为面板位置说明。
+- **不做**：不做下载按钮（§4.4：路径文本是当前形态）；不做 `POST /export` 的 `confirm` 门（只读核心，zip 是唯一写入）；不做 per-entry export（`--all` 是唯一按钮，选中导出留给 CLI）。
+- **测试**：新增 **10 条**。`test/api.test.ts` +8：
+  - 405 拒绝 GET
+  - 403 拒绝跨 origin
+  - 403 拒绝非 loopback
+  - 400 `export-failed` 空 manifest
+  - 200 全量导出两条目为 zip（文件落盘验证）
+  - 200 全量导出跳过 external 条目并记录 skipped
+  - 400 按名导出未知 skill
+  - 200 按名导出单条目 zip
+  `test/client-api.test.ts` +1：export 请求形状（POST JSON `{ all: true }`）。
+  `test/panel-render.test.ts` +1：export-all 按钮在静态标记中。
+- **验证方式**：六步门禁全 0。`npm test`：517 通过 · 0 失败 · 3 跳过（+10 吻合）。
+- **如何辨识改动**：改 `src/http/types.ts`（end 类型放宽）、`src/http/routes.ts`（exportRoute + 注册）、`src/client/api.ts`（ExportBody / ExportResult / export 方法）、`src/client/panel.tsx`（exportBusy state + onExport handler + 按钮）、`test/{api,client-api,panel-render}.test.ts`、`README.md` / `README_CN.md`（面板能力清单 + POST 路由列表）、`docs/sources-and-packages.md` / `zh-CN`（Panel mirror 表）、`lib/` 重建产物。
+
 **2026-10-03 · Added · adopt 行补 subdir 输入与备份路径 notice；errorText 补「改用 CLI 加 `--force`」兜底文案；CLI↔路由同形测试扩 --name 用例并断言 path 与 name 解耦**
 
 - **背景**：面板 adopt 缺少 subdir 字段（路由与 `AdoptBody` 契约早已支持），备份路径只在 job 输出的一行字里，用户错过就找不到旧目录；`skill-mismatch` 与 `already-has-source` 两个 409 在面板没有逃生通道（面板结构性不可达 `--force`），只能让用户回 CLI。

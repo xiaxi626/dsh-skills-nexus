@@ -174,6 +174,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   const [addRef, setAddRef] = useState('')
   const [addSubdir, setAddSubdir] = useState('')
   const [checking, setChecking] = useState(false)
+  const [exportBusy, setExportBusy] = useState(false)
   const [refInputs, setRefInputs] = useState<Record<string, string>>({})
   const [adoptInputs, setAdoptInputs] = useState<Record<string, string>>({})
   const [adoptSubdirInputs, setAdoptSubdirInputs] = useState<Record<string, string>>({})
@@ -372,6 +373,27 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
         await refresh()
       } finally {
         setChecking(false)
+      }
+    })
+  }
+
+  /**
+   * Export every managed entry to a zip on the server (channel C). The result
+   * is a path, not a download — the notice below shows it as copyable text,
+   * and `skipped[]` gets the same ⚠ treatment as the CLI's stderr.
+   */
+  const onExport = (): void => {
+    void run('export', async () => {
+      setExportBusy(true)
+      try {
+        const env = await api.export({ all: true })
+        const r = env.data
+        const skipped = r.skipped.map((s) => `⚠ skipped "${s.name}": ${s.reason}`)
+        const line = `exported ${r.entries} entr${r.entries === 1 ? 'y' : 'ies'}, ` +
+          `${r.files} file${r.files === 1 ? '' : 's'} → ${r.out}`
+        setNotice([line, ...skipped].join('\n'))
+      } finally {
+        setExportBusy(false)
       }
     })
   }
@@ -655,6 +677,9 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
         </button>
         <button type="button" onClick={onCheckUpdates} disabled={checking}>
           {checking ? 'checking…' : 'check updates'}
+        </button>
+        <button type="button" onClick={onExport} disabled={exportBusy}>
+          {exportBusy ? 'exporting…' : 'export all'}
         </button>
       </div>
 

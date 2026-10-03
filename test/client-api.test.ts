@@ -151,6 +151,19 @@ test('add posts the url body as JSON with the content-type header', async () => 
   })
 })
 
+test('export posts the body as JSON', async () => {
+  const { fetchFn, calls } = fakeFetch([{
+    status: 200,
+    body: { data: { out: '/x/y.zip', format: 'zip', entries: 1, files: 1, skipped: [] } },
+  }])
+  await createApi(fetchFn).export({ all: true })
+  const call = calls[0]!
+  assert.equal(call.input, '/skills-nexus/export')
+  assert.equal(call.init?.method, 'POST')
+  assert.equal(call.init?.headers?.['content-type'], 'application/json')
+  assert.deepEqual(JSON.parse(call.init?.body as string), { all: true })
+})
+
 test('add omits optional fields the caller did not provide', async () => {
   // The panel's own payload shape: stripped values must not ride along as
   // empty strings or undefined keys.

@@ -29,6 +29,7 @@
 
 import { stat, mkdir, rm, writeFile, mkdtemp } from 'node:fs/promises'
 import { join } from 'node:path'
+import { ExportError, exportSkills } from '../export.js'
 import { HttpError, PLUGIN_ID } from './types.js'
 import type { RouteRequest, RouteResponse, RouteSpec } from './types.js'
 import {
@@ -749,6 +750,58 @@ async function jobCancel(req: RouteRequest, res: RouteResponse): Promise<void> {
 }
 
 /* ------------------------------------------------------------------ */
+/* Export (channel C — package to zip, sync, loopback-only)             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * POST /export — `{ names?: string[], all?: boolean }` → `200 ExportResult`.
+ *
+ * Writes a zip under `<NEXUS_HOME>/exports/` and returns the absolute path in
+ * the envelope. The panel shows that path as a copyable notice; the file stays
+ * on the server (§4.4 of the field-coverage assessment: a download button is
+ * a separate concern). Loopback + same-origin: exporting writes a file to
+ * disk, so it is a mutation for the §12.1 guard.
+ *
+ * Runs synchronously — the core is read-only against nexus state and the zip
+ * is a single `writeFile`, so there is no mid-flight confirmation to gate.
+ * `skipped[]` is part of the result: `--all` deliberately leaves external
+ * entries out, and the panel must say so.
+ */
+async function exportRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
+  if (!requireMethod(req, res, 'POST')) return
+  if (!requireMutationSafe(req, res)) return
+  if (!isLoopback(req)) {
+    sendError(res, 403, 'loopback only')
+    return
+  }
+  const body = await readJson(req)
+  const all = boolField(body, 'all') === true
+  const names = Array.isArray(body.names)
+    ? body.names.filter((n): n is string => typeof n === 'string')
+    : undefined
+
+  const out = join(
+    NEXUS_HOME,
+    'exports',
+    all ? `nexus-export-${stamp()}.zip` : names?.length === 1 ? `${names[0]}.zip` : 'nexus-export.zip',
+  )
+  try {
+    const result = await exportSkills({ names, all, out })
+    sendData(res, result, 'done')
+  } catch (err) {
+    if (err instanceof ExportError) throw new HttpError(400, 'export-failed', { message: err.message })
+    throw err
+  }
+}
+
+/** `YYYYMMDD` in local time — same stamp as the CLI export default. */
+function stamp(): string {
+  const now = new Date()
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`
+}
+
+/* ------------------------------------------------------------------ */
 /* Confirmation gate (§7.1 约定 4 / §12.2)                             */
 /* ------------------------------------------------------------------ */
 
@@ -908,6 +961,7 @@ export function createNexusRoutes(): RouteSpec[] {
     { kind: 'exact', path: '/skills-nexus/check-updates', handler: wrap(checkUpdatesRoute) },
     { kind: 'exact', path: '/skills-nexus/switch-version', handler: wrap(switchVersionRoute) },
     { kind: 'exact', path: '/skills-nexus/toggle', handler: wrap(toggleRoute) },
+    { kind: 'exact', path: '/skills-nexus/export', handler: wrap(exportRoute) },
     { kind: 'exact', path: '/skills-nexus/job', handler: wrap(jobStatus) },
     { kind: 'exact', path: '/skills-nexus/job/cancel', handler: wrap(jobCancel) },
   ]

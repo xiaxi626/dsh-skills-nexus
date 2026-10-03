@@ -147,6 +147,22 @@ export interface ImportPlan {
     peel: number;
     files: number;
 }
+/** Result of the synchronous `POST /export` route (channel C). */
+export interface ExportResult {
+    out: string;
+    format: 'zip' | 'directory';
+    entries: number;
+    files: number;
+    skipped: Array<{
+        name: string;
+        reason: string;
+    }>;
+}
+/** Body of `POST /export`: either name a set or export every managed entry. */
+export interface ExportBody {
+    names?: string[];
+    all?: boolean;
+}
 export interface ImportPlanEntry {
     name: string;
     root: string;
@@ -223,6 +239,7 @@ export interface NexusApi {
         id: string;
         status: JobStatus;
     }>>;
+    export(body: ExportBody): Promise<Envelope<ExportResult>>;
 }
 /**
  * Build the api object over an injectable transport. The default binds the

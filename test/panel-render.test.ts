@@ -46,6 +46,7 @@ function mountApi(): NexusApi {
     toggle: notCalled('toggle'),
     job: notCalled('job'),
     cancelJob: notCalled('cancelJob'),
+    export: notCalled('export'),
   } as unknown as NexusApi
 }
 
@@ -59,6 +60,11 @@ test('the add form offers collapsed optional name / ref / subdir channels', () =
   assert.match(html, /placeholder="entry name override \(default: subdir leaf or repo slug\)"/)
   assert.match(html, /placeholder="branch\/tag \(a #ref in the url wins\)"/)
   assert.match(html, /placeholder="skills\/foo \(a repository-relative directory\)"/)
+})
+
+test('the panel renders the export-all button (channel C)', () => {
+  const html = renderToStaticMarkup(createElement(NexusPanel, { api: mountApi() }))
+  assert.match(html, />\s*export all\s*</)
 })
 
 test('the panel renders the package import row (§10.3)', () => {

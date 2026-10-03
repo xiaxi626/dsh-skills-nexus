@@ -158,11 +158,12 @@ dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo --subdir skill
 - **导入包**——选好文件后先看逐条目判定（与 `import --dry-run` **同一套措辞**：真克隆还是落快照、以及为什么），确认后才真正导入。上传走**裸 body**、文件名放在旁边，没有 multipart 端点；
 - 给快照**接上来源**——`adopt` 动作只出现在无 git 源的条目上，仓库 url 由你填（永不猜测）；
 - 启用 / 禁用、更新、切换到其他 ref、删除条目——破坏性操作会展示服务端的后果说明，确认接受后才带确认重发；
+- **导出全部条目为 zip**——面板以服务端正路径作为可复制的 notice 展示，文件留在服务器上（没有下载按钮）；
 - 观看长操作（克隆 / 导入 / adopt / 更新 / 切换）流式进度并带取消按钮，以及对全部条目检查更新。
 
 **热加载。** 链接变化由官方 filesystem provider 的 watcher 拾取，面板操作在稳定窗口内即对运行中的宿主生效——无需重启。宿主未启用 watcher 时，面板会明说该变更在下次宿主启动时生效。
 
-**HTTP 接口（内部）。** 面板与 `/skills-nexus/*` 路由通信——GET 为 ping / list / doctor / job 轮询；POST 为 add / import / adopt / remove / update / check-updates / switch-version / toggle / job cancel。成功返回 `{ data, hotReload }`，长操作以 `202 { data: { jobId } }` 受理，所有变更路由均做同源校验（remove 额外仅接受 loopback）。这些路由是面板自身的管道——**不**属于[在 nexus 之上构建](docs/build-on-nexus.zh-CN.md)承诺的稳定机器接口；工具开发者请继续 shell out 调 CLI。
+**HTTP 接口（内部）。** 面板与 `/skills-nexus/*` 路由通信——GET 为 ping / list / doctor / job 轮询；POST 为 add / import / adopt / remove / update / check-updates / switch-version / toggle / export / job cancel。成功返回 `{ data, hotReload }`，长操作以 `202 { data: { jobId } }` 受理，所有变更路由均做同源校验（remove 额外仅接受 loopback）。这些路由是面板自身的管道——**不**属于[在 nexus 之上构建](docs/build-on-nexus.zh-CN.md)承诺的稳定机器接口；工具开发者请继续 shell out 调 CLI。
 
 ## Shell 补全
 

@@ -116,7 +116,7 @@ async function call(path: string, init: CallInit = {}): Promise<CallResult> {
       Object.assign(captured.headers, headers)
     },
     end(chunk) {
-      captured.raw = chunk ?? ''
+      captured.raw = chunk === undefined ? '' : String(chunk)
     },
   }
 
@@ -770,9 +770,9 @@ test('the add-zip route is gone: zip is not an installation method any more', ()
     'no route may answer /skills-nexus/add-zip',
   )
   // The package channel took that row over with exactly two routes (import and
-  // the adopt action), so the table is 11 + 2 — and the upload path itself is a
-  // raw body, not a restored multipart endpoint.
-  assert.equal(table.length, 13, 'the §7.1 table plus the two §10.3 routes')
+  // the adopt action), and export adds one more — so the table is 11 + 2 + 1.
+  // The upload path itself is a raw body, not a restored multipart endpoint.
+  assert.equal(table.length, 14, 'the §7.1 table plus import/adopt/export')
   assert.deepEqual(
     table.filter((s) => s.path.startsWith('/skills-nexus/import')).map((s) => s.path),
     ['/skills-nexus/import'],
@@ -1065,4 +1065,111 @@ test('the job release callback runs exactly once after a failure', async () => {
   assert.equal(settled.status, 'error')
   assert.equal(settled.error, 'boom')
   assert.equal(released, 1)
+})
+
+/* ------------------------------------------------------------------ */
+/* POST /export                                                         */
+/* ------------------------------------------------------------------ */
+
+test('export rejects GET (405)', async () => {
+  const res = await call('/skills-nexus/export')
+  assert.equal(res.status, 405)
+})
+
+test('export rejects cross-origin (403)', async () => {
+  const res = await call('/skills-nexus/export', {
+    method: 'POST',
+    headers: { origin: 'https://evil.com' },
+    body: JSON.stringify({ all: true }),
+  })
+  assert.equal(res.status, 403)
+})
+
+test('export rejects non-loopback (403)', async () => {
+  const res = await call('/skills-nexus/export', {
+    method: 'POST',
+    body: JSON.stringify({ all: true }),
+    remoteAddress: '192.168.1.2',
+  })
+  assert.equal(res.status, 403)
+})
+
+test('export all with an empty manifest answers 400 export-failed', async () => {
+  await clearEntries()
+  const res = await call('/skills-nexus/export', {
+    method: 'POST',
+    body: JSON.stringify({ all: true }),
+  })
+  assert.equal(res.status, 400)
+  assert.equal(errorsOf(res).error, 'export-failed')
+})
+
+test('export all packages managed entries into a zip under exports/', async () => {
+  await clearEntries()
+  await seedClone('exp-a')
+  await seedClone('exp-b')
+
+  const res = await call('/skills-nexus/export', {
+    method: 'POST',
+    body: JSON.stringify({ all: true }),
+  })
+  assert.equal(res.status, 200)
+  const data = dataOf<{ out: string; format: string; entries: number; files: number; skipped: unknown[] }>(res)
+  assert.equal(data.entries, 2)
+  assert.equal(data.files, 2) // one SKILL.md per entry
+  assert.equal(data.format, 'zip')
+  assert.match(data.out, /nexus-export-\d{8}\.zip$/)
+  assert.ok(await exists(data.out), 'zip file exists on disk')
+  assert.equal(data.skipped.length, 0)
+})
+
+test('export all skips external entries and records them in skipped', async () => {
+  await clearEntries()
+  await seedClone('exp-git')
+  // external: link-only, marked by ownership — the exporter must not copy it.
+  await manifest.addEntry({
+    name: 'exp-ext',
+    url: '/home/user/custom',
+    gitUrl: '',
+    ref: '',
+    path: '',
+    ownership: 'external',
+    addedAt: new Date().toISOString(),
+  })
+
+  const res = await call('/skills-nexus/export', {
+    method: 'POST',
+    body: JSON.stringify({ all: true }),
+  })
+  assert.equal(res.status, 200)
+  const data = dataOf<{ entries: number; skipped: Array<{ name: string; reason: string }> }>(res)
+  assert.equal(data.entries, 1)
+  assert.equal(data.skipped.length, 1)
+  assert.equal(data.skipped[0]?.name, 'exp-ext')
+  assert.match(data.skipped[0]?.reason ?? '', /external/)
+})
+
+test('export by name rejects an unknown skill', async () => {
+  await clearEntries()
+  const res = await call('/skills-nexus/export', {
+    method: 'POST',
+    body: JSON.stringify({ names: ['no-such-skill'] }),
+  })
+  assert.equal(res.status, 400)
+  assert.equal(errorsOf(res).error, 'export-failed')
+})
+
+test('export by name writes a single-entry zip', async () => {
+  await clearEntries()
+  await seedClone('exp-single')
+  const res = await call('/skills-nexus/export', {
+    method: 'POST',
+    body: JSON.stringify({ names: ['exp-single'] }),
+  })
+  assert.equal(res.status, 200)
+  const data = dataOf<{ out: string; entries: number; files: number }>(res)
+  assert.equal(data.entries, 1)
+  assert.equal(data.files, 1)
+  assert.match(data.out, /exp-single\.zip$/)
+  assert.ok(await exists(data.out))
 })

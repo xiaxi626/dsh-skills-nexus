@@ -169,6 +169,21 @@ export interface ImportPlan {
   files: number
 }
 
+/** Result of the synchronous `POST /export` route (channel C). */
+export interface ExportResult {
+  out: string
+  format: 'zip' | 'directory'
+  entries: number
+  files: number
+  skipped: Array<{ name: string; reason: string }>
+}
+
+/** Body of `POST /export`: either name a set or export every managed entry. */
+export interface ExportBody {
+  names?: string[]
+  all?: boolean
+}
+
 export interface ImportPlanEntry {
   name: string
   root: string
@@ -211,6 +226,7 @@ export interface NexusApi {
   toggle(name: string, enabled: boolean): Promise<Envelope<{ name: string; enabled: boolean; links: Array<{ linkName: string; enabled: boolean }> }>>
   job(id: string): Promise<Envelope<{ job: Job }>>
   cancelJob(id: string): Promise<Envelope<{ id: string; status: JobStatus }>>
+  export(body: ExportBody): Promise<Envelope<ExportResult>>
 }
 
 async function request<T>(fetchImpl: ApiFetch, path: string, init?: ApiFetchInit): Promise<Envelope<T>> {
@@ -297,6 +313,7 @@ export function createApi(fetchImpl: ApiFetch = (input, init) => fetch(input, in
     toggle: (name, enabled) => postJson(fetchImpl, '/skills-nexus/toggle', { name, enabled }),
     job: (id) => request(fetchImpl, `/skills-nexus/job?id=${encodeURIComponent(id)}`),
     cancelJob: (id) => postJson(fetchImpl, '/skills-nexus/job/cancel', { id }),
+    export: (body) => postJson(fetchImpl, '/skills-nexus/export', body as unknown as Record<string, unknown>),
   }
 }
 

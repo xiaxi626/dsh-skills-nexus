@@ -249,6 +249,8 @@ From the panel you can:
 - enable / disable, update, pin to another ref, and remove entries —
   destructive actions show the server's consequence wording and only retry
   with confirmation after you accept;
+- export every managed entry to a zip — the panel shows the server-side path
+  as a copyable notice; the file stays on the server (no download button);
 - watch long operations (clone / import / adopt / update / switch) stream their
   progress with a cancel button, and check for updates across all entries.
 
@@ -260,7 +262,7 @@ host start.
 
 **HTTP surface (internal).** The panel talks to `/skills-nexus/*` routes —
 ping / list / doctor / job polling on GET; add / import / adopt / remove /
-update / check-updates / switch-version / toggle / job cancel on POST. Success
+update / check-updates / switch-version / toggle / export / job cancel on POST. Success
 answers `{ data, hotReload }`, long operations are accepted as
 `202 { data: { jobId } }`, and every mutation is same-origin-checked (remove
 additionally accepts loopback only). These routes are the panel's own
