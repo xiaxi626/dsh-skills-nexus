@@ -265,5 +265,5 @@ Settings 面板镜像命令面：
 | 命令 | 面板位置 | 备注 |
 |---|---|---|
 | `import` | "import package" 行：选文件 → `--dry-run` 预览（四态 + 候选根）→ 确认导入 | 预览显示"可更新 / 快照"的区别 |
-| `adopt` | 每条目"attach source"动作 | 仅在无 git 源条目上出现 |
-| `export` | 仅 CLI（暂无面板 UI） | |
+| `adopt` | 每条目"attach source"动作（url + 可选 subdir） | 仅在无 git 源条目上出现 |
+| `export` | 仅 CLI | 面板路由须先验证 host 能透传二进制（见 [§4.3 export 的旁路通道](#43-export-的旁路通道)） |

@@ -4,6 +4,28 @@
 
 ## [Unreleased]
 
+**2026-10-03 · Added · adopt 行补 subdir 输入与备份路径 notice；errorText 补「改用 CLI 加 `--force`」兜底文案；CLI↔路由同形测试扩 --name 用例并断言 path 与 name 解耦**
+
+- **背景**：面板 adopt 缺少 subdir 字段（路由与 `AdoptBody` 契约早已支持），备份路径只在 job 输出的一行字里，用户错过就找不到旧目录；`skill-mismatch` 与 `already-has-source` 两个 409 在面板没有逃生通道（面板结构性不可达 `--force`），只能让用户回 CLI。
+- **变更**：
+  - `src/client/panel.tsx`：
+    - `errorText` 新增 `already-has-source`（面板按钮只在无 git 源条目上出现，409 属 race / stale-list）与 `skill-mismatch` 两条文案，均指向「改用 CLI 加 `--force`」。函数改为导出，便于纯映射单测。
+    - `track` 对 `done` job 调用 `adoptBackupNotice`，从 job 输出中提取 `previous directory kept as <path>` 这一行并提升为面板 notice；文案对齐 CLI 的建议（`delete it once this source looks right; doctor lists it until then`）。
+    - adopt 区域加 `subdir` 输入行，placeholder 为 `optional, e.g. skills/foo`；成功后 url 与 subdir 两输入同时复位。新增 `adoptSubdirInputs` state，不动 `api` 惰性初始化。
+    - `EntryCard` 新增 `adoptSubdirValue` / `onAdoptSubdirChange` props，调用点同步传递。
+  - `test/cli-plugin-parity.test.ts`：既有 add 同形骨架加入 `--name`（CLI）与 `name`（路由），并新增 4 条断言：
+    - `path` 不包含名字（`doesNotMatch(/named-cli/)` / `doesNotMatch(/named-api/)`）
+    - `path` 仍是 repo slug（`match(/src-add-cli/)` / `match(/src-add-api/)`）
+    - 链接名不受 name 影响（仍然是 alpha-add-cli / beta-add-cli）
+- **不做**：不为 adopt 加 `ref` / `force` / `prune` 控件（超出范围）；不开始 export 面板化（先探针 host 二进制透传）；不处理 lint unused-directive warning（独立遗留）。
+- **测试**：`test/panel-render.test.ts` +4：
+  - adopt subdir 输入在静态标记中且值回环
+  - errorText 对 `skill-mismatch` / `already-has-source` 均包含 `--force`
+  - `adoptBackupNotice` 能从 job 输出中提取路径并转化为 notice
+  - `cli-plugin-parity` 改写既有用例，新增 4 条 path/name 解耦断言。
+- **验证方式**：本轮门禁 `typecheck` / `lint`（0 error；既有 warning）/ `test:build` / `build` / `build:client` / `npm test`（507 通过 · 0 失败 · 3 跳过）退出码全 0。
+- **如何辨识改动**：改 `src/client/panel.tsx`（errorText / adoptBackupNotice / EntryCard props / adopt subdir 输入 + 复位）、`test/panel-render.test.ts`（+4 条）、`test/cli-plugin-parity.test.ts`（--name + path 断言）、`docs/sources-and-packages.md` / `zh-CN`（Panel mirror 表 adopt 与 export 行）与 `lib/` 重建产物。
+
 **2026-10-03 · Added · 面板 `add` 表单补齐 CLI 已有的三个输入通道：`name`（条目名覆盖）/ `ref` / `subdir`；注册名按 CLI 的 `??` 链重算，clone 目录不跟随名字**
 
 - **背景**：`docs/panel-field-coverage-assessment.zh-CN.md` 的核查确认面板 add 只发 `{ url, confirm: true }`，而 CLI add 早有 `--name` / `--ref` / `--subdir`；更关键的是路由在 preflight 里按 `sanitizeName(subdirLeaf ?? repoBase)` 推导注册名，与 CLI 的 `sanitizeName(name ?? subdirLeaf ?? repoBase)`（`src/cli/commands/add.ts`）在同一个函数上分叉——面板用户给 monorepo 子目录取短名、指定分支或子目次都只能回 CLI。原方案以为 `AddBody` 字段齐全、只需把 `installFromGit` 的 `name: undefined` 改成读 body；核实后两点都不成立：`AddBody` 没有 `name` 字段，而 `installFromGit` 的 `name` 入参只用于一行中文提示、根本不参与命名，改它等于没改。

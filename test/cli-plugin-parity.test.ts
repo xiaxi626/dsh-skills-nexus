@@ -373,12 +373,14 @@ test('add: CLI and the HTTP route install into the same entry shape and link set
 
   // No `#ref` and no `ref` field on either face → both must resolve the
   // remote's default branch themselves (§10.1's read-only preflight).
-  assert.equal(await addCmd.add([fileUrl(srcCli)]), 0)
-  const settled = await addViaRoute({ url: fileUrl(srcApi) })
+  // `--name` is used on both faces to prove the clone directory stays
+  // repo-based (name does not rename the path under repos/).
+  assert.equal(await addCmd.add([fileUrl(srcCli), '--name', 'named-cli']), 0)
+  const settled = await addViaRoute({ url: fileUrl(srcApi), name: 'named-api' })
   assert.equal(settled.status, 'done', `route add failed: ${settled.error ?? ''}`)
 
-  const cliEntry = manifest.findEntry(await manifest.readManifest(), 'src-add-cli')
-  const apiEntry = manifest.findEntry(await manifest.readManifest(), 'src-add-api')
+  const cliEntry = manifest.findEntry(await manifest.readManifest(), 'named-cli')
+  const apiEntry = manifest.findEntry(await manifest.readManifest(), 'named-api')
   assert.ok(cliEntry, 'CLI registered its entry')
   assert.ok(apiEntry, 'the route registered its entry')
 
@@ -403,9 +405,16 @@ test('add: CLI and the HTTP route install into the same entry shape and link set
   assert.equal(apiEntry.ref, 'main')
   assert.equal(cliEntry.ref, 'main')
 
+  // `path` is repo-based, not name-based — a name override must not rename the
+  // clone directory, or CLI and panel installs of the same repo drift apart.
+  assert.doesNotMatch(cliEntry.path, /named-cli/)
+  assert.doesNotMatch(apiEntry.path, /named-api/)
+  assert.match(cliEntry.path, /src-add-cli/)
+  assert.match(apiEntry.path, /src-add-api/)
+
   // Same derived link set, renamed the same way as the `update` cases above.
-  const cliNames = await linkNames('src-add-cli')
-  const apiNames = await linkNames('src-add-api')
+  const cliNames = await linkNames('named-cli')
+  const apiNames = await linkNames('named-api')
   assert.deepEqual(cliNames, ['alpha-add-cli', 'beta-add-cli'])
   assert.deepEqual(apiNames, ['alpha-add-api', 'beta-add-api'])
   assert.deepEqual(normalize(cliNames, '-cli'), normalize(apiNames, '-api'))

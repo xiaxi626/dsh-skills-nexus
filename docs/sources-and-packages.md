@@ -316,5 +316,5 @@ The Settings panel mirrors the command surface:
 | Command | Panel location | Notes |
 |---|---|---|
 | `import` | "import package" row: file picker → `--dry-run` preview (four states + candidate roots) → confirm | Preview shows "updatable vs snapshot" distinction |
-| `adopt` | Per-entry "attach source" action | Only appears on entries without a git source |
-| `export` | CLI only (no panel UI yet) | |
+| `adopt` | Per-entry "attach source" action (url + optional subdir) | Only appears on entries without a git source |
+| `export` | CLI only | A panel route must first pass binary transport through the host (see [§4.3 The export side channel](#43-the-export-side-channel)) |

@@ -70,7 +70,7 @@ interface TrackedJob {
 const shortSha = (sha: string | null): string => (sha === null ? '' : sha.slice(0, 7))
 
 /** Map route errors to one-line user-readable text (codes are the §7.1 contract). */
-function errorText(err: unknown): string {
+export function errorText(err: unknown): string {
   if (err instanceof ApiError) {
     switch (err.error) {
       case 'busy': {
@@ -87,6 +87,13 @@ function errorText(err: unknown): string {
         return 'a file or directory with this name already exists in the skills root'
       case 'not-a-git-clone':
         return 'this entry has no git source — remove it and install it again from its repository'
+      case 'already-has-source':
+        // The adopt button is only offered on source-less entries, so this is
+        // the race / stale-list case; re-sourcing is CLI-only (`--force`).
+        return 'this entry already has a git source — to re-source it, re-run from the CLI with --force'
+      case 'skill-mismatch':
+        // `--force` is deliberately not a panel control; the way out is the CLI.
+        return 'the new source yields different skills than the snapshot — if that is intended, re-run from the CLI with --force'
       case 'ref-not-found':
         return 'the ref does not exist on the remote'
       case 'not-found':
@@ -98,6 +105,22 @@ function errorText(err: unknown): string {
     }
   }
   return err instanceof Error ? err.message : String(err)
+}
+
+/**
+ * Lift the adopt backup path out of the settled job's output into a panel
+ * notice. The route emits it as one output line (`previous directory kept as
+ * <path>`); the wording below mirrors the CLI's own advice — delete it once
+ * the new source looks right, doctor lists it until then.
+ */
+export function adoptBackupNotice(job: Job): string | null {
+  for (const line of job.output) {
+    const match = /previous directory kept as (.+?)\s*$/.exec(line)
+    if (match !== null) {
+      return `the previous directory is kept at ${match[1]} — delete it once the new source looks right (the CLI's doctor lists it until then)`
+    }
+  }
+  return null
 }
 
 /* §11 reconciliation predicates — what each mutation should make visible in
@@ -153,6 +176,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   const [checking, setChecking] = useState(false)
   const [refInputs, setRefInputs] = useState<Record<string, string>>({})
   const [adoptInputs, setAdoptInputs] = useState<Record<string, string>>({})
+  const [adoptSubdirInputs, setAdoptSubdirInputs] = useState<Record<string, string>>({})
   /** The chosen package file — kept so the confirmed run can re-send it. */
   const [importFile, setImportFile] = useState<File | null>(null)
   /** The synchronous `--dry-run` verdict (§10.2), once previewed. */
@@ -273,6 +297,11 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
           // The job did its link work; the watcher still has to catch up —
           // the same pending semantics as remove/toggle (§11).
           await reconcileAfter(entryName, 'pending', until)
+          // An adopt that kept a backup says so only in its job output; lift
+          // that path into a notice so it is not buried in one line. (Set
+          // after reconcile so the backup message wins over a refresh hint.)
+          const backup = adoptBackupNotice(settled)
+          if (backup !== null && alive.current) setNotice(backup)
         }
       } catch (err) {
         if (err instanceof PollTimeoutError) {
@@ -402,16 +431,25 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
       setNotice(`enter the repository url for "${entry.name}" first — it is never guessed`)
       return
     }
+    const subdir = (adoptSubdirInputs[entry.name] ?? '').trim()
     void run(entry.name, async () => {
       const env = await confirmable(
         async (confirm) => {
-          const accepted = await api.adopt({ name: entry.name, url, confirm })
+          const accepted = await api.adopt({
+            name: entry.name,
+            url,
+            ...(subdir.length > 0 ? { subdir } : {}),
+            confirm,
+          })
           await track(entry.name, accepted.data, stillListed(entry.name))
           return accepted
         },
         ask,
       )
-      if (env !== undefined) setAdoptInputs((prev) => ({ ...prev, [entry.name]: '' }))
+      if (env !== undefined) {
+        setAdoptInputs((prev) => ({ ...prev, [entry.name]: '' }))
+        setAdoptSubdirInputs((prev) => ({ ...prev, [entry.name]: '' }))
+      }
     })
   }
 
@@ -633,6 +671,8 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
               onRefChange={(v) => setRefInputs((prev) => ({ ...prev, [entry.name]: v }))}
               adoptValue={adoptInputs[entry.name] ?? ''}
               onAdoptChange={(v) => setAdoptInputs((prev) => ({ ...prev, [entry.name]: v }))}
+              adoptSubdirValue={adoptSubdirInputs[entry.name] ?? ''}
+              onAdoptSubdirChange={(v) => setAdoptSubdirInputs((prev) => ({ ...prev, [entry.name]: v }))}
               onToggle={onToggle}
               onUpdate={onUpdate}
               onRemove={onRemove}
@@ -671,6 +711,8 @@ interface EntryCardProps {
   onRefChange: (value: string) => void
   adoptValue: string
   onAdoptChange: (value: string) => void
+  adoptSubdirValue: string
+  onAdoptSubdirChange: (value: string) => void
   onToggle: (entry: ListEntry) => void
   onUpdate: (entry: ListEntry) => void
   onRemove: (entry: ListEntry) => void
@@ -683,7 +725,20 @@ interface EntryCardProps {
  * and that decision is pure props → markup, so it can be rendered and asserted
  * without a DOM, a click, or a mounted effect.
  */
-export function EntryCard({ entry, refValue, onRefChange, adoptValue, onAdoptChange, onToggle, onUpdate, onRemove, onSwitchVersion, onAdopt }: EntryCardProps): ReactElement {
+export function EntryCard({
+  entry,
+  refValue,
+  onRefChange,
+  adoptValue,
+  onAdoptChange,
+  adoptSubdirValue,
+  onAdoptSubdirChange,
+  onToggle,
+  onUpdate,
+  onRemove,
+  onSwitchVersion,
+  onAdopt,
+}: EntryCardProps): ReactElement {
   // Entries without a git source (snapshots, an imported package that had no
   // reachable remote) cannot be updated or switched — the server answers
   // `400 not-a-git-clone`, so the buttons are not offered at all.
@@ -756,6 +811,15 @@ export function EntryCard({ entry, refValue, onRefChange, adoptValue, onAdoptCha
                 placeholder="github:owner/repo"
                 value={adoptValue}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => onAdoptChange(e.target.value)}
+              />
+            </label>
+            <label>
+              subdir{' '}
+              <input
+                type="text"
+                placeholder="optional, e.g. skills/foo"
+                value={adoptSubdirValue}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => onAdoptSubdirChange(e.target.value)}
               />
             </label>
             <button type="button" onClick={() => onAdopt(entry)} disabled={adoptValue.trim().length === 0}>

@@ -2,8 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { EntryCard, NexusPanel } from '../src/client/panel.js'
-import type { ListEntry, NexusApi } from '../src/client/api.js'
+import { EntryCard, NexusPanel, adoptBackupNotice, errorText } from '../src/client/panel.js'
+import { ApiError } from '../src/client/api.js'
+import type { Job, ListEntry, NexusApi } from '../src/client/api.js'
 
 /**
  * The panel's rendering contract (§10.3), as far as a *static* render reaches.
@@ -92,7 +93,7 @@ test('the panel renders its empty state without inventing entries', () => {
 const noop = (): void => {}
 
 /** One card, rendered from props alone — no list, no mount, no effects. */
-function card(entry: ListEntry, adoptValue = ''): string {
+function card(entry: ListEntry, adoptValue = '', adoptSubdirValue = ''): string {
   return renderToStaticMarkup(
     createElement(EntryCard, {
       entry,
@@ -100,6 +101,8 @@ function card(entry: ListEntry, adoptValue = ''): string {
       onRefChange: noop,
       adoptValue,
       onAdoptChange: noop,
+      adoptSubdirValue,
+      onAdoptSubdirChange: noop,
       onToggle: noop,
       onUpdate: noop,
       onRemove: noop,
@@ -139,6 +142,9 @@ test('a source-less card offers attach source and no update/switch', () => {
   assert.match(html, /attach source/)
   assert.match(html, /adopt/)
   assert.match(html, /package:migrate\.zip/)
+  // … with an optional subdir channel beside the url (the route and the
+  // `AdoptBody` contract already read it — only the control was missing) …
+  assert.match(html, /placeholder="optional, e\.g\. skills\/foo"/)
   // … and the git-bound actions are absent, matching the server's
   // `400 not-a-git-clone` for update / switch-version.
   assert.doesNotMatch(html, />\s*update\s*</)
@@ -166,4 +172,42 @@ test('a typed adopt url enables the action and is what gets sent', () => {
   // With a url present the adopt button is live — and `remove` is never
   // disabled, so the only `disabled=""` left is… none at all on this card.
   assert.equal(html.split('disabled=""').length - 1, 0)
+})
+
+test('a typed adopt subdir round-trips into its input', () => {
+  const html = card(snapshotEntry, 'github:owner/real-repo', 'skills/tools')
+  assert.match(html, /value="skills\/tools"/)
+})
+
+/* ------------------------------------------------------------------ */
+/* Pure mappings: errorText + the adopt backup notice                  */
+/* ------------------------------------------------------------------ */
+
+/** A minimal settled job record for the notice extractor. */
+function job(id: string, status: Job['status'], extra: Partial<Job> = {}): Job {
+  return { id, kind: 'update', name: 'demo', status, output: [], startedAt: 'now', ...extra }
+}
+
+test('errorText points the two adopt-only 409s at the CLI --force escape hatch', () => {
+  // `--force` is structurally unreachable from the panel (the adopt button
+  // only exists on source-less entries), so the wording must say where to go
+  // instead of leaving the user guessing at a bare `409 skill-mismatch`.
+  const mismatch = errorText(new ApiError(409, 'skill-mismatch'))
+  assert.match(mismatch, /different skills/)
+  assert.match(mismatch, /--force/)
+  const hasSource = errorText(new ApiError(409, 'already-has-source'))
+  assert.match(hasSource, /--force/)
+})
+
+test('adoptBackupNotice lifts the backup path out of the job output', () => {
+  const withBackup = job('j', 'done', {
+    kind: 'adopt',
+    output: ['Attached github:owner/repo (main, abc1234) to "snap"', '  previous directory kept as /home/u/repos/snap.pre-adopt-1\n'],
+  })
+  const notice = adoptBackupNotice(withBackup)
+  assert.ok(notice !== null)
+  assert.match(notice, /\/home\/u\/repos\/snap\.pre-adopt-1/)
+  assert.match(notice, /delete it once the new source looks right/)
+  // Other jobs (and an adopt that pruned) produce no notice.
+  assert.equal(adoptBackupNotice(job('j', 'done', { output: [] })), null)
 })

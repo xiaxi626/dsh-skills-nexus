@@ -27,7 +27,16 @@
  * the restart downgrade. `reconcileAfter` is the single funnel for all three.
  */
 import type { ReactElement } from 'react';
-import type { ListEntry, NexusApi } from './api.js';
+import type { Job, ListEntry, NexusApi } from './api.js';
+/** Map route errors to one-line user-readable text (codes are the §7.1 contract). */
+export declare function errorText(err: unknown): string;
+/**
+ * Lift the adopt backup path out of the settled job's output into a panel
+ * notice. The route emits it as one output line (`previous directory kept as
+ * <path>`); the wording below mirrors the CLI's own advice — delete it once
+ * the new source looks right, doctor lists it until then.
+ */
+export declare function adoptBackupNotice(job: Job): string | null;
 /**
  * The panel. `api` is injectable for future harness tests; production builds
  * bind the global fetch. The instance MUST be render-stable: a per-render
@@ -46,6 +55,8 @@ interface EntryCardProps {
     onRefChange: (value: string) => void;
     adoptValue: string;
     onAdoptChange: (value: string) => void;
+    adoptSubdirValue: string;
+    onAdoptSubdirChange: (value: string) => void;
     onToggle: (entry: ListEntry) => void;
     onUpdate: (entry: ListEntry) => void;
     onRemove: (entry: ListEntry) => void;
@@ -58,6 +69,6 @@ interface EntryCardProps {
  * and that decision is pure props → markup, so it can be rendered and asserted
  * without a DOM, a click, or a mounted effect.
  */
-export declare function EntryCard({ entry, refValue, onRefChange, adoptValue, onAdoptChange, onToggle, onUpdate, onRemove, onSwitchVersion, onAdopt }: EntryCardProps): ReactElement;
+export declare function EntryCard({ entry, refValue, onRefChange, adoptValue, onAdoptChange, adoptSubdirValue, onAdoptSubdirChange, onToggle, onUpdate, onRemove, onSwitchVersion, onAdopt, }: EntryCardProps): ReactElement;
 export {};
 //# sourceMappingURL=panel.d.ts.map
