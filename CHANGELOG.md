@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+**2026-10-03 · Fixed · `dsh plugin --profile web add "github:…"` 装不上：host peer 范围 `*` 改为 `>=0.1.0-rc.6`，修掉 pnpm 对预发布版本的范围推导死路（`ERR_PNPM_NO_MATCHING_VERSION @ >=0.1.0`）**
+
+- **背景**：0.4.0 之后的 c66ee20（Phase 2 http routes）给包加了 optional peer `@deepseek-ai/dsh-host-webserver: "*"`（v0.3.0 / v0.4.0 两个 tag 里没有 peerDependencies，所以当时安装正常）。`dsh plugin add` 只是在 profile 目录转发 `pnpm add`：当 profile 依赖图里**已存在**该 peer 的预发布实例（web profile 的 `dsh-research@0.4.3` 经 `autoInstallPeers` 拉入 host `0.1.0-rc.8`，其自身 peer 是 `>=0.1.0-rc.6`），pnpm 11.16 面对 `*` 会按现有实例合成复用范围 `>=0.1.0`——丢掉预发布后缀。按 semver 规则，不含预发布比较符的范围**不匹配任何 `-rc`/`-alpha` 版本**，而该包 registry 的 `latest` 停在 `0.0.1-rc.1`、0.1.x/0.2.x 全部是预发布，于是范围一个版本都匹配不到，安装在解析阶段（代码尚未下载）即失败。**不是新版 dsh harness 变严**：0.1.5-rc.3 与 0.2.0-rc.2 两版的插件转发逻辑相同；CLI 全局安装（npm 跳过顶层包 peer 自动安装，optional peer 缺失合法）与 `dsh web --patch overlay.yml`（运行时按路径直接挂载，完全不经过 pnpm/registry）都不走这条解析路径，因此一直正常——只有"profile 图里已有预发布 host + git 规格装本包"二者叠加才触发。
+- **变更**：
+  - `package.json` 的 `peerDependencies."@deepseek-ai/dsh-host-webserver"` 由 `"*"` 改为 `">=0.1.0-rc.6"`——范围带预发布比较符后，semver 允许匹配 `-rc` 版本，pnpm 直接复用图中已有的 host 实例，不再合成坏范围。取值与 `dsh-research` 的 peer 声明对齐；该范围天然兼容 0.2.x 预发布（实测 `0.2.0-rc.2` 同样复用成功），不需要写并集。
+  - `package-lock.json` 根条目（`packages[""]`）的同一字段同步；`peerDependenciesMeta.optional: true` 保留不动——host 仍是 optional peer，空图里缺失照旧合法。
+  - 代码零改动：host 本就是反射式使用（`ctx.inject(['webServer'])`，`src/http/types.ts` 只镜像结构类型、从不 import host 包），不存在需要跟随的 API 面。
+- **不做**：不升 `package.json` 版本号（按本仓库惯例，版本号与 tag 由单独的 `chore(release)` 提交处理，本轮留在 Unreleased）；不在用户 profile 的 `pnpm-workspace.yaml` 里钉 `overrides`（那是逐机器、钉死 rc.8 的临时补丁，仓库侧修范围才是根治；修复推送、锁文件刷新后该 override 可删）；不动结尾 `allowBuilds` 相关任何东西——dsh 对任何带 `github:` 的 pnpm 失败都固定打那段构建许可提示，本包没有 `prepare` 脚本，提示与本次失败无关；不碰 `--patch` 挂载链路（它不经包解析，无需修复）。
+- **验证**：
+  - **复现与对照（全新临时目录，pnpm 11.16）**：先装 `dsh-research@0.4.3` 再以 `github:xiaxi626/dsh-skills-nexus` 安装 → 稳定复现 `ERR_PNPM_NO_MATCHING_VERSION @ >=0.1.0`；空目录（图里无 host）安装成功；本地 `file:` 路径依赖成功而 git 系规格失败——确认触发点是 gitFetcher 路径下的 peer 范围解析，而非装载或构建。
+  - **兼容矩阵**：两种 host 图（`0.1.0-rc.8`、`0.2.0-rc.2`）× 三种 peer 范围（`*` / `>=0.1.0-rc.6` / 并集），用含提交的本地 git 仓库走 `git+file://` 规格（与 `github:` 同一 gitFetcher）：修复范围在两种图下均成功，锁文件中 host 始终是单一实例。
+  - **真实 profile 端到端**（`docs/verify-plugin-install.zh-CN.md` 流程，写入真实 `~/.dsh/profiles/web/`）：质量门禁 `typecheck` / `lint`（0 error）/ `build` / `npm test`（**503 条 · 500 通过 · 0 失败 · 3 跳过**）全绿；`file:` 与 `git+file://` 两种规格 `dsh plugin add` 均 `exit=0`，reconcile 把 `dsh-skills-nexus` 追加进 `dsh.profile.bundles`；`dsh web` 冷启动无 loader 错误，`GET /skills-nexus/ping` 返回 **200** 与插件 JSON 信封；`dsh plugin remove` 后 profile 恢复为五个基础 bundle、锁文件无残留（冷启动用 `--port 0` 避让机器上已在运行的 3080 会话）。
+  - **待办（非代码）**：`github:` 拉的是远端 HEAD，真实 `github:` 复验需在本提交推送后按验证文档「推送后的真实 github: 复验」一节补跑。
+- **如何辨识改动**：改 `package.json`（1 行 peer 范围）、`package-lock.json`（根条目同步 1 行），以及本 CHANGELOG；无 `src/`、无测试、无 `lib/` 产物变更。
+
 **2026-10-02 · Added · 面板入口：`import`（裸 body 上传 → 同步 dry-run 预览 → 确认后 202 任务）与 `adopt`（条目行内 attach source）**
 
 - **背景**：设计稿 `docs/source-and-migration-design.md` §10.3 要求面板与 CLI 同构——`import` 复用今天 `add-zip` 那一行（选文件 → `--dry-run` 预览 → 确认导入），`adopt` 是条目行内动作、**仅在无 git 源条目上出现**。S5 退役 zip 时把那一行留了空，本轮把它补上，并且两侧都调用 §10.1 的共享核心（`src/import.ts` / `src/adopt.ts`），不新增第三份实现。
