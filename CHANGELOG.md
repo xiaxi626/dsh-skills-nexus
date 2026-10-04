@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+**2026-10-04 · Docs · 帮助文本与文档声明多平台 git 仓库支持，标注 `owner/repo` 简写仅限 GitHub**
+
+- **背景**：底层 git 操作（clone / ls-remote / sparse-checkout / fetch / pull）全部通过系统 `git` 命令、URL scheme 白名单不限主机，早已平台无关；但帮助文本、README、JSDoc 全部只展示 GitHub 示例，`owner/repo` 简写的 GitHub 硬编码也未在文档中说明。
+- **变更**：
+  - `src/cli/index.ts`：帮助文本 tagline `GitHub` → `git`；usage 行 `<github:owner/repo[#ref]>` → `<repo-spec>`；Accepted forms 补 GitLab / Gitee 示例，标注 `owner/repo` 与 `github:` 前缀为 GitHub 专有。
+  - `src/git.ts`：`parseGitSpec` JSDoc 补 GitLab / SSH 示例，标注 `owner/repo` 仅限 GitHub。
+  - `src/cli/commands/add.ts`：模块注释 `GitHub` → `git`。
+  - `package.json`：description `GitHub` → `git`。
+  - `README.md` / `README_CN.md`：项目描述、usage 示例、accepted forms 段、tool builders 段同步改为多平台表述，补 GitLab 示例，标注 `owner/repo` 简写限制。
+  - `docs/sources-and-packages.md` / `zh-CN`：Channel A 示例补 GitLab 行。
+- **不做**：不改 `parseGitSpec` 代码逻辑（`owner/repo` 仍硬编码 GitHub，功能上无需动）；不引入 `gitlab:` 前缀简写（可选增强，另行处理）。
+- **验证方式**：`npm run build` 重建 `lib/` 产物；`node --import tsx --test test/completions.test.ts` 21 pass / 3 skip；`node --import tsx --test test/git.test.ts test/cli-plugin-parity.test.ts` 62 pass。
+- **如何辨识改动**：`src/cli/index.ts`（帮助文本）、`src/git.ts`（JSDoc）、`src/cli/commands/add.ts`（注释）、`package.json`（description）、`README.md` / `README_CN.md`、`docs/sources-and-packages.md` / `zh-CN`、`lib/` 重建产物。
+
 ## [0.5.0] - 2026-10-04
 
 **2026-10-04 · Fixed · 面板 export 失败不再只显示裸码 `400 export-failed`，改为展示服务端人话消息**

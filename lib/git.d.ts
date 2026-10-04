@@ -43,12 +43,14 @@ export declare function repoSlug(spec: GitSpec): string;
 export declare function sanitizeName(raw: string): string;
 /**
  * Normalize the many accepted input forms into a cloneable git URL + ref:
- *   github:owner/repo
+ *   github:owner/repo          (GitHub shorthand)
  *   github:owner/repo#branch
  *   https://github.com/owner/repo
+ *   https://gitlab.com/group/project   (any git host)
  *   https://github.com/owner/repo/tree/main/skills        (tree path ignored)
  *   git+https://github.com/owner/repo.git
- *   owner/repo
+ *   git@gitlab.com:group/project.git   (SSH, any host)
+ *   owner/repo                 (GitHub only — resolves to github.com)
  */
 export declare function parseGitSpec(input: string, refFallback?: string): GitSpec;
 /**

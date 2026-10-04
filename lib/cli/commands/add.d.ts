@@ -1,6 +1,6 @@
 import type { OpsIO } from '../../ops-io.js';
 /**
- * `add` — clone one or more GitHub SKILL.md repos and expose each via symlinks
+ * `add` — clone one or more git SKILL.md repos and expose each via symlinks
  * in the official DSH skills root.
  *
  * Each clone lands under <repos>/<path>/ and a symlink is created at
