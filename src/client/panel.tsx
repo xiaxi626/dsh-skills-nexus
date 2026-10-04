@@ -100,6 +100,12 @@ export function errorText(err: unknown): string {
         return 'no such skill — the list may be stale, refresh it'
       case 'untrusted origin':
         return 'request blocked: untrusted origin'
+      case 'export-failed': {
+        // The route carries the ExportError text in `data.message`; without it
+        // the default branch would show a bare `400 export-failed`.
+        const message = (err.data as { message?: string } | undefined)?.message
+        return message ?? 'the export failed — refresh and try again'
+      }
       default:
         return `${err.status} ${err.error}`
     }

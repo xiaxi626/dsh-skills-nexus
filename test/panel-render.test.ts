@@ -205,6 +205,17 @@ test('errorText points the two adopt-only 409s at the CLI --force escape hatch',
   assert.match(hasSource, /--force/)
 })
 
+test('errorText surfaces the export-failed message instead of a bare code', () => {
+  // An empty manifest answers `400 export-failed` with the ExportError text in
+  // `data.message`; the panel must show that, not the `${status} ${error}` dump.
+  const withMessage = errorText(new ApiError(400, 'export-failed', { message: 'the manifest holds no entries to export' }))
+  assert.equal(withMessage, 'the manifest holds no entries to export')
+  // Without a message it falls back to advice rather than the bare code.
+  const bare = errorText(new ApiError(400, 'export-failed'))
+  assert.match(bare, /export failed/)
+  assert.doesNotMatch(bare, /400 export-failed/)
+})
+
 test('adoptBackupNotice lifts the backup path out of the job output', () => {
   const withBackup = job('j', 'done', {
     kind: 'adopt',

@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-04
+
+**2026-10-04 · Fixed · 面板 export 失败不再只显示裸码 `400 export-failed`，改为展示服务端人话消息**
+
+- **背景**：manifest 为空时点「export all」，`exportSkills` 抛 `ExportError('the manifest holds no entries to export')`，路由映射为 `400 export-failed` 并把原文放进 `data.message`。但面板 `errorText` 没有 `export-failed` 分支，落入 default 的 `${status} ${error}`，用户只看到裸码、不知道发生了什么。
+- **变更**：`src/client/panel.tsx` 的 `errorText` 新增 `case 'export-failed'`：优先返回 `data.message`（服务端原文），缺失时回退 `the export failed — refresh and try again`。
+- **不做**：按钮位置与空列表禁用（属 UI 改版范畴，另行处理）。
+- **测试**：`test/panel-render.test.ts` +1：带 message 时原样透出；不带 message 时回退文案且不含裸码。
+- **验证方式**：六步门禁全 0。`npm test`：518 通过 · 0 失败 · 3 跳过（+1 吻合）。
+- **如何辨识改动**：`src/client/panel.tsx`（errorText 一个 case）、`test/panel-render.test.ts`（一条纯映射测试）、`lib/` 重建产物。
+
 **2026-10-03 · Added · export 面板化：同步 POST /export 路由 + 面板「export all」按钮，路径以可复制 notice 展示**
 
 - **背景**：export 是 CLI 已有、面板缺失的最后一个通道（channel C）。第 3 轮探针已证实 host 能原样透传 Buffer / 大响应，内容类型不被改写——export 面板化没有 transport 障碍。设计按 assessment §4.5 的保守形态：路径文本，不做下载按钮。
