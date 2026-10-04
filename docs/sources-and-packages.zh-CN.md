@@ -20,6 +20,7 @@
 ```bash
 dsh-skills-nexus add github:owner/repo
 dsh-skills-nexus add github:owner/repo --ref v1.0 --subdir skills/foo --name my-skill
+dsh-skills-nexus add https://gitlab.com/group/project   # 任意 git 主机
 ```
 
 `add` 克隆仓库，用官方 DSH filesystem provider 相同的规则发现技能，归一化 frontmatter，在 `~/.dsh/skills/` 创建符号链接，并在条目中记录 `url`、`gitUrl`、`ref`、`commit`。条目从一开始就可更新。

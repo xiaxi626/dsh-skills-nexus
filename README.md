@@ -1,15 +1,17 @@
 # dsh-skills-nexus
 
 [![CI](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml)
+![NPM Version](https://img.shields.io/npm/v/dsh-skills-nexus)
 [![dsh.so risk](https://www.dsh.so/badge/dsh-skills-nexus.svg)](https://www.dsh.so/artifact/dsh-skills-nexus/)
 [![dsh.so install](https://www.dsh.so/badge/install/dsh-skills-nexus.svg)](https://www.dsh.so/artifact/dsh-skills-nexus/)
+[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/xiaxi626/dsh-skills-nexus)
 ![GitHub License](https://img.shields.io/github/license/xiaxi626/dsh-skills-nexus)
 
 **English** | [中文](README_CN.md)
 
 ⭐ **If this project helps you, welcome to Star for support!**
 
-A universal DSH skill adapter. **Install once**, then register **any** GitHub
+A universal DSH skill adapter. **Install once**, then register **any** git
 repo that contains a `SKILL.md` as a DSH skill — one command at a time. The
 skill repo itself stays pure: no Cordis plugin code, no `package.json`, no
 `cordis.patch.yml` required.
@@ -134,7 +136,8 @@ from the latest code on GitHub.
 dsh-skills-nexus add github:owner/repo
 dsh-skills-nexus add github:owner/repo#dev          # pick a branch/tag
 dsh-skills-nexus add https://github.com/owner/repo
-dsh-skills-nexus add owner/repo                     # shorthand
+dsh-skills-nexus add https://gitlab.com/group/project  # any git host
+dsh-skills-nexus add owner/repo                     # shorthand (GitHub only)
 dsh-skills-nexus add github:owner/a github:owner/b  # install several repos in one call
 dsh-skills-nexus add github:owner/repo --yes         # skip "wrapped repo?" prompt
 dsh-skills-nexus add github:owner/repo --subdir skills/foo   # install one subdir of a collection repo
@@ -163,9 +166,11 @@ Value options (`--name`, `--ref`, `--subdir`) also accept the `--flag=value` for
 
 `add` accepts multiple repo specs and `remove` accepts multiple names plus `*`/`?` globs; each target is handled independently and the exit code is non-zero if any one failed. Because `--name`/`--ref`/`--subdir` are per-repo, they cannot be combined with multiple `add` specs — run separate `add` commands to customize each. A `remove` glob matching more than one skill lists them and asks for confirmation first (`--yes` skips it); quote the pattern (`'theme-*'`) so your shell does not expand it.
 
-Accepted repo forms: `github:owner/repo[#ref]`, full `https://` URL (incl.
-`/tree/<ref>/...` subpaths), `git+https://`, `git@`/`ssh://`, and bare
-`owner/repo` shorthand.
+Accepted repo forms: `github:owner/repo[#ref]`, full `https://` URL (any
+git host — GitLab, Gitee, Bitbucket, self-hosted; incl. `/tree/<ref>/...`
+subpaths), `git+https://`, `git@`/`ssh://`, and bare `owner/repo` shorthand
+(GitHub only — resolves to `github.com`). For other platforms, use the full
+URL.
 
 When you `add` a repo, nexus inspects the clone before registering it:
 
@@ -620,7 +625,7 @@ ls -la ~/.dsh/skills/
 ## For tool builders
 
 Want to build on nexus — a GUI, a sync daemon, a CI job, or a higher-level
-installer that installs GitHub `SKILL.md` repos into DSH? Nexus already solves
+installer that installs git `SKILL.md` repos into DSH? Nexus already solves
 the fiddly cross-platform parts (spec parsing, clone-with-retry, ref pinning,
 frontmatter normalization, collection `--subdir`, Windows-junction symlinks)
 and exposes two stable, read-only machine interfaces you can depend on:

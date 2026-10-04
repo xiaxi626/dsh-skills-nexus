@@ -1,15 +1,17 @@
 # dsh-skills-nexus
 
 [![CI](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml)
+![NPM Version](https://img.shields.io/npm/v/dsh-skills-nexus)
 [![dsh.so risk](https://www.dsh.so/badge/dsh-skills-nexus.svg)](https://www.dsh.so/artifact/dsh-skills-nexus/)
 [![dsh.so install](https://www.dsh.so/badge/install/dsh-skills-nexus.svg)](https://www.dsh.so/artifact/dsh-skills-nexus/)
+[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/xiaxi626/dsh-skills-nexus)
 ![GitHub License](https://img.shields.io/github/license/xiaxi626/dsh-skills-nexus)
 
 [English](README.md) | **中文**
 
 ⭐ **如果项目对你有帮助，欢迎 Star 支持！**
 
-通用 DSH skill 适配器。**安装一次**，就可以把任意 GitHub 上的 `SKILL.md` 仓库注册为 DSH skill——一条命令添加一个。skill 仓库本身保持纯净：不需要 Cordis 插件代码，不需要 `package.json`，也不需要 `cordis.patch.yml`。
+通用 DSH skill 适配器。**安装一次**，就可以把任意 git 上的 `SKILL.md` 仓库注册为 DSH skill——一条命令添加一个。skill 仓库本身保持纯净：不需要 Cordis 插件代码，不需要 `package.json`，也不需要 `cordis.patch.yml`。
 
 本项目通过 CLI 将 SKILL.md 仓库克隆到本地 `~/.dsh/skills-nexus/repos/` 目录，然后在 DSH 官方 skills 根目录（`~/.dsh/skills/`）中创建符号链接（symlink）。官方 filesystem provider 会自动发现、监听并加载这些 skill——不再需要自定义 provider，也不再需要在运行时扫描目录。
 
@@ -88,7 +90,8 @@ npm install -g dsh-skills-nexus
 dsh-skills-nexus add github:owner/repo
 dsh-skills-nexus add github:owner/repo#dev          # 指定分支 / tag
 dsh-skills-nexus add https://github.com/owner/repo
-dsh-skills-nexus add owner/repo                     # 简写
+dsh-skills-nexus add https://gitlab.com/group/project  # 任意 git 主机
+dsh-skills-nexus add owner/repo                     # 简写（仅限 GitHub）
 dsh-skills-nexus add github:owner/a github:owner/b  # 一次安装多个仓库
 dsh-skills-nexus add github:owner/repo --yes         # 跳过"包装型仓库？"确认
 dsh-skills-nexus add github:owner/repo --subdir skills/foo   # 只安装集合仓库里的某个子目录
@@ -117,7 +120,7 @@ dsh-skills-nexus adopt <name> --url github:owner/repo   # 给无 git 源的条�
 
 `add` 可接受多个仓库 spec，`remove` 可接受多个名字与 `*`/`?` 通配符；每个目标独立处理，任一失败则退出码非零。由于 `--name`/`--ref`/`--subdir` 是每仓库级选项，不能与多个 `add` spec 同时使用——要分别定制请分开跑多条 `add`。`remove` 的通配符若匹配到多个 skill，会先列出待删清单并要求确认（加 `--yes` 跳过）；通配符请加引号（`'theme-*'`），以免被 shell 提前展开。
 
-支持的仓库格式：`github:owner/repo[#ref]`、完整 `https://` URL（含 `/tree/<ref>/...` 子路径）、`git+https://`、`git@`/`ssh://`、以及裸写 `owner/repo` 简写。
+支持的仓库格式：`github:owner/repo[#ref]`、完整 `https://` URL（任意 git 主机——GitLab、Gitee、Bitbucket、自建 GitLab；含 `/tree/<ref>/...` 子路径）、`git+https://`、`git@`/`ssh://`、以及裸写 `owner/repo` 简写（仅限 GitHub——解析到 `github.com`）。其他平台请写完整 URL。
 
 `add` 会在注册前检查克隆下来的仓库类型：
 
@@ -405,8 +408,8 @@ ls -la ~/.dsh/skills/
 
 ## 给工具开发者
 
-想在 nexus 之上构建工具——GUI 面板、同步守护进程、CI 任务、或更上层的、把 GitHub
-上 `SKILL.md` 仓库装进 DSH 的安装器？nexus 已经把跨平台的琐碎部分全部解决（spec
+想在 nexus 之上构建工具——GUI 面板、同步守护进程、CI 任务、或更上层的、把
+git 上 `SKILL.md` 仓库装进 DSH 的安装器？nexus 已经把跨平台的琐碎部分全部解决（spec
 解析、带重试的克隆、ref 固定、frontmatter 归一化、集合仓库 `--subdir`、Windows
 junction 软链），并对外暴露两个稳定、只读、可依赖的机器接口：
 `dsh-skills-nexus list --names`（枚举已安装 skill）与 `dsh-skills-nexus doctor --json`

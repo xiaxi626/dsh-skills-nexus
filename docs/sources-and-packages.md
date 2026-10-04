@@ -22,6 +22,7 @@ git source.
 ```bash
 dsh-skills-nexus add github:owner/repo
 dsh-skills-nexus add github:owner/repo --ref v1.0 --subdir skills/foo --name my-skill
+dsh-skills-nexus add https://gitlab.com/group/project   # any git host
 ```
 
 `add` clones the repository, discovers skills via the same rules the official
