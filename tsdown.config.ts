@@ -158,7 +158,17 @@ function cssModulesPlugin(): NonNullable<UserConfig['plugins']>[number] {
         minify: true,
       })
       const classMap: Record<string, string> = {}
-      for (const [local, exp] of Object.entries(exports ?? {})) classMap[local] = exp.name
+      // Sorted, and sorted *here* rather than left to insertion order:
+      // lightningcss returns `exports` in an order that varies between runs, so
+      // an unsorted map makes every build permute the emitted object's keys —
+      // a byte-different `lib/client.js` from identical input, which turns
+      // "commit the rebuilt artifact" into a diff nobody can review and defeats
+      // any `git diff --exit-code -- lib` check. The host's own
+      // `dsh-css-modules-inline` sorts for the same reason.
+      const entries = Object.entries(exports ?? {}).sort(([a], [b]) =>
+        a < b ? -1 : a > b ? 1 : 0,
+      )
+      for (const [local, exp] of entries) classMap[local] = exp.name
       const css = code.toString()
       const tagId = `${ID}/${basename(fileId)}`
       return [
