@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+**2026-10-05 · Fixed · CI 第四次修复：`isLinkEntry` 两侧统一 canonical，修 macOS/Windows 把真实目录当链接**
+
+- **背景**：前三次修复（`68da267` / `ef4b38a` / `063de7e`）都没让 CI 变绿：macOS 与 Windows 各 7 条固定失败，Ubuntu 三个 Node 版本全绿。7 条同源——`hasCollision` 判错（`add` 返回 202、`toggle` 返回 200，而不是 409 `collision`）与 `export` 的 `links` 记成空数组。
+- **根因**：`isLinkEntry` 拿 `realpath` 的**规范化**结果去比 `resolve` 的**纯语法**结果：`resolve(target) !== resolve(path)`。macOS 上 `os.tmpdir()` 位于 `/var` 之下，而 `/var` 是指向 `/private/var` 的符号链接——链路两侧一个带 `/private` 一个不带，于是**普通目录也被判为 "resolves elsewhere"**，即「这是 nexus 管理的链接、可以安全替换」。Windows runner 的 temp 路径同理（8.3 短名 `RUNNER~1` 会被 `realpath` 展开）。Linux 的 `/tmp` 之上没有任何被重写的祖先，`resolve` 与 `realpath` 逐字节一致，所以只有两个平台挂——这正是「本地全绿、CI 全红」的来源。
+- **变更**：
+  - `src/link.ts` 的 `isLinkEntry` 改为**三个**判据、顺序固定：① `lstat` 认符号链接（捕获悬空 POSIX 符号链接；先判以免被路径格式比较吃掉）；② 两侧都走 `safeRealPath` 后比较（修正点就是这处不对称）；③ 两者都不可判定时才回退 `existsAsEntry`（只有「目标已删的 Windows junction」落这里，`realpath` 看不见它，但它是 nexus 可删的目录项）。
+  - `src/export.ts`：`links` 归属比较从 `resolve(l.target) === resolve(resourceBase)` 改为两侧 canonical（`safeRealPath` 预计算一次）。`EntryLink.target` 本就 canonical（由 `entryLinks` 产出），拿它比纯语法路径在同样的平台上匹配不到任何东西——与 `isLinkEntry` 同一类缺陷。
+- **不做**：不动 `entryLinks` / `unlinkIfPointsInto` 已正确的 `safeRealPath` 用法（`ef4b38a` 已修）；不动 `removeLinkEntry` 的 `rmdir` 优先删除。
+- **测试**：新增 `test/link-canonical.test.ts`（已加入 `package.json` 的显式列表）。它用目录链接把整个 DSH_HOME 置于一个会被 `realpath` 重写的祖先之下，**并断言该前置条件成立**（`resolve(root) !== realpath(root)`），因此不可能空跑通过；随后校验真实目录仍是 collision、真实文件仍是 collision、受管链接既不是 collision 也仍可归属。用例用 `import('../src/paths.js?canonical=…')` 取新模块图（`paths.ts` 在导入时捕获 `DSH_HOME`），并在导入后立刻还原环境变量。
+- **验证**：把 `isLinkEntry` 临时还原成修复前的实现，新用例**确实失败**（`false !== true`）；装回修复后通过——即该用例真正卡住了这个缺陷，而不是同义反复。完整套件 578 条 · 575 通过 · 0 失败 · 3 跳过（原 577 · 574 · 3，新增 1 条）。
+- **踩坑记录（写给以后在 Windows 上排查的人）**：`fs.realpathSync` **不解析** junction，而 `fs.promises.realpath` **解析**。用同步 API 做探针会把 junction 看成普通目录，从而得出「`realpath` 不解析 junction」的错误结论——本次排查在这上面绕了很久。生产代码全程用 promise API。
+- **如何辨识改动**：`src/link.ts`（`isLinkEntry` 三个判据 + 注释）、`src/export.ts`（`canonicalRoot` 预计算 + 比较改为 canonical）、新增 `test/link-canonical.test.ts`、`package.json`（test 列表 +1）、`lib/` 重建产物。
+
 **2026-10-05 · Fixed · `safeRealPath` 双边规范化 + `health.ts` 同步跟进，修 macOS/Windows 全矩阵路径格式错配**
 
 - **背景**：上一轮修复只给 `entryLinks` 的 `base` 加了 `safeRealPath`，但 `resolved` 仍用 `resolve(target)`——`resolve` 不解析父级符号链接也不展开 Windows 8.3 短路径，而 `resolveLinkTarget`（`realpath`）返回规范路径。两边格式不一致，`pointsInto` 仍然 false。同时 `health.ts` 的 `diagnoseEntry` 和 `findOrphanLinks` 也有同样的 `resolve` vs `realpath` 错配。

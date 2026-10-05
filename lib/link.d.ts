@@ -105,10 +105,9 @@ export declare function linkSkill(skillName: string, targetDir: string): Promise
 /**
  * Remove a skill's link from the official skills root.
  *
- * A real directory the user placed there is left alone: `isLinkEntry` only
- * reports true for a link (`realpath` resolves elsewhere) or for something
- * that resolves nowhere (a dangling link, which on Windows is a reparse point
- * `lstat` cannot see either).
+ * A real directory the user placed there is left alone — see `isLinkEntry` for
+ * the three proofs that decide it, and note that they must stay in sync: this
+ * function's whole safety argument is "a real directory is never a link".
  */
 export declare function unlinkSkill(skillName: string): Promise<void>;
 /**
