@@ -4,6 +4,62 @@
 
 ## [Unreleased]
 
+**2026-10-05 · Added · CLI 写操作机器接口：`list` / `add` / `update` / `remove` / `enable` / `disable` 的 `--json`（version 1）**
+
+- **背景**：`build-on-nexus.md` 此前把写侧机器输出列为「明确不存在」，只提供 `list --names` 与 `doctor --json` 两条只读通道，外部工具（CI、第三方 GUI、sync daemon）只能靠退出码 + 事后重查状态驱动写操作，无法知道「刚才装到了哪个 commit」。P0 计划把写侧补齐为与 `doctor --json` 同级的稳定契约。
+- **变更**：
+  - 新增 `src/cli/json-types.ts`：version 1 报告契约（`ListJsonReport` / `AddJsonReport` / `UpdateJsonReport` / `RemoveJsonReport` / `ToggleJsonReport` / `JsonError`）。每个报告的 `version: 1` 是字面量类型，破坏性变更必须逐个构造点显式改动，不会在类型重构里被悄悄漏掉。
+  - 新增 `src/cli/json-io.ts`：第三个 `OpsIO` 实现（继 `cliIO` / `jobIO`·`quietIO` 之后）。`emit`/`progress` 为 no-op（stdout 只留报告本身）、`error` 委托上层通道（诊断仍进 stderr，且不属契约）、`spin` 内联执行、`confirm` 返回默认值、`interactive: false`。另含 `emitJson`（2-space + 末尾换行）与 `fatalJsonError`（`{ version, error: { message } }` 写 stderr）。
+  - `src/cli/args.ts`：`parseAddArgs` / `parseRemoveArgs` / `parseListArgs` 增 `json`；新增 `parseUpdateArgs`（`update` 此前用 `positional()` 且完全不解析 flag，`update --json` 会被静默丢弃）与 `parseToggleArgs`（多 positional）。全部拒绝 `--json=value`；`list` 的 `--names` 与 `--json` 互斥。
+  - `src/cli/commands/{list,add,update,remove,toggle}.ts`：各自的 `--json` 分支。`addOne` 透出 `GitInstallResult` 的 `entry.commit` / `ref` / `links` / `code`（新增字段全可选，人类路径只读 `status`）；`update` 每项记录 `fromCommit` / `toCommit` / `status`；`remove` 收集 per-name 结果与删除的链接；`toggleLinks` 返回 `linksChanged` 并把批量结果收敛进报告。
+  - `src/cli/usage.ts`（新增）：帮助文本与其打印器从 `index.ts` 抽出。`index.ts` 是可执行模块（import 即跑 `main()`），抽出来测试才能读它；`test/completions.test.ts` 的 flag 漂移守卫随之从「正则抓函数体」改为「读常量 + 跑打印器比对」，不再因等价重构误报。
+  - 四份补全模板（bash/zsh/fish/powershell）为六个命令补 `--json`，并保留「不得为 `update`/`enable`/`disable` 提供 `--yes`」的守卫（`update` 现在解析 flag，误报的 `--yes` 会从静默无操作升级为用法错误）。
+  - 文档：`docs/build-on-nexus.md` 从「接口两条」改为四条，新增「The `--json` write interface (version 1)」整节（承诺项 / 非承诺项 / 不提示语义 / 五份报告样例 / 错误形态），并把「No write-side machine output」「No `list --json` (yet)」两条从「明确不存在」段移出。
+- **不做**：不给 `export` / `import` / `adopt` / `switch-version` 加 `--json`（package 格式与长任务状态机，留 P1；job 结构化状态属 HTTP 通道）；不做 JSON 流式/增量输出；`manifest.json` schema 不变；HTTP 路由与面板本轮零触碰。
+- **契约**：顶层 `version: 1`；2-space 缩进 + 末尾换行；退出码 `0` 成功 / `1` 有错误或部分失败 / `2` 用法错误；`--json` 下 stdout 只含报告，诊断走 stderr；`--json` 运行 `interactive: false`，需确认的步骤（wrapped repo、大集合、多匹配 glob）一律拒绝而非确认，文档要求「`--json` 须传 `--yes`」。
+- **测试**：新增 **51 条**（3 个新文件均已加入 `package.json` 的 `test` 显式列表——该脚本不是 glob，不加就静默不执行）。`npm test`：569 通过 · 0 失败 · 3 跳过（= 基线 518 + 51）。
+  - `test/json-io.test.ts`（12）：`emit`/`progress` 静默、`error` 委托与无 fallback 时不抛、`confirm` 不抛 `NeedsConfirm`（对照 HTTP half）、`spin` 内联与透传拒绝、`emitJson` 框架与 `JSON.parse` 往返、`fatalJsonError` 只写 stderr。
+  - `test/toggle-json.test.ts`（9）：报告形状与 count、多 link 的 `linksChanged`、幂等的 `already: true`、未知名的 per-item `not-found` 且 exit 1、批量按参数序独立处理且不因中途失败停摆、用法错误的 JSON/人类两种方言、缺名提示带命令名。
+  - `test/add-update-json.test.ts`（12）：`add` 的 commit/links、stdout 纯净（无 Cloning/Added skill 文本）、单项失败隔离并继续、重复注册的拒绝文案、多 spec + `--name` 的 exit 2、`--json=false` 的 exit 2；`update` 的 up-to-date 同 commit、before→after 对、未知目标 exit 1、空 manifest 空报告、`--json=1` 与双 positional 用法错误。
+  - `test/args.test.ts` +14 条 `parseUpdateArgs` / `parseToggleArgs` 用例与 `--json` 内联值、`--names`×`--json` 互斥；`test/list.test.ts` +5 条 `list --json` 用例（含机器方言的用法错误）；`test/completions.test.ts` 的模板守卫拆为「`--yes` 不得出现在拒绝它的命令上」。
+- **验证方式**：六步门禁（`typecheck` / `lint` / `test:build` / `build` / `build:client` / `npm test`）。
+- **如何辨识改动**：新增 `src/cli/json-io.ts` / `src/cli/json-types.ts` / `src/cli/usage.ts`；改 `src/cli/args.ts`、`src/cli/index.ts`、`src/cli/commands/{list,add,update,remove,toggle,doctor,export,import,adopt,switch-version,completions}.ts`、四份 `src/cli/commands/completions/*.ts`、`package.json`（`test` 列表）、`docs/build-on-nexus.md`、`README.md` / `README_CN.md`、`lib/` 重建产物。
+
+**2026-10-05 · Changed · A1：CLI 诊断通道收编进 OpsIO（`io.error`），`printHelp` 改经 `io.emit`**
+
+- **背景**：`routes.ts:19-20` 在案的最后一项——7 个命令已接 `io` 参数，但约 40 处 `process.stderr.write` 仍绕过接缝直接写进程流，`printHelp` 也仍直接写 stdout。多 host half 共用 CLI 入口的前置条件就是「前端只有一个出口」。
+- **变更**：
+  - `src/ops-io.ts`：`OpsIO` 新增**必需**成员 `error(line)`（与 `emit` 同款「缺换行则补」语义）。设为必需而非可选：诊断静默丢失是看不见的退化，编译器应当拦住。`cliIO.error` 委托 stderr。
+  - `src/http/io.ts`：`jobIO.error` 把诊断推进 job 的 `output`（面板唯一可轮询的通道，写 stderr 等于消失在服务端日志里）；`quietIO.error` 为 no-op（同步路由的失败是错误信封，由抛出的值构造）。
+  - 收编 `src/cli/index.ts`（未知命令 + 顶层 fatal 的注释说明为何刻意保留裸 stderr）与 11 个命令文件的全部 `process.stderr.write`。
+  - `src/cli/usage.ts`：`HELP_TEXT` 常量 + `printHelp(io)`，帮助文本字节不变（`HELP_TEXT` 已带末尾换行，`cliIO.emit` 不再补）。
+  - `test/completions.test.ts`：flag 漂移守卫改为读 `HELP_TEXT` 并把 `printHelp` 跑进假 OpsIO 比对，不再 scrape 函数体；子命令守卫优先读 `src/cli/index.ts` 的 `case` 标签，编译产物运行（无 `.ts` 可读）时回退到 `ROUTED_SUBCOMMANDS` 并断言两者一致。
+- **不做**：不改 `src/http/routes.ts` 的 `[plugin] route error` 服务端日志（不是 CLI 输出）；不改 `src/install.ts` 的既有诊断（`add` 透传 `io` 后已随接缝走）；不改人类输出任何一个字节。
+- **测试**：`test/ops-io.test.ts` / `test/completions.test.ts` / 各命令测试的 `OpsIO` 替身同步补 `error`；`test/adopt.test.ts` / `test/import.test.ts` / `test/export.test.ts` 的 `captureIO()` 拆出 `errors[]`（A1 的要点就是机器读一条流、人读另一条）。
+- **验证方式**：既有输出字节等价；六步门禁全 0。
+- **如何辨识改动**：改 `src/ops-io.ts`（接口 + `cliIO.error`）、`src/http/io.ts`、`src/cli/usage.ts`（新增）、`src/cli/index.ts` 与全部命令文件、`test/` 的 `OpsIO` 替身、`lib/` 重建产物。
+
+**2026-10-05 · Added · A3：`enable` / `disable` 接受多个名字，与 `remove` 对称**
+
+- **背景**：`positional()` 早已就位、`remove` 早已支持多 token，但 `toggle` 只取第一个位置参数，多给的名字被静默丢弃——同一批技能启停只能逐个敲命令。
+- **变更**：`parseToggleArgs` 收集全部 positional，`toggle` 对每个名字独立处理（未注册 = per-item 失败，不中断其余），退出码沿用「有任一失败即 1」。`linksChanged` 与 per-name 结果同时供人类路径与 `--json` 报告使用（`toggleLinks` 由「返回退出码」改为「返回链接增删数」）。缺名提示保留 `<name>...` 形态并带上命令名。
+- **不做**：不改 HTTP `/toggle` 路由（其 `names: string[]` 扩展属独立契约变更，本轮 UI 轨道未消费）；不加 `--yes` 之类的确认门（启停非破坏性）。
+- **测试**：`test/args.test.ts` 的 `parseToggleArgs` 用例（多名字、`--json` 位置无关、缺名、内联值拒绝、命令名进提示）；`test/toggle-json.test.ts` 两条批量用例断言「逐项独立 + 顺序 + 部分失败仍继续」。
+- **如何辨识改动**：`src/cli/args.ts`（`parseToggleArgs`）、`src/cli/commands/toggle.ts`（批量循环 + `toggleLinks` 返回计数）。
+
+**2026-10-05 · Fixed · Windows 上 NTFS junction 对 `lstat`/`readlink`/`unlink` 不可见，导致链接归属、`disable`、`doctor` 与 `list` 全部失效**
+
+- **背景**：`linkSkill` 在 Windows 上创建 junction（真目录符号链接需要 junction 不需要的权限）。实测（Node 24.19.0 / Windows）：`lstat(junction).isSymbolicLink()` 为 **false**（报 `S_IFDIR`）、`readlink(junction)` 抛 `EINVAL`、`unlink(junction)` 抛 `EPERM`；只有 `realpath` 能正确解析、`rmdir` 能正确删除且不进入目标。因此 `src/link.ts` 与 `src/health.ts` 里成对的 `lstat` + `readlink` 判据把每个 junction 都当成「普通目录」跳过——链接着的条目标成 disabled、`disable` 静默删 0 个链接、裸 `update` 跳过它、`doctor` 的 symlinks/orphan-link 两项看不见它。
+- **变更**：
+  - `src/paths.ts`：新增 `resolveLinkTarget(linkPath)`（`realpath`，失败返回 `undefined`），作为读链接目标的唯一入口。
+  - `src/link.ts`：`entryLinks` / `readLinkTarget` / `hasCollision` / `unlinkSkill` / `unlinkIfPointsInto` 一律改走它；删除改走新的 `removeLinkEntry`（先 `rmdir`，失败再 `unlink`），因为 junction 是目录、`unlink` 拿不下；新增 `isLinkAt` / `readLinkEntryTarget` 供 health 复用，`readLinkEntryTarget` 在 `realpath` 失败时回退 `readlink`（悬空 POSIX 符号链接仍可读出目标）。
+  - `src/health.ts`：`diagnoseEntry` 与 `findOrphanLinks` 改用同一对读入口，`unreadable-link` 保持原义（目标无法恢复），悬空链接现在能正确落到 `dangling-link`。
+  - **平台边界（写入「不做」）**：Windows 无法为「目标不存在的 junction」建档（`symlink(..., 'junction')` 直接 `ENOENT`），也无法把「目标被删除后的 junction」判为链接（`realpath`/`readlink` 双双拒绝、`lstat` 报普通目录）。因此凡是要求分类**悬空**链接的断言在 Windows 上自跳过（`test/fs-helpers.ts` 的 `DANGLING_LINKS_OBSERVABLE` 实测探针），POSIX 上照常执行。删除路径不受影响：`rmdir` 在所有平台都能删掉它。
+- **不做**：不动 `git.ts` 的 `isRealDirectory`（其 `lstat` 语义本身就要求「不是链接」）；不引入平台分支模拟 junction 语义。
+- **测试**：`test/link.test.ts` 的断言从「`lstat` 报 symlink」改为「解析到目标目录」（可移植且真正想断言的东西），补 `linkSkill` 换绑、`unlinkSkill` 幂等、`hasCollision` 的实目录/链接区分；`test/health.test.ts` / `test/doctor.test.ts` 的悬空分类用例加实测跳过标记；新增 `test/fs-helpers.ts`（`removeTree` 先清悬空链接再 `rm`——`rm -r` 删不掉悬空 junction 会报 `ENOTEMPTY` 并把链接留在原地）。
+- **验证方式**：`test/link.test.ts` 7/7 通过（修复前 3 条红）；`test/health.test.ts` 14 通过 · 3 按平台跳过；`test/doctor.test.ts` 21 通过 · 3 按平台跳过。
+- **如何辨识改动**：改 `src/paths.ts`（`resolveLinkTarget`）、`src/link.ts`（读/删原语 + 新导出）、`src/health.ts`（两处读链接）；新增 `test/fs-helpers.ts`；改 `test/link.test.ts` / `test/health.test.ts` / `test/doctor.test.ts` / `test/adopt.test.ts`。
+
 **2026-10-04 · Docs · 帮助文本与文档声明多平台 git 仓库支持，标注 `owner/repo` 简写仅限 GitHub**
 
 - **背景**：底层 git 操作（clone / ls-remote / sparse-checkout / fetch / pull）全部通过系统 `git` 命令、URL scheme 白名单不限主机，早已平台无关；但帮助文本、README、JSDoc 全部只展示 GitHub 示例，`owner/repo` 简写的 GitHub 硬编码也未在文档中说明。

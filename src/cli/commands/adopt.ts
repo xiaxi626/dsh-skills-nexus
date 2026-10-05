@@ -32,7 +32,7 @@ export async function adopt(argv: string[], io: OpsIO = cliIO): Promise<number> 
   try {
     options = parseAdoptArgs(argv)
   } catch (err) {
-    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+    io.error(`${err instanceof Error ? err.message : String(err)}`)
     return 2
   }
 
@@ -52,14 +52,14 @@ export async function adopt(argv: string[], io: OpsIO = cliIO): Promise<number> 
     return 0
   } catch (err) {
     if (err instanceof AdoptError) {
-      process.stderr.write(`${err.message}\n`)
+      io.error(err.message)
       return 1
     }
     if (err instanceof SkillLockedError) {
-      process.stderr.write(`${err.message}\n`)
+      io.error(err.message)
       return 1
     }
-    process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`)
+    io.error(`error: ${err instanceof Error ? err.message : String(err)}`)
     return 1
   }
 }

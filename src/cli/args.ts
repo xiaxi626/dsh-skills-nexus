@@ -13,6 +13,8 @@ export interface AddOptions {
   subdir?: string
   /** Automatically accept "manage this wrapped repo via nexus" prompts. */
   yes?: boolean
+  /** Emit the version-1 machine report on stdout instead of human text. */
+  json: boolean
 }
 
 export function parseAddArgs(argv: string[]): AddOptions {
@@ -21,6 +23,7 @@ export function parseAddArgs(argv: string[]): AddOptions {
   let ref: string | undefined
   let subdir: string | undefined
   let yes = false
+  let json = false
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!
@@ -37,6 +40,12 @@ export function parseAddArgs(argv: string[]): AddOptions {
     } else if (flag === '--subdir') {
       subdir = inlineVal ?? argv[++i]
       if (!subdir) throw new Error('--subdir requires a path, e.g. --subdir skills/foo')
+    } else if (flag === '--json') {
+      // Boolean flags never take an inline value — see the --yes note below.
+      if (inlineVal !== undefined) {
+        throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
+      }
+      json = true
     } else if (flag === '--yes' || flag === '-y' || flag === '--force') {
       // 布尔 flag 不接受值：静默丢弃 inlineVal 会让 --yes=false 变成 yes=true，
       // 从而同时绕过 add.ts 的 wrapped-skill 确认与 >20 skill 的大集合护栏。
@@ -54,7 +63,7 @@ export function parseAddArgs(argv: string[]): AddOptions {
   if (specs.length === 0) {
     throw new Error('missing repo spec, e.g. github:owner/repo')
   }
-  return { specs, name, ref, subdir, yes }
+  return { specs, name, ref, subdir, yes, json }
 }
 
 /** First positional argument, or undefined. */
@@ -71,6 +80,8 @@ export interface RemoveOptions {
   patterns: string[]
   /** Skip the "remove N skills matching <pattern>?" confirmation guard. */
   yes: boolean
+  /** Emit the version-1 machine report on stdout instead of human text. */
+  json: boolean
 }
 
 /**
@@ -83,6 +94,7 @@ export interface RemoveOptions {
 export function parseRemoveArgs(argv: string[]): RemoveOptions {
   const patterns: string[] = []
   let yes = false
+  let json = false
 
   for (const a of argv) {
     const eqIdx = a.indexOf('=')
@@ -94,24 +106,35 @@ export function parseRemoveArgs(argv: string[]): RemoveOptions {
         throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
       }
       yes = true
+    } else if (flag === '--json') {
+      if (inlineVal !== undefined) {
+        throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
+      }
+      json = true
     } else if (!a.startsWith('-')) {
       // 名字与通配符都不以 `-` 开头（skill 名为 kebab-case），整段收集，含 `=` 也不拆。
       patterns.push(a)
     }
   }
 
-  return { patterns, yes }
+  return { patterns, yes, json }
 }
 
 export interface ListOptions {
   /** Print only skill names, one per line — the machine path (shell completion). */
   names: boolean
+  /** Emit the version-1 machine report on stdout instead of the human table. */
+  json: boolean
 }
 
 /**
- * Parse `list` args. `list` has no positional form and exactly one boolean flag.
+ * Parse `list` args. `list` has no positional form and exactly two boolean
+ * flags, which are mutually exclusive: `--names` is the newline stream shell
+ * completion splits on and `--json` is the structured document — asking for
+ * both has no single sensible answer, so it is a usage error rather than a
+ * silent precedence rule.
  *
- * `--names` rejects an inline value for the same reason as `--yes` above:
+ * Both flags reject an inline value for the same reason as `--yes` above:
  * `--names=false` silently becoming `names=true` would hand a scripted caller
  * the names-only stream when it asked for the human table. Unlike `add` — which
  * ignores unknown flags because it has extra options to be tolerant about —
@@ -120,6 +143,7 @@ export interface ListOptions {
  */
 export function parseListArgs(argv: string[]): ListOptions {
   let names = false
+  let json = false
 
   for (const a of argv) {
     const eqIdx = a.indexOf('=')
@@ -131,12 +155,118 @@ export function parseListArgs(argv: string[]): ListOptions {
         throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
       }
       names = true
+    } else if (flag === '--json') {
+      if (inlineVal !== undefined) {
+        throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
+      }
+      json = true
     } else {
-      throw new Error(`unknown argument "${a}"; usage: dsh-skills-nexus list [--names]`)
+      throw new Error(`unknown argument "${a}"; usage: dsh-skills-nexus list [--names | --json]`)
     }
   }
 
-  return { names }
+  if (names && json) {
+    throw new Error(
+      '--names and --json are mutually exclusive; --names is the newline name stream, ' +
+        '--json the structured report',
+    )
+  }
+
+  return { names, json }
+}
+
+export interface UpdateOptions {
+  /** Entry name to refresh, or undefined for every enabled entry. */
+  target?: string
+  /** Emit the version-1 machine report on stdout instead of human text. */
+  json: boolean
+}
+
+/**
+ * Parse `update` args: an optional single positional plus `--json`.
+ *
+ * Strict like `list`, not tolerant like `add`: `update` used to read its target
+ * with `positional()` and ignore every flag, so `update --json` would have been
+ * silently discarded — the exact failure mode this parser exists to prevent.
+ * A second positional is rejected for the same reason: there is one target or
+ * "everything enabled", and no batch form.
+ */
+export function parseUpdateArgs(argv: string[]): UpdateOptions {
+  const positionals: string[] = []
+  let json = false
+
+  for (const a of argv) {
+    const eqIdx = a.indexOf('=')
+    const flag = eqIdx !== -1 ? a.slice(0, eqIdx) : a
+    const inlineVal = eqIdx !== -1 ? a.slice(eqIdx + 1) : undefined
+
+    if (flag === '--json') {
+      if (inlineVal !== undefined) {
+        throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
+      }
+      json = true
+    } else if (!a.startsWith('-')) {
+      positionals.push(a)
+    } else {
+      throw new Error(
+        `unknown argument "${a}"; usage: dsh-skills-nexus update [name] [--json]`,
+      )
+    }
+  }
+
+  if (positionals.length > 1) {
+    throw new Error(
+      `update takes one entry name at a time (got ${positionals.length}); ` +
+        'run it once per entry, or pass no name to refresh every enabled entry',
+    )
+  }
+
+  const target = positionals[0]
+  return { ...(target === undefined ? {} : { target }), json }
+}
+
+export interface ToggleOptions {
+  /** Entry names to enable/disable, in the order given. */
+  names: string[]
+  /** Emit the version-1 machine report on stdout instead of human text. */
+  json: boolean
+}
+
+/**
+ * Parse `enable`/`disable` args: one or more names plus `--json`.
+ *
+ * Batch like `remove` (gap-closure A3) — `positional()` already existed and
+ * `remove` already accepted several tokens, so the single-name form was the
+ * asymmetry. `command` is only used for the usage wording, so the two commands
+ * that share this parser still name themselves in their errors.
+ */
+export function parseToggleArgs(argv: string[], command: 'enable' | 'disable'): ToggleOptions {
+  const names: string[] = []
+  let json = false
+
+  for (const a of argv) {
+    const eqIdx = a.indexOf('=')
+    const flag = eqIdx !== -1 ? a.slice(0, eqIdx) : a
+    const inlineVal = eqIdx !== -1 ? a.slice(eqIdx + 1) : undefined
+
+    if (flag === '--json') {
+      if (inlineVal !== undefined) {
+        throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
+      }
+      json = true
+    } else if (!a.startsWith('-')) {
+      // 名字不以 `-` 开头（skill 名为 kebab-case），整段收集，含 `=` 也不拆。
+      names.push(a)
+    } else {
+      throw new Error(`unknown argument "${a}"; usage: dsh-skills-nexus ${command} <name>... [--json]`)
+    }
+  }
+
+  if (names.length === 0) {
+    throw new Error(`missing skill name; usage: dsh-skills-nexus ${command} <name>... [--json]`)
+  }
+
+  return { names, json }
 }
 
 export interface ExportOptions {

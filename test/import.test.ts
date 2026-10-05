@@ -54,19 +54,30 @@ const io: OpsIO = {
   confirm: async () => true,
   progress: () => {},
   emit: () => {},
+  error: () => {},
   interactive: false,
 }
 
-/** The OpsIO seam, so CLI tests never patch process.stdout. */
-function captureIO(): { io: OpsIO; lines: string[] } {
+/**
+ * The OpsIO seam, so CLI tests never patch process.stdout. `lines` is the
+ * batch output (`emit`) and `errors` the diagnostics (`error`) — kept apart
+ * because A1's whole point is that a machine consumer reads one stream and a
+ * human the other.
+ */
+function captureIO(): { io: OpsIO; lines: string[]; errors: string[] } {
   const lines: string[] = []
+  const errors: string[] = []
   return {
     lines,
+    errors,
     io: {
       confirm: async () => true,
       progress: () => {},
       emit: (line: string) => {
         lines.push(line)
+      },
+      error: (line: string) => {
+        errors.push(line)
       },
       interactive: false,
     },

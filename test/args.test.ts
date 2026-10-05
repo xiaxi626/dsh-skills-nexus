@@ -1,6 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseAddArgs, parseListArgs, parseRemoveArgs, positional } from '../src/cli/args.js'
+import {
+  parseAddArgs,
+  parseListArgs,
+  parseRemoveArgs,
+  parseToggleArgs,
+  parseUpdateArgs,
+  positional,
+} from '../src/cli/args.js'
 
 /* ------------------------------------------------------------------ */
 /* parseAddArgs — the tiny argv parser for `add`                       */
@@ -13,6 +20,7 @@ test('specs collects the single positional', () => {
     ref: undefined,
     subdir: undefined,
     yes: false,
+    json: false,
   })
 })
 
@@ -169,18 +177,27 @@ test('parseRemoveArgs with no names yields an empty pattern list', () => {
 
 test('parseListArgs defaults to the human table', () => {
   assert.equal(parseListArgs([]).names, false)
+  assert.equal(parseListArgs([]).json, false)
 })
 
 test('--names selects the machine path', () => {
   assert.equal(parseListArgs(['--names']).names, true)
 })
 
-test('parseListArgs boolean flag rejects an inline value', () => {
+test('--json selects the structured machine path', () => {
+  assert.equal(parseListArgs(['--json']).json, true)
+  assert.equal(parseListArgs(['--json']).names, false)
+})
+
+test('parseListArgs boolean flags reject an inline value', () => {
   // Same guard as parseAddArgs/parseRemoveArgs: --names=false must not become
   // names=true, or a scripted caller asking for the table silently receives
-  // the one-name-per-line stream instead.
+  // the one-name-per-line stream instead. --json=false is the same class of
+  // lie for the structured path.
   assert.throws(() => parseListArgs(['--names=false']), /takes no value/)
   assert.throws(() => parseListArgs(['--names=1']), /takes no value/)
+  assert.throws(() => parseListArgs(['--json=false']), /takes no value/)
+  assert.throws(() => parseListArgs(['--json=1']), /takes no value/)
 })
 
 test('parseListArgs rejects positionals and unknown flags', () => {
@@ -189,5 +206,68 @@ test('parseListArgs rejects positionals and unknown flags', () => {
   // `add` tolerates its extra options) keeps a mistyped `--name` from silently
   // printing the full table to a consumer that expects one name per line.
   assert.throws(() => parseListArgs(['foo']), /unknown argument/)
-  assert.throws(() => parseListArgs(['--json']), /unknown argument/)
+  assert.throws(() => parseListArgs(['--nope']), /unknown argument/)
+})
+
+test('parseListArgs refuses --names together with --json', () => {
+  // Two machine paths with different shapes: there is no single sensible
+  // answer for "names only AND the full document", so it is a usage error
+  // rather than a silent precedence rule.
+  assert.throws(() => parseListArgs(['--names', '--json']), /mutually exclusive/)
+  assert.throws(() => parseListArgs(['--json', '--names']), /mutually exclusive/)
+})
+
+/* ------------------------------------------------------------------ */
+/* parseUpdateArgs — one optional target plus the machine flag         */
+/* ------------------------------------------------------------------ */
+
+test('parseUpdateArgs defaults to every enabled entry, in human form', () => {
+  assert.deepEqual(parseUpdateArgs([]), { json: false })
+})
+
+test('parseUpdateArgs takes one positional as the target', () => {
+  assert.deepEqual(parseUpdateArgs(['my-skill']), { target: 'my-skill', json: false })
+})
+
+test('parseUpdateArgs accepts --json with and without a target', () => {
+  // The regression this parser exists for: `update` used to read its target
+  // with `positional()` and ignore every flag, so `--json` would have been
+  // discarded in silence.
+  assert.deepEqual(parseUpdateArgs(['--json']), { json: true })
+  assert.deepEqual(parseUpdateArgs(['my-skill', '--json']), { target: 'my-skill', json: true })
+})
+
+test('parseUpdateArgs rejects an inline value, a second target and unknown flags', () => {
+  assert.throws(() => parseUpdateArgs(['--json=false']), /takes no value/)
+  assert.throws(() => parseUpdateArgs(['a', 'b']), /one entry name at a time/)
+  assert.throws(() => parseUpdateArgs(['--yes']), /unknown argument/)
+})
+
+/* ------------------------------------------------------------------ */
+/* parseToggleArgs — batch names, mirroring remove                     */
+/* ------------------------------------------------------------------ */
+
+test('parseToggleArgs collects every positional name in order', () => {
+  assert.deepEqual(parseToggleArgs(['a', 'b', 'c'], 'enable'), { names: ['a', 'b', 'c'], json: false })
+})
+
+test('parseToggleArgs accepts --json before, between and after names', () => {
+  assert.deepEqual(parseToggleArgs(['--json', 'a'], 'disable'), { names: ['a'], json: true })
+  assert.deepEqual(parseToggleArgs(['a', '--json', 'b'], 'disable'), {
+    names: ['a', 'b'],
+    json: true,
+  })
+})
+
+test('parseToggleArgs requires at least one name and rejects an inline value', () => {
+  assert.throws(() => parseToggleArgs([], 'enable'), /missing skill name/)
+  assert.throws(() => parseToggleArgs(['--json=1', 'a'], 'enable'), /takes no value/)
+})
+
+test('parseToggleArgs names the command it was invoked for', () => {
+  // One parser serves both commands, so the usage wording has to come from the
+  // caller — otherwise `disable --nope` would advise running `enable`.
+  assert.throws(() => parseToggleArgs(['--nope'], 'disable'), /disable <name>/)
+  assert.throws(() => parseToggleArgs(['--nope'], 'enable'), /enable <name>/)
+  assert.throws(() => parseToggleArgs([], 'disable'), /disable <name>/)
 })

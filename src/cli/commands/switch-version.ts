@@ -98,7 +98,7 @@ export async function switchVersion(argv: string[], io: OpsIO = cliIO): Promise<
   try {
     opts = parseSwitchVersionArgs(argv)
   } catch (err) {
-    process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`)
+    io.error(`error: ${err instanceof Error ? err.message : String(err)}`)
     return 2
   }
 
@@ -108,7 +108,7 @@ export async function switchVersion(argv: string[], io: OpsIO = cliIO): Promise<
   // still re-checks and throws SkillNotFoundError; this is the friendly path.
   const manifest = await readManifest()
   if (!findEntry(manifest, opts.name)) {
-    process.stderr.write(`No skill named "${opts.name}".\n`)
+    io.error(`No skill named "${opts.name}".`)
     return 1
   }
 
@@ -131,10 +131,10 @@ export async function switchVersion(argv: string[], io: OpsIO = cliIO): Promise<
       err instanceof NotAGitCloneError ||
       err instanceof SkillLockedError
     ) {
-      process.stderr.write(`${err.message}\n`)
+      io.error(err.message)
       return 1
     }
-    process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`)
+    io.error(`error: ${err instanceof Error ? err.message : String(err)}`)
     return 1
   }
 

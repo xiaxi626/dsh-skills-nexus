@@ -1,13 +1,15 @@
-import { readManifest } from '../../manifest.js'
+import { listEntries, readManifest } from '../../manifest.js'
 import { REPOS_DIR, OFFICIAL_SKILLS_DIR, repoDir } from '../../paths.js'
 import { stat } from 'node:fs/promises'
 import { isEntryEnabled } from '../../link.js'
 import { cliIO } from '../../ops-io.js'
 import type { OpsIO } from '../../ops-io.js'
 import { parseListArgs } from '../args.js'
+import { emitJson, fatalJsonError } from '../json-io.js'
+import type { ListJsonEntry, ListJsonReport } from '../json-types.js'
 
 /**
- * `list [--names]` — show registered skills and their status.
+ * `list [--names | --json]` — show registered skills and their status.
  *
  * `--names` is the machine path: skill names only, one per line, in manifest
  * order, with no header, padding or footer. Shell completions shell out to it
@@ -18,16 +20,31 @@ import { parseListArgs } from '../args.js'
  * path (the human "No skills registered." hint is noise on a stream that
  * scripts split on newlines); exit stays 0.
  *
+ * `--json` (P0 §4.1) is the structured sibling of `--names`: the same data the
+ * panel's `GET /list` serves, from the same `listEntries()` core, so the two
+ * faces cannot disagree about what is installed. The two flags are mutually
+ * exclusive (see parseListArgs).
+ *
  * Exit codes: 0 = listed, 1 = manifest unreadable, 2 = usage error.
  */
 export async function list(argv: string[], io: OpsIO = cliIO): Promise<number> {
   let names: boolean
+  let json: boolean
   try {
-    names = parseListArgs(argv).names
+    const opts = parseListArgs(argv)
+    names = opts.names
+    json = opts.json
   } catch (err) {
-    process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`)
+    const message = err instanceof Error ? err.message : String(err)
+    if (jsonRequested(argv)) {
+      fatalJsonError(io, message)
+      return 2
+    }
+    io.error(`error: ${message}`)
     return 2
   }
+
+  if (json) return listJson(io)
 
   const manifest = await readManifest()
 
@@ -83,6 +100,59 @@ export async function list(argv: string[], io: OpsIO = cliIO): Promise<number> {
     `  Symlinks in: ${OFFICIAL_SKILLS_DIR} (on = linked to catalog)\n`,
   )
   return 0
+}
+
+/**
+ * `list --json` (P0 §4.1): the structured inventory, built from `listEntries()`
+ * — the same core behind `GET /skills-nexus/list` — so the CLI and the panel
+ * report one dataset. `version` and the 2-space framing come from `emitJson`.
+ *
+ * Field notes:
+ *   - `commit` is the recorded lockfile-lite value, not a fresh `git rev-parse`;
+ *     `list` has never shelled out to git and doing so here would make the
+ *     machine path depend on the git binary being on PATH.
+ *   - `hasGitSource` is the server-side predicate (`gitUrl.length > 0`), never
+ *     derived from `url` — every entry has a `url` and it is never empty.
+ *   - `ownership` is `managed` unless the entry records `external` (a
+ *     `--link-only` adoption of a directory nexus does not own).
+ *   - `links[].target` is an absolute path; its exact form is platform
+ *     dependent and explicitly outside the contract (P0 §2.2).
+ */
+async function listJson(io: OpsIO): Promise<number> {
+  const listed = await listEntries()
+  const entries: ListJsonEntry[] = listed.map(({ entry, enabled, links, update }) => ({
+    name: entry.name,
+    url: entry.url,
+    ref: entry.ref,
+    subdir: entry.subdir ?? null,
+    commit: entry.commit ?? null,
+    hasGitSource: entry.gitUrl.length > 0,
+    ownership: entry.ownership === 'external' ? 'external' : 'managed',
+    enabled,
+    links: links.map((l) => ({ linkName: l.name, target: l.target })),
+    update:
+      update === null
+        ? null
+        : {
+            hasUpdate: update.hasUpdate,
+            latestCommit: update.latestCommit,
+            checkedAt: update.checkedAt,
+          },
+  }))
+
+  const report: ListJsonReport = { version: 1, entries }
+  emitJson(io, report)
+  return 0
+}
+
+/**
+ * True when the argv the parser just rejected asked for the JSON contract, so
+ * a usage error still answers in the machine dialect on stderr (P0 §4.6).
+ * `--json=value` counts: that spelling is itself a usage error, and the caller
+ * clearly meant the machine mode.
+ */
+function jsonRequested(argv: string[]): boolean {
+  return argv.some((a) => a === '--json' || a.startsWith('--json='))
 }
 
 /**

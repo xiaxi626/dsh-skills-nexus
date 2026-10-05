@@ -27,7 +27,7 @@ export async function importCommand(argv: string[], io: OpsIO = cliIO): Promise<
   try {
     options = parseImportArgs(argv)
   } catch (err) {
-    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+    io.error(`${err instanceof Error ? err.message : String(err)}`)
     return 2
   }
 
@@ -53,10 +53,10 @@ export async function importCommand(argv: string[], io: OpsIO = cliIO): Promise<
     return result.failed.length > 0 ? 1 : 0
   } catch (err) {
     if (err instanceof ImportError) {
-      process.stderr.write(`${err.message}\n`)
+      io.error(err.message)
       return 1
     }
-    process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`)
+    io.error(`error: ${err instanceof Error ? err.message : String(err)}`)
     return 1
   }
 }
@@ -96,7 +96,7 @@ function printSummary(result: ImportResult, io: OpsIO): void {
     io.emit(`  ✓ ${entry.name}: ${how} → ${entry.path}; links: ${links}\n`)
   }
   for (const failure of result.failed) {
-    process.stderr.write(`  ✗ ${failure.name}: ${failure.reason}\n`)
+    io.error(`  ✗ ${failure.name}: ${failure.reason}`)
   }
   for (const skipped of result.skipped) {
     io.emit(`  ⚠ not in this package: "${skipped.name}" — ${skipped.reason}\n`)

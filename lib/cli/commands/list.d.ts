@@ -1,6 +1,6 @@
 import type { OpsIO } from '../../ops-io.js';
 /**
- * `list [--names]` — show registered skills and their status.
+ * `list [--names | --json]` — show registered skills and their status.
  *
  * `--names` is the machine path: skill names only, one per line, in manifest
  * order, with no header, padding or footer. Shell completions shell out to it
@@ -10,6 +10,11 @@ import type { OpsIO } from '../../ops-io.js';
  * rather than reading `.git/refs/`. An empty manifest prints nothing on this
  * path (the human "No skills registered." hint is noise on a stream that
  * scripts split on newlines); exit stays 0.
+ *
+ * `--json` (P0 §4.1) is the structured sibling of `--names`: the same data the
+ * panel's `GET /list` serves, from the same `listEntries()` core, so the two
+ * faces cannot disagree about what is installed. The two flags are mutually
+ * exclusive (see parseListArgs).
  *
  * Exit codes: 0 = listed, 1 = manifest unreadable, 2 = usage error.
  */

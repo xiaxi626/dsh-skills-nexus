@@ -101,14 +101,17 @@ after(async () => {
 interface TestIO extends OpsIO {
   emitted: string[]
   stages: string[]
+  errors: string[]
 }
 
 function makeIO(): TestIO {
   const emitted: string[] = []
   const stages: string[] = []
+  const errors: string[] = []
   return {
     emitted,
     stages,
+    errors,
     confirm: async () => false,
     progress: (stage, detail) => {
       stages.push(detail ? `${stage}: ${detail}` : stage)
@@ -116,25 +119,29 @@ function makeIO(): TestIO {
     emit: (line) => {
       emitted.push(line)
     },
+    error: (line) => {
+      errors.push(line)
+    },
     interactive: false,
   }
 }
 
-/** Run `fn` with stderr writes captured verbatim (the CLI's error channel). */
-async function captureStderr(fn: () => Promise<number>): Promise<{ code: number; err: string }> {
-  const chunks: string[] = []
-  const orig = process.stderr.write
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ;(process.stderr as any).write = (chunk: any) => {
-    chunks.push(String(chunk))
-    return true
-  }
-  try {
-    const code = await fn()
-    return { code, err: chunks.join('') }
-  } finally {
-    process.stderr.write = orig
-  }
+/**
+ * Run `cmd` and read the diagnostics it produced.
+ *
+ * These used to monkey-patch `process.stderr.write`, because that is where the
+ * wrapper wrote. A1 collected every CLI diagnostic into the `OpsIO` seam
+ * (`io.error`), so there is nothing left to patch: the test's own `io` is the
+ * capture. Reading the seam instead of a global stream is also strictly
+ * stronger — it fails if a future call site *bypasses* `io.error`, which the
+ * patch could never notice.
+ */
+async function captureErrors(
+  io: TestIO,
+  cmd: () => Promise<number>,
+): Promise<{ code: number; err: string }> {
+  const code = await cmd()
+  return { code, err: io.errors.join('\n') === '' ? '' : `${io.errors.join('\n')}\n` }
 }
 
 /** Clone `src#ref` into `repos/<name>` exactly as `add` would. */
@@ -467,7 +474,7 @@ test('parseSwitchVersionArgs accepts both --type forms and rejects malformed inp
 
 test('the CLI wrapper exits 1 for an unknown skill with clean stdout', async () => {
   const io = makeIO()
-  const { code, err } = await captureStderr(() => cli.switchVersion(['ghost-xyz', 'main'], io))
+  const { code, err } = await captureErrors(io, () => cli.switchVersion(['ghost-xyz', 'main'], io))
   assert.equal(code, 1)
   assert.equal(err, 'No skill named "ghost-xyz".\n')
   assert.deepEqual(io.emitted, [], 'stdout stays clean — no "Switching…" banner')
@@ -475,7 +482,7 @@ test('the CLI wrapper exits 1 for an unknown skill with clean stdout', async () 
 
 test('the CLI wrapper exits 2 on usage errors', async () => {
   const io = makeIO()
-  const { code, err } = await captureStderr(() => cli.switchVersion([], io))
+  const { code, err } = await captureErrors(io, () => cli.switchVersion([], io))
   assert.equal(code, 2)
   assert.match(err, /^error: usage: dsh-skills-nexus switch-version/)
   assert.deepEqual(io.emitted, [])
@@ -490,7 +497,7 @@ test('the CLI wrapper maps a known skill + missing ref to the core error message
   await register('cli-err', src, 'main', sha)
 
   const io = makeIO()
-  const { code, err } = await captureStderr(() => cli.switchVersion(['cli-err', 'nope'], io))
+  const { code, err } = await captureErrors(io, () => cli.switchVersion(['cli-err', 'nope'], io))
   assert.equal(code, 1)
   // The core's error classes carry complete messages — no `error:` prefix.
   assert.equal(err, 'Ref "nope" was not found — nothing was changed.\n')
@@ -511,7 +518,7 @@ test('the CLI wrapper prints the summary and exits 0 on a successful switch', as
   await link.linkSkill('cli-ok', dest)
 
   const io = makeIO()
-  const { code, err } = await captureStderr(() =>
+  const { code, err } = await captureErrors(io, () =>
     cli.switchVersion(['cli-ok', 'v1.0.0', '--type', 'tag'], io),
   )
   assert.equal(code, 0)

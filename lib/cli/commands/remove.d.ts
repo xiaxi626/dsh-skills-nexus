@@ -15,6 +15,13 @@ import type { OpsIO } from '../../ops-io.js';
  * `--yes` is given. On a non-TTY (scripts) the guard cannot prompt, so it
  * refuses with exit code 2 rather than silently deleting everything matched.
  * Exact single names are unaffected — they remove immediately, as before.
+ *
+ * `--json` (P0 §4.4) reports one result per resolved name. The broad-glob guard
+ * deliberately keeps its behaviour under `--json`: the machine `OpsIO` is
+ * non-interactive, so a multi-match glob without `--yes` is still refused
+ * (exit 2) rather than confirmed — a JSON run configures nothing, and
+ * "silently delete everything the glob matched" is not a safer default just
+ * because the caller wants structured output. Pass `--yes` to proceed.
  */
 export declare function remove(argv: string[], io?: OpsIO): Promise<number>;
 //# sourceMappingURL=remove.d.ts.map

@@ -145,10 +145,11 @@ dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills   # c
 
 # inspect / maintain
 dsh-skills-nexus list                               # all registered skills (+ source repo, commit, subdir, status)
+dsh-skills-nexus list --json                        # ...or the same inventory as a versioned JSON report
 dsh-skills-nexus update [name]                      # refresh (branch pin: pull; tag/commit pin: verify)
 dsh-skills-nexus switch-version <name> <ref> [--type <branch|tag|commit>]  # move a clone to another ref (fetch, checkout, re-normalize, rebuild links)
-dsh-skills-nexus enable  <name>                     # create symlink (default)
-dsh-skills-nexus disable <name>                     # remove symlink without deleting clone
+dsh-skills-nexus enable  <name>...                  # create symlink (default); several names in one run
+dsh-skills-nexus disable <name>...                  # remove symlink without deleting clone
 dsh-skills-nexus remove <name>...                   # delete clone + symlink + unregister (one or more)
 dsh-skills-nexus remove 'theme-*'                   # ...or a * / ? glob matched against skill names
 dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # read-only full checkup of nexus state (exit 0/1/2)
@@ -163,6 +164,24 @@ dsh-skills-nexus adopt <name> --url github:owner/repo   # give a source-less ent
 ```
 
 Value options (`--name`, `--ref`, `--subdir`) also accept the `--flag=value` form (e.g. `--subdir=skills/foo`, `--name=owner-skills`); the boolean `--yes` takes no value.
+
+For scripts, `--json` turns any of `add`, `list`, `update`, `remove`, `enable`
+and `disable` into a machine interface: a version-1 report on stdout and
+nothing else, diagnostics on stderr, and the same exit codes (`0` ok / `1`
+error or partial failure / `2` usage error). A report tells you what the
+operation *did* — the commit an install landed on, the before→after pair of an
+update, which name of a batch was not found:
+
+```console
+$ dsh-skills-nexus add github:owner/repo --json | jq '.results[0]'
+{ "spec": "github:owner/repo", "status": "added", "name": "repo",
+  "commit": "…", "ref": "main", "links": ["repo"] }
+```
+
+`--json` runs never prompt, so pass `--yes` where the interactive run would have
+asked. See
+[Building on nexus](docs/build-on-nexus.md#the---json-write-interface-version-1)
+for the full contract and its explicit non-promises.
 
 `add` accepts multiple repo specs and `remove` accepts multiple names plus `*`/`?` globs; each target is handled independently and the exit code is non-zero if any one failed. Because `--name`/`--ref`/`--subdir` are per-repo, they cannot be combined with multiple `add` specs — run separate `add` commands to customize each. A `remove` glob matching more than one skill lists them and asks for confirmation first (`--yes` skips it); quote the pattern (`'theme-*'`) so your shell does not expand it.
 
@@ -628,9 +647,11 @@ Want to build on nexus — a GUI, a sync daemon, a CI job, or a higher-level
 installer that installs git `SKILL.md` repos into DSH? Nexus already solves
 the fiddly cross-platform parts (spec parsing, clone-with-retry, ref pinning,
 frontmatter normalization, collection `--subdir`, Windows-junction symlinks)
-and exposes two stable, read-only machine interfaces you can depend on:
-`dsh-skills-nexus list --names` (enumerate installed skills) and
-`dsh-skills-nexus doctor --json` (a versioned health report). Shell out to the
+and exposes stable machine interfaces you can depend on:
+`dsh-skills-nexus list --names` (enumerate installed skills),
+`dsh-skills-nexus doctor --json` (a versioned health report), and `--json` on
+`add` / `list` / `update` / `remove` / `enable` / `disable` (versioned reports
+describing what an operation just did). Shell out to the
 CLI — never `import` package internals or read `manifest.json`. See
 **[Building on nexus — machine interfaces for tool authors](docs/build-on-nexus.md)**
 for the full contract, the ecosystem boundary, and the explicit list of

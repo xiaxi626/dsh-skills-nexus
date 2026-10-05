@@ -18,12 +18,15 @@ import { cliIO } from '../../ops-io.js'
 import type { OpsIO } from '../../ops-io.js'
 import { acquireSkillFileLock } from '../../locks.js'
 import type { SkillFileLock } from '../../locks.js'
-import { positional } from '../args.js'
+import { parseUpdateArgs } from '../args.js'
 import { batchPrefix, withSpinner } from '../progress.js'
+import { emitJson, fatalJsonError, jsonIO } from '../json-io.js'
+import type { UpdateJsonResult, UpdateJsonStatus } from '../json-types.js'
 
 /**
- * `update [name]` — bring a skill's clone to the latest state, or verify a
- * pinned one. Re-normalizes frontmatter and re-creates symlinks after pull.
+ * `update [name] [--json]` — bring a skill's clone to the latest state, or
+ * verify a pinned one. Re-normalizes frontmatter and re-creates symlinks after
+ * pull.
  *
  * Dispatch is decided by how the clone was pinned at `add` time:
  *   - branch pin (symbolic HEAD) → `git pull --ff-only`
@@ -36,10 +39,29 @@ import { batchPrefix, withSpinner } from '../progress.js'
  * and install-time normalization rewrites `SKILL.md` in place, so managed
  * clones are usually dirty. Local changes are therefore discarded (with a
  * warning) before pulling / restoring; normalization is re-applied after.
+ *
+ * `--json` (P0 §4.3) reports one result per entry with its before/after commit.
+ * Every entry is attempted independently, so a failure on one does not stop the
+ * rest and the exit code is non-zero if any failed.
  */
 export async function update(argv: string[], io: OpsIO = cliIO): Promise<number> {
+  let target: string | undefined
+  let json: boolean
+  try {
+    const opts = parseUpdateArgs(argv)
+    target = opts.target
+    json = opts.json
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (jsonRequested(argv)) {
+      fatalJsonError(io, message)
+      return 2
+    }
+    io.error(`error: ${message}`)
+    return 2
+  }
+
   const manifest = await readManifest()
-  const target = positional(argv)
 
   // Update all enabled (linked) skills by default, or a specific target.
   const targets = target
@@ -49,33 +71,50 @@ export async function update(argv: string[], io: OpsIO = cliIO): Promise<number>
       )).filter(({ linked }) => linked).map(({ s }) => s)
 
   if (target && targets.length === 0) {
-    process.stderr.write(`No skill named "${target}".\n`)
+    const message = `No skill named "${target}".`
+    if (json) {
+      fatalJsonError(io, message)
+      return 1
+    }
+    io.error(message)
     return 1
   }
   if (targets.length === 0) {
+    if (json) {
+      emitJson(io, { version: 1, results: [], summary: { updated: 0, failed: 0 } })
+      return 0
+    }
     io.emit('Nothing to update (no enabled skills).\n')
     return 0
   }
 
+  // Machine mode: the shared code's human lines go to a silent sink so stdout
+  // stays pure JSON; diagnostics keep flowing to stderr.
+  const out = json ? jsonIO(io) : io
+
   let failures = 0
+  const results: UpdateJsonResult[] = []
   const total = targets.length
   for (let i = 0; i < targets.length; i++) {
     const s = targets[i]!
     const dir = repoDir(s.path)
-    io.emit(`${batchPrefix(i + 1, total)}Updating ${s.name} (${s.ref})…\n`)
+    out.emit(`${batchPrefix(i + 1, total)}Updating ${s.name} (${s.ref})…\n`)
     // §7.3 layer 3: cross-process exclusion against CLI/server collisions.
     // Acquire failure flows into the same per-item failure path as any other
     // error (message explains the lock), with release guaranteed by finally.
     let lock: SkillFileLock | undefined
+    let before: string | null = null
+    let after: string | null = null
+    let status: UpdateJsonStatus = 'failed'
     try {
       lock = await acquireSkillFileLock(s.name)
-      const before = await getHeadCommit(dir)
-      let after: string
+      before = await getHeadCommit(dir)
+      let next: string
 
       // Clones are nexus-managed: discard local changes (warned) so the
       // pull / restore below cannot be blocked by a dirty worktree.
       if (await isDirtyWorktree(dir)) {
-        io.emit('  ⚠ discarding local changes in nexus-managed clone\n')
+        out.emit('  ⚠ discarding local changes in nexus-managed clone\n')
         await discardLocalChanges(dir)
       }
 
@@ -84,23 +123,27 @@ export async function update(argv: string[], io: OpsIO = cliIO): Promise<number>
         const want = await resolveRefCommit(dir, s.ref)
         if (before !== want) {
           await checkoutRef(dir, s.ref)
-          after = await getHeadCommit(dir)
-          io.emit(`  ✓ restored to pinned ${short(after)}\n`)
+          next = await getHeadCommit(dir)
+          out.emit(`  ✓ restored to pinned ${short(next)}\n`)
+          status = 'updated'
         } else {
-          after = before
-          io.emit(`  ✓ pinned at ${short(after)} — nothing to update\n`)
+          next = before
+          out.emit(`  ✓ pinned at ${short(next)} — nothing to update\n`)
+          status = 'pinned'
         }
       } else {
         // Branch pin — fast-forward. `git pull` is the only network step in
         // `update`, so it's the one worth animating.
         await withSpinner(`pulling ${s.name}`, () => pullRepo(dir))
-        after = await getHeadCommit(dir)
-        io.emit(
-          after === before
-            ? `  ✓ up to date (${short(after)})\n`
-            : `  ✓ ${short(before)} → ${short(after)}\n`,
+        next = await getHeadCommit(dir)
+        out.emit(
+          next === before
+            ? `  ✓ up to date (${short(next)})\n`
+            : `  ✓ ${short(before)} → ${short(next)}\n`,
         )
+        status = next === before ? 'up-to-date' : 'updated'
       }
+      after = next
 
       // --- Re-normalize frontmatter after pull ---
       const skillRoot = s.subdir ? join(dir, s.subdir) : dir
@@ -109,11 +152,11 @@ export async function update(argv: string[], io: OpsIO = cliIO): Promise<number>
         const validName = ps.invalidName ? sanitizeName(ps.invalidName) : (ps.name || s.name)
         if (ps.invalidName) {
           await normalizeSkillName(ps.skillFile, validName)
-          io.emit(`  ⚠ re-normalized name: "${ps.invalidName}" → "${validName}"\n`)
+          out.emit(`  ⚠ re-normalized name: "${ps.invalidName}" → "${validName}"\n`)
         }
         if (!ps.description || ps.description.trim().length === 0) {
           await ensureDescription(ps.skillFile, validName)
-          io.emit(`  ⚠ added missing description for "${validName}"\n`)
+          out.emit(`  ⚠ added missing description for "${validName}"\n`)
         }
       }
 
@@ -138,7 +181,7 @@ export async function update(argv: string[], io: OpsIO = cliIO): Promise<number>
         }
         const dropped = oldLinks.map((l) => l.name).filter((n) => !rebuilt.has(n))
         if (dropped.length > 0) {
-          io.emit(
+          out.emit(
             `  ⚠ dropped ${dropped.length} stale link(s) no longer provided upstream: ${dropped.join(', ')}\n`,
           )
         }
@@ -147,14 +190,43 @@ export async function update(argv: string[], io: OpsIO = cliIO): Promise<number>
       await markUpdated(s.name, after)
     } catch (err) {
       failures++
-      process.stderr.write(
-        `  ✗ failed: ${err instanceof Error ? err.message : String(err)}\n`,
-      )
+      const message = err instanceof Error ? err.message : String(err)
+      out.error(`  ✗ failed: ${message}`)
+      results.push({
+        name: s.name,
+        status: 'failed',
+        ref: s.ref,
+        fromCommit: before,
+        toCommit: null,
+        error: message,
+      })
+      continue
     } finally {
       await lock?.release()
     }
+
+    results.push({ name: s.name, status, ref: s.ref, fromCommit: before, toCommit: after })
+  }
+
+  if (json) {
+    emitJson(io, {
+      version: 1,
+      results,
+      summary: {
+        updated: results.filter((r) => r.status === 'updated').length,
+        failed: results.filter((r) => r.status === 'failed').length,
+      },
+    })
   }
   return failures === 0 ? 0 : 1
+}
+
+/**
+ * True when the argv the parser just rejected asked for the JSON contract, so
+ * a usage error still answers in the machine dialect on stderr (P0 §4.6).
+ */
+function jsonRequested(argv: string[]): boolean {
+  return argv.some((a) => a === '--json' || a.startsWith('--json='))
 }
 
 function short(sha: string): string {

@@ -182,7 +182,85 @@ test('--names=false is a usage error: exit 2 and stdout stays empty', async () =
 
 test('an unknown argument is a usage error: exit 2 and stdout stays empty', async () => {
   await reset({ name: 'foo', gitUrl: 'https://github.com/owner/repo.git' })
-  const { code, out } = await captureList(['--json'])
+  const { code, out, err } = await captureList(['--name'])
   assert.equal(code, 2)
   assert.equal(out, '')
+  assert.match(err, /unknown argument/)
+})
+
+/* ------------------------------------------------------------------ */
+/* list --json — the structured machine path (P0 §4.1)                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Parse a captured stdout as the version-1 report, asserting the framing the
+ * contract promises (P0 §2.1) before handing the object back: 2-space
+ * indentation and a trailing newline, nothing else on the stream.
+ */
+function parseReport(out: string): {
+  version: number
+  entries: Array<Record<string, unknown>>
+} {
+  assert.ok(out.endsWith('\n'), 'the report ends with a newline')
+  assert.ok(out.startsWith('{\n  "version": 1'), 'the report is 2-space indented JSON')
+  return JSON.parse(out) as { version: number; entries: Array<Record<string, unknown>> }
+}
+
+test('--json emits one version-1 report and nothing else on stdout', async () => {
+  await reset({ name: 'solo', gitUrl: 'https://github.com/owner/repo.git' })
+  const { code, out } = await captureList(['--json'])
+  assert.equal(code, 0)
+  const report = parseReport(out)
+  assert.equal(report.entries.length, 1)
+  assert.equal(report.entries[0]!.name, 'solo')
+  assert.equal(report.entries[0]!.url, 'https://github.com/owner/repo.git')
+  assert.equal(report.entries[0]!.ref, 'main')
+})
+
+test('--json carries the derived fields the human table derives', async () => {
+  await reset({ name: 'sub', gitUrl: 'https://github.com/owner/repo.git', subdir: 'skills/sub' })
+  const { out } = await captureList(['--json'])
+  const entry = parseReport(out).entries[0]!
+  // `commit` was never recorded by this fixture, so it is the contract's null —
+  // not the human table's em dash, and not an empty string.
+  assert.equal(entry.commit, null)
+  assert.equal(entry.subdir, 'skills/sub')
+  // hasGitSource is the server-side predicate over gitUrl, never derived from
+  // `url` (which every entry has and which is never empty).
+  assert.equal(entry.hasGitSource, true)
+  assert.equal(entry.ownership, 'managed')
+  // Nothing is linked in this fixture, so enabled is false with an empty list.
+  assert.equal(entry.enabled, false)
+  assert.deepEqual(entry.links, [])
+  // Never checked by check-updates in this process — the contract's null.
+  assert.equal(entry.update, null)
+})
+
+test('--json on an empty manifest is an empty report, not the human hint', async () => {
+  await reset()
+  const { code, out } = await captureList(['--json'])
+  assert.equal(code, 0)
+  const report = parseReport(out)
+  assert.deepEqual(report.entries, [])
+  assert.doesNotMatch(out, /No skills registered/)
+})
+
+test('--json=false is a usage error reported in the machine dialect', async () => {
+  await reset()
+  const { code, out, err } = await captureList(['--json=false'])
+  assert.equal(code, 2)
+  assert.equal(out, '', 'a usage error writes nothing to stdout')
+  // The caller asked for the machine contract, so the error answers in it —
+  // on stderr, where P0 §4.6 puts it.
+  const payload = JSON.parse(err) as { version: number; error: { message: string } }
+  assert.equal(payload.version, 1)
+  assert.match(payload.error.message, /takes no value/)
+})
+
+test('--names with --json is refused rather than silently resolved', async () => {
+  await reset({ name: 'foo', gitUrl: 'https://github.com/owner/repo.git' })
+  const { code, out, err } = await captureList(['--names', '--json'])
+  assert.equal(code, 2)
+  assert.equal(out, '')
+  assert.match(err, /mutually exclusive/)
 })

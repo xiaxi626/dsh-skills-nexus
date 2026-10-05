@@ -30,6 +30,18 @@ export interface OpsIO {
      */
     emit(line: string): void;
     /**
+     * Report a diagnostic — a usage error, a refused operation, a per-item
+     * failure — as opposed to `emit`, which carries the batch output a script
+     * consumes. CLI = one stderr line (never TTY-gated: a diagnostic must reach
+     * a captured log too); HTTP job = one more line on the polled output, so the
+     * panel shows exactly what the CLI would have printed.
+     *
+     * `line` may or may not end in `\n`; the CLI implementation appends one only
+     * when it is missing, mirroring `emit` so the ported call sites stay
+     * byte-for-byte identical.
+     */
+    error(line: string): void;
+    /**
      * Whether an interactive terminal is attached. CLI = `process.stdin.isTTY`;
      * HTTP = `false`.
      */
@@ -79,6 +91,8 @@ export declare class NeedsConfirm extends Error {
  * - `emit` writes to stdout and guarantees the trailing `\n`; strings that
  *   already carry one (the ported `process.stdout.write` call sites) pass
  *   through byte-for-byte;
+ * - `error` writes to stderr and guarantees the trailing `\n`, the exact
+ *   contract the ported `process.stderr.write` call sites relied on;
  * - `spin` is `withSpinner` itself — not a wrapper around it — so the shared
  *   cores animate exactly what they animated before this seam existed;
  * - `interactive` is read live from stdin so command logic observes the same

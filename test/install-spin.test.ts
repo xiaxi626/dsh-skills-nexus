@@ -109,6 +109,10 @@ function recordingIO(
     emit: (line: string) => {
       emitted.push(line)
     },
+    error: () => {
+      // the pre-clone preflight never fails in these fixtures; the install
+      // core's own diagnostics are asserted through `emitted`
+    },
   }
   if (spin !== undefined) io.spin = spin
   return { io, emitted, progress }

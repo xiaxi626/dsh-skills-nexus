@@ -630,7 +630,7 @@ export async function doctor(argv: string[], io: OpsIO = cliIO): Promise<number>
   try {
     opts = parseDoctorArgs(argv)
   } catch (err) {
-    process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`)
+    io.error(`error: ${err instanceof Error ? err.message : String(err)}`)
     return 2
   }
 

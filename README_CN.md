@@ -99,10 +99,11 @@ dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills   # �
 
 # 查看 / 维护
 dsh-skills-nexus list                               # 列出所有已注册 skill（含来源仓库 SOURCE、commit、subdir、状态）
+dsh-skills-nexus list --json                        # …或输出同内容的带版本号 JSON 报告
 dsh-skills-nexus update [name]                      # 刷新（分支 pin 拉取；tag/commit pin 校验）
 dsh-skills-nexus switch-version <name> <ref> [--type <branch|tag|commit>]  # 把克隆切到另一个 ref（fetch、checkout、重归一化、重建链接）
-dsh-skills-nexus enable  <name>                     # 创建 symlink（默认开启）
-dsh-skills-nexus disable <name>                     # 删除 symlink 但不删克隆
+dsh-skills-nexus enable  <name>...                  # 创建 symlink（默认开启）；可一次给多个名字
+dsh-skills-nexus disable <name>...                  # 删除 symlink 但不删克隆
 dsh-skills-nexus remove <name>...                   # 删除克隆 + symlink + 注销（可一次给多个名字）
 dsh-skills-nexus remove 'theme-*'                   # …或用 * / ? 通配符匹配 skill 名
 dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # 只读体检 nexus 全量状态（退出码 0/1/2）
@@ -117,6 +118,21 @@ dsh-skills-nexus adopt <name> --url github:owner/repo   # 给无 git 源的条�
 ```
 
 取值型选项（`--name`、`--ref`、`--subdir`）也支持 `--flag=value` 写法（如 `--subdir=skills/foo`、`--name=owner-skills`）；布尔选项 `--yes` 不接受值。
+
+给脚本用时，`--json` 可把 `add`、`list`、`update`、`remove`、`enable`、`disable`
+变成机器接口：stdout 只输出一份 version 1 报告、诊断走 stderr，退出码语义不变
+（`0` 成功 / `1` 有错误或部分失败 / `2` 用法错误）。报告描述的是「刚才做了什么」
+——安装落在哪个 commit、更新的 before→after、批量里哪个名字没找到：
+
+```console
+$ dsh-skills-nexus add github:owner/repo --json | jq '.results[0]'
+{ "spec": "github:owner/repo", "status": "added", "name": "repo",
+  "commit": "…", "ref": "main", "links": ["repo"] }
+```
+
+`--json` 运行不会提示，交互式运行会问的步骤请显式传 `--yes`。完整契约与明确的
+「不承诺」清单见
+[在 nexus 之上构建](docs/build-on-nexus.zh-CN.md#json-写接口version-1)。
 
 `add` 可接受多个仓库 spec，`remove` 可接受多个名字与 `*`/`?` 通配符；每个目标独立处理，任一失败则退出码非零。由于 `--name`/`--ref`/`--subdir` 是每仓库级选项，不能与多个 `add` spec 同时使用——要分别定制请分开跑多条 `add`。`remove` 的通配符若匹配到多个 skill，会先列出待删清单并要求确认（加 `--yes` 跳过）；通配符请加引号（`'theme-*'`），以免被 shell 提前展开。
 
@@ -411,10 +427,12 @@ ls -la ~/.dsh/skills/
 想在 nexus 之上构建工具——GUI 面板、同步守护进程、CI 任务、或更上层的、把
 git 上 `SKILL.md` 仓库装进 DSH 的安装器？nexus 已经把跨平台的琐碎部分全部解决（spec
 解析、带重试的克隆、ref 固定、frontmatter 归一化、集合仓库 `--subdir`、Windows
-junction 软链），并对外暴露两个稳定、只读、可依赖的机器接口：
-`dsh-skills-nexus list --names`（枚举已安装 skill）与 `dsh-skills-nexus doctor --json`
-（带版本号的健康报告）。请 shell out 调 CLI——绝不要 `import` 包内部、也不要读
-`manifest.json`。完整契约、生态边界、以及**没有承诺**的接口清单，见
+junction 软链），并对外暴露稳定、可依赖的机器接口：
+`dsh-skills-nexus list --names`（枚举已安装 skill）、`dsh-skills-nexus doctor --json`
+（带版本号的健康报告），以及 `add` / `list` / `update` / `remove` / `enable` /
+`disable` 的 `--json`（描述「刚才做了什么」的带版本号报告）。请 shell out 调 CLI——
+绝不要 `import` 包内部、也不要读 `manifest.json`。完整契约、生态边界、以及
+**没有承诺**的接口清单，见
 **[在 nexus 之上构建——面向工具开发者的机器接口](docs/build-on-nexus.zh-CN.md)**。
 
 ## 文档

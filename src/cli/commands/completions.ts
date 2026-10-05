@@ -90,7 +90,7 @@ export function completions(argv: string[], io: OpsIO = cliIO): number {
   try {
     opts = parseCompletionsArgs(argv)
   } catch (err) {
-    process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`)
+    io.error(`error: ${err instanceof Error ? err.message : String(err)}`)
     return 2
   }
 

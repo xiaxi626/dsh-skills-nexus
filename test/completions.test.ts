@@ -5,6 +5,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { completions, parseCompletionsArgs, SUPPORTED_SHELLS } from '../src/cli/commands/completions.js'
+import { printHelp, HELP_TEXT, ROUTED_SUBCOMMANDS } from '../src/cli/usage.js'
 import { bashTemplate } from '../src/cli/commands/completions/bash.js'
 import { fishTemplate } from '../src/cli/commands/completions/fish.js'
 import { powershellTemplate } from '../src/cli/commands/completions/powershell.js'
@@ -65,17 +66,39 @@ function capture(argv: string[]): { code: number; out: string; err: string } {
 }
 
 /**
- * The subcommands `src/cli/index.ts` actually routes, scraped from its `case`
- * labels. `-h` / `--help` are excluded by requiring a leading letter, and the
+ * The `case` labels `src/cli/index.ts` actually routes, scraped from its
+ * source. `-h` / `--help` are excluded by requiring a leading letter, and the
  * `help` word is kept because it is a real alias.
+ *
+ * Returns `undefined` when the source file is not reachable — the suite also
+ * runs from `test-dist/`, where only compiled JavaScript exists. The one test
+ * that uses this then falls back to the router's own exported
+ * `ROUTED_SUBCOMMANDS`, and says so.
  */
-async function routedSubcommands(): Promise<string[]> {
-  const src = await readFile(new URL('../src/cli/index.ts', import.meta.url), 'utf8')
+async function routedSubcommandsFromSource(): Promise<string[] | undefined> {
+  let src: string
+  try {
+    src = await readFile(new URL('../src/cli/index.ts', import.meta.url), 'utf8')
+  } catch {
+    return undefined
+  }
   const names = new Set<string>()
   for (const m of src.matchAll(/^\s*case '([a-z][a-z-]*)':$/gm)) names.add(m[1]!)
   return [...names].sort()
 }
 
+/**
+ * The routed subcommand aliases, sorted — what the four templates must offer.
+ *
+ * Prefers the dispatcher's own `case` labels when the `.ts` source is reachable
+ * (the normal `npm test` run) and falls back to the exported constant when it is
+ * not (`test-dist/`, which holds only compiled JavaScript). Either way the
+ * templates are compared against the router's contract, never against a second
+ * hand-written copy of the list.
+ */
+async function routedSubcommands(): Promise<string[]> {
+  return (await routedSubcommandsFromSource()) ?? [...ROUTED_SUBCOMMANDS].sort()
+}
 /** Subcommands a bash template offers, read out of its `cmds` variable. */
 function bashSubcommands(template: string): string[] {
   const m = /local cmds="([^"]+)"/.exec(template)
@@ -184,10 +207,18 @@ test('a usage error exits 2 and leaves stdout empty (a script pipes it)', () => 
 /* ------------------------------------------------------------------ */
 
 test('every template offers exactly the subcommands the CLI routes', async () => {
-  const routed = await routedSubcommands()
+  const fromSource = await routedSubcommandsFromSource()
+  const routed = fromSource ?? [...ROUTED_SUBCOMMANDS].sort()
   // Guard the guard: a regexp that silently matched nothing would make the
   // comparisons below vacuous.
   assert.ok(routed.length >= 10, `expected the router to yield subcommands, got ${routed.length}`)
+  if (fromSource !== undefined) {
+    // The router's own `case` labels are the authority when they are readable;
+    // the exported constant only has to agree with them. A compiled run
+    // (`test-dist/`) has no `.ts` to read, so this half self-skips and the
+    // constant stands in for it.
+    assert.deepEqual([...ROUTED_SUBCOMMANDS].sort(), routed, 'ROUTED_SUBCOMMANDS drifted from the router')
+  }
   assert.deepEqual(bashSubcommands(bashTemplate), routed)
   assert.deepEqual(zshSubcommands(zshTemplate), routed)
   assert.deepEqual(fishSubcommands(fishTemplate), routed)
@@ -202,13 +233,20 @@ test('templates carry the flags each command accepts', () => {
   }
 })
 
-test('templates do not offer --yes for update/pull, which take no flags', () => {
-  // The original design draft listed `update --yes`; update() only reads a
-  // positional and never parses a flag, so advertising one would mislead.
+test('templates never offer --yes where the command rejects it', () => {
+  // The original design draft listed `update --yes`. `update` now parses flags
+  // (only `--json`), so an advertised `--yes` would be a usage error rather
+  // than the silent no-op it used to be — still a lie, and now a loud one.
+  // The same goes for the batched enable/disable, which take `--json` only.
   assert.doesNotMatch(bashTemplate, /update\|pull\)\s+flags="[^"]*--yes/)
-  assert.doesNotMatch(zshTemplate, /update\|pull\)\s+compadd -- --yes/)
-  assert.doesNotMatch(fishTemplate, /__fish_seen_subcommand_from [^']*\b(?:update|pull)\b[^']*' -l /)
+  assert.doesNotMatch(zshTemplate, /update\|pull\)\s+compadd -- [^\n]*--yes/)
+  assert.doesNotMatch(fishTemplate, /__fish_seen_subcommand_from [^']*\b(?:update|pull)\b[^']*' -l yes/)
   assert.doesNotMatch(powershellTemplate, /'update'\s*\{[^}]*--yes/)
+  assert.doesNotMatch(bashTemplate, /enable\|disable\)\s+flags="[^"]*--yes/)
+  assert.doesNotMatch(zshTemplate, /enable\|disable\)\s+compadd -- [^\n]*--yes/)
+  assert.doesNotMatch(fishTemplate, /__fish_seen_subcommand_from enable disable' -l yes/)
+  assert.doesNotMatch(powershellTemplate, /'enable'\s*\{[^}]*--yes/)
+  assert.doesNotMatch(powershellTemplate, /'disable'\s*\{[^}]*--yes/)
 })
 
 test('every template counts positionals, so flags do not consume the slot', () => {
@@ -256,10 +294,26 @@ test('templates hold no unescaped TS template interpolation of their own', () =>
 /* Templates — flags measured against the help text                    */
 /* ------------------------------------------------------------------ */
 
-test('every flag documented in --help is offered by all four templates', async () => {
-  const src = await readFile(new URL('../src/cli/index.ts', import.meta.url), 'utf8')
-  const help = /function printHelp\(\): void \{[\s\S]*?write\(`([\s\S]*?)`\)/.exec(src)?.[1]
-  assert.ok(help, 'could not extract the help text from src/cli/index.ts')
+test('every flag documented in --help is offered by all four templates', () => {
+  // The help text is a named export of the usage module, not a scraped function
+  // body: A1 moved the write from `process.stdout.write` to `io.emit`, and a
+  // regexp keyed to the old call shape would have failed for a change that
+  // produced byte-identical output. Run the printer into a fake OpsIO and
+  // measure the flag set against what the CLI actually prints — so the guard
+  // cannot drift from the real bytes, and it needs no source file access (which
+  // a compiled test run cannot provide).
+  const chunks: string[] = []
+  printHelp({
+    interactive: false,
+    confirm: () => Promise.resolve(false),
+    progress: () => {},
+    emit: (line: string) => {
+      chunks.push(line)
+    },
+    error: () => {},
+  })
+  const help = chunks.join('')
+  assert.equal(help, HELP_TEXT, 'printHelp must emit HELP_TEXT verbatim')
 
   // `--flag=value` appears in the prose explaining the value-option spelling;
   // it is an example, not a flag, and no template may be expected to offer it.

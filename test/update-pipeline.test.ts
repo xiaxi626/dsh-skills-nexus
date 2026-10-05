@@ -88,20 +88,26 @@ after(async () => {
 interface TestIO extends OpsIO {
   emitted: string[]
   stages: string[]
+  errors: string[]
 }
 
 function makeIO(): TestIO {
   const emitted: string[] = []
   const stages: string[] = []
+  const errors: string[] = []
   return {
     emitted,
     stages,
+    errors,
     confirm: async () => false,
     progress: (stage, detail) => {
       stages.push(detail ? `${stage}: ${detail}` : stage)
     },
     emit: (line) => {
       emitted.push(line)
+    },
+    error: (line) => {
+      errors.push(line)
     },
     interactive: false,
   }

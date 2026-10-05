@@ -12,6 +12,8 @@ export interface AddOptions {
     subdir?: string;
     /** Automatically accept "manage this wrapped repo via nexus" prompts. */
     yes?: boolean;
+    /** Emit the version-1 machine report on stdout instead of human text. */
+    json: boolean;
 }
 export declare function parseAddArgs(argv: string[]): AddOptions;
 /** First positional argument, or undefined. */
@@ -25,6 +27,8 @@ export interface RemoveOptions {
     patterns: string[];
     /** Skip the "remove N skills matching <pattern>?" confirmation guard. */
     yes: boolean;
+    /** Emit the version-1 machine report on stdout instead of human text. */
+    json: boolean;
 }
 /**
  * Parse `remove` args: one or more names/globs plus an optional `--yes`.
@@ -37,11 +41,17 @@ export declare function parseRemoveArgs(argv: string[]): RemoveOptions;
 export interface ListOptions {
     /** Print only skill names, one per line — the machine path (shell completion). */
     names: boolean;
+    /** Emit the version-1 machine report on stdout instead of the human table. */
+    json: boolean;
 }
 /**
- * Parse `list` args. `list` has no positional form and exactly one boolean flag.
+ * Parse `list` args. `list` has no positional form and exactly two boolean
+ * flags, which are mutually exclusive: `--names` is the newline stream shell
+ * completion splits on and `--json` is the structured document — asking for
+ * both has no single sensible answer, so it is a usage error rather than a
+ * silent precedence rule.
  *
- * `--names` rejects an inline value for the same reason as `--yes` above:
+ * Both flags reject an inline value for the same reason as `--yes` above:
  * `--names=false` silently becoming `names=true` would hand a scripted caller
  * the names-only stream when it asked for the human table. Unlike `add` — which
  * ignores unknown flags because it has extra options to be tolerant about —
@@ -49,6 +59,37 @@ export interface ListOptions {
  * silently print the table to a script that expects one name per line.
  */
 export declare function parseListArgs(argv: string[]): ListOptions;
+export interface UpdateOptions {
+    /** Entry name to refresh, or undefined for every enabled entry. */
+    target?: string;
+    /** Emit the version-1 machine report on stdout instead of human text. */
+    json: boolean;
+}
+/**
+ * Parse `update` args: an optional single positional plus `--json`.
+ *
+ * Strict like `list`, not tolerant like `add`: `update` used to read its target
+ * with `positional()` and ignore every flag, so `update --json` would have been
+ * silently discarded — the exact failure mode this parser exists to prevent.
+ * A second positional is rejected for the same reason: there is one target or
+ * "everything enabled", and no batch form.
+ */
+export declare function parseUpdateArgs(argv: string[]): UpdateOptions;
+export interface ToggleOptions {
+    /** Entry names to enable/disable, in the order given. */
+    names: string[];
+    /** Emit the version-1 machine report on stdout instead of human text. */
+    json: boolean;
+}
+/**
+ * Parse `enable`/`disable` args: one or more names plus `--json`.
+ *
+ * Batch like `remove` (gap-closure A3) — `positional()` already existed and
+ * `remove` already accepted several tokens, so the single-name form was the
+ * asymmetry. `command` is only used for the usage wording, so the two commands
+ * that share this parser still name themselves in their errors.
+ */
+export declare function parseToggleArgs(argv: string[], command: 'enable' | 'disable'): ToggleOptions;
 export interface ExportOptions {
     /** Entry names to package, in the order given. */
     names: string[];
