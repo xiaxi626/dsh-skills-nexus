@@ -1,5 +1,5 @@
 import { symlink, lstat, unlink, mkdir, readdir, rmdir, readlink, realpath } from 'node:fs/promises'
-import { dirname, resolve, sep } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { OFFICIAL_SKILLS_DIR, repoDir, resolveLinkTarget, skillLinkPath } from './paths.js'
 import type { SkillEntry } from './types.js'
 
@@ -48,23 +48,38 @@ export interface EntryLink {
  * derivation) and `unlinkIfPointsInto` (the attribution unlink), so both sides
  * judge ownership identically.
  */
+
 /**
- * Resolve every symlink in `p` — matching what `resolveLinkTarget` (`realpath`)
- * does for link targets.  Falls back to plain `resolve` when the path does not
- * exist yet, so callers can compare a not-yet-created directory against
- * already-resolved targets without throwing.
+ * Canonical-path resolver: tries `realpath` first; when the path does not
+ * exist (e.g. a repo deleted before its links), walks up the directory tree
+ * to resolve the deepest existing ancestor via `realpath`, then appends the
+ * remaining (non-existing) tail.  This keeps both sides of a `pointsInto`
+ * comparison in the same canonical format even when one side has been
+ * removed.
  *
- * The reason this exists: `resolveLinkTarget` returns paths with **all** parent
- * symlinks resolved (e.g. macOS `/var` → `/private/var`).  The base directory
- * against which targets are compared must go through the same resolution, or
- * `pointsInto` will see `/private/var/...` on one side and `/var/...` on the
- * other and conclude they are unrelated.
+ * The reason this exists: `resolveLinkTarget` may return paths with **all**
+ * parent symlinks resolved (e.g. macOS `/var` → `/private/var`, or Windows
+ * 8.3 short names expanded).  The base directory against which targets are
+ * compared must go through the same resolution, or `pointsInto` will see
+ * different formats and conclude they are unrelated.
  */
-async function safeRealPath(p: string): Promise<string> {
+export async function safeRealPath(p: string): Promise<string> {
   try {
     return await realpath(p)
   } catch {
-    return resolve(p)
+    const parts: string[] = []
+    let cur = p
+    for (;;) {
+      try {
+        const resolved = await realpath(cur)
+        return parts.length === 0 ? resolved : join(resolved, ...parts.reverse())
+      } catch {
+        parts.push(dirname(cur) === cur ? cur : cur.slice(dirname(cur).length + 1))
+        const parent = dirname(cur)
+        if (parent === cur) return resolve(p)
+        cur = parent
+      }
+    }
   }
 }
 
@@ -216,7 +231,7 @@ export async function entryLinks(entry: SkillEntry): Promise<EntryLink[]> {
     // finding it to unlink it before the dangling link outlives the clone.
     const target = await readLinkEntryTarget(skillLinkPath(name))
     if (target === undefined) continue
-    const resolved = resolve(target)
+    const resolved = await safeRealPath(target)
     if (pointsInto(resolved, base)) {
       links.push({ name, target: resolved })
     }
@@ -284,7 +299,7 @@ export async function unlinkSkill(skillName: string): Promise<void> {
 export async function unlinkIfPointsInto(linkPath: string, dir: string): Promise<boolean> {
   const target = await resolveLinkTarget(linkPath)
   if (target !== undefined) {
-    if (!pointsInto(resolve(target), await safeRealPath(dir))) return false
+    if (!pointsInto(await safeRealPath(target), await safeRealPath(dir))) return false
   } else if (!(await isLinkEntry(linkPath))) {
     // Nothing there, or a real directory: neither is a link of ours.
     // (A link whose target is already gone resolves nowhere — the clone was

@@ -1,8 +1,8 @@
 ﻿import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import type { SkillEntry } from '../src/types.js'
 
 /**
@@ -68,18 +68,16 @@ function makeEntry(repoPath: string, name = repoPath): SkillEntry {
 }
 
 /**
- * Assert a link resolves to `expected`, comparing normalized paths.
+ * Assert a link resolves to `expected`, comparing canonical paths.
  *
- * Do NOT compare `readLinkTarget` output with strict string equality: on
- * Windows + Node 20, `readlink` of a junction returns the target WITH a
- * trailing separator (`...\repo-c1\`), while Node 22+ strips it. `resolve`
- * normalizes the trailing separator away on every platform/Node version, so
- * the comparison stays stable. Production code is unaffected by this quirk —
- * `isEntryEnabled` already resolves targets via `path.resolve`.
+ * `readLinkTarget` returns the canonical path (`realpath`), which may differ
+ * from the original path format (e.g. Windows 8.3 short names or macOS
+ * synthetic symlinks).  Both sides are normalized through `realpath` so the
+ * comparison is format-independent.
  */
-function assertLinkTarget(actual: string | undefined, expected: string): void {
+async function assertLinkTarget(actual: string | undefined, expected: string): Promise<void> {
   assert.ok(actual, 'link target is defined')
-  assert.equal(resolve(actual), resolve(expected))
+  assert.equal(await realpath(actual), await realpath(expected))
 }
 
 test('linkSkill creates a link that isLinked and readLinkTarget see', async () => {
@@ -98,7 +96,7 @@ test('linkSkill creates a link that isLinked and readLinkTarget see', async () =
   // check fails for a link that works perfectly, which is exactly how the
   // junction blind spot stayed hidden. `resolve` also normalizes the trailing
   // separator Node 20's `readlink` added on Windows.
-  assert.equal(resolve(target), resolve(targetDir), 'target is the linked directory')
+  assert.equal(await realpath(target!), await realpath(targetDir), 'target is the linked directory')
   assert.equal(await link.readLinkTarget('not-a-skill'), undefined)
 })
 
@@ -126,10 +124,10 @@ test('linkSkill atomically repoints an existing link', async () => {
   const second = await makeRepoDir('repo-c2')
 
   await link.linkSkill('skill-c', first)
-  assertLinkTarget(await link.readLinkTarget('skill-c'), first)
+  await assertLinkTarget(await link.readLinkTarget('skill-c'), first)
 
   await link.linkSkill('skill-c', second)
-  assertLinkTarget(await link.readLinkTarget('skill-c'), second)
+  await assertLinkTarget(await link.readLinkTarget('skill-c'), second)
   assert.equal(await link.isEntryEnabled(makeEntry('repo-c2')), true)
   assert.equal(await link.isEntryEnabled(makeEntry('repo-c1')), false)
 })

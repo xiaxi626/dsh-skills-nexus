@@ -1,7 +1,7 @@
 ﻿import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { promisify } from 'node:util'
@@ -501,7 +501,7 @@ test('--subdir defaults to the recorded root, and an explicit one replaces it', 
   assert.equal((await stat(join(clone, 'skills', 'alpha', 'SKILL.md'))).isFile(), true)
   const [link] = await linker.entryLinks(entry)
   assert.ok(link !== undefined)
-  assert.equal(link.target, join(clone, 'skills', 'alpha'), 'the link points at the subdir')
+  assert.equal(await realpath(link.target), await realpath(join(clone, 'skills', 'alpha')), 'the link points at the subdir')
 
   // `--subdir .` is the clone root 鈥?the manifest records that as "no subdir".
   const root = join(home, 'remote-root')

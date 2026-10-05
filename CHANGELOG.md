@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+**2026-10-05 · Fixed · `safeRealPath` 双边规范化 + `health.ts` 同步跟进，修 macOS/Windows 全矩阵路径格式错配**
+
+- **背景**：上一轮修复只给 `entryLinks` 的 `base` 加了 `safeRealPath`，但 `resolved` 仍用 `resolve(target)`——`resolve` 不解析父级符号链接也不展开 Windows 8.3 短路径，而 `resolveLinkTarget`（`realpath`）返回规范路径。两边格式不一致，`pointsInto` 仍然 false。同时 `health.ts` 的 `diagnoseEntry` 和 `findOrphanLinks` 也有同样的 `resolve` vs `realpath` 错配。
+- **变更**：
+  - `src/link.ts`：`safeRealPath` 升级为 `export`，路径不存在时逐级向上 `realpath` 再拼回剩余尾段；`entryLinks` 和 `unlinkIfPointsInto` 的 target/resolved 两边都走 `safeRealPath`。
+  - `src/health.ts`：`diagnoseEntry` 的 `base` 和 `resolved`、`findOrphanLinks` 的 `reposBase`/`bases`/`resolved` 全部改走 `safeRealPath`。
+  - `test/link.test.ts`：`assertLinkTarget` 改为 async，断言用 `realpath` 规范化两边；移除未使用的 `resolve` 导入。
+  - `test/adopt.test.ts`：subdir 断言改用 `realpath` 规范化两边。
+- **验证**：本地六步门禁全通过（560 · 556 pass · 1 fail 预存 panel-render · 3 skip）。
+- **如何辨识改动**：`src/link.ts`（`safeRealPath` 升级+双边调用）、`src/health.ts`（`diagnoseEntry`/`findOrphanLinks` 走 `safeRealPath`）、`test/link.test.ts`（`assertLinkTarget` async + `realpath`）、`test/adopt.test.ts`（`realpath` 断言）、`lib/` 重建产物。
+
 **2026-10-05 · Fixed · `entryLinks` 路径解析走 `realpath` 对齐链接目标，修 macOS/Windows 全矩阵 link 归属失败**
 
 - **背景**：`fix(link)` 把链接读取从 `lstat`+`readlink` 改为 `realpath`（`resolveLinkTarget`），解决了 Windows junction 不可见的问题。但 `entryLinks` 和 `unlinkIfPointsInto` 中链接目标走 `realpath`（解析整条路径链上的所有符号链接），而 `base`/`dir` 只用 `resolve`（不解析父级符号链接）。macOS 上 `/var` → `/private/var` 是合成符号链接，temp 目录路径经 `realpath` 后多出一段 `/private`，导致 `pointsInto` 永远 false——所有 entry 报告 `enabled: false`、`links: []`。Windows CI runner 的 temp 路径也有类似 reparse point 解析差异。

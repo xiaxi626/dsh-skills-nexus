@@ -23,7 +23,7 @@
 import { readdir, stat } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
 import { OFFICIAL_SKILLS_DIR, REPOS_DIR, repoDir } from './paths.js'
-import { isLinkAt, readLinkEntryTarget } from './link.js'
+import { isLinkAt, readLinkEntryTarget, safeRealPath } from './link.js'
 import { readManifest } from './manifest.js'
 import { isDetachedHead, lsRemoteCommit } from './git.js'
 import { setUpdateStatus } from './update-cache.js'
@@ -68,7 +68,7 @@ export interface HealthIssue {
  * one as "disabled" too — a check that could not see the thing it checks.
  */
 export async function diagnoseEntry(entry: SkillEntry): Promise<EntryDiagnosis> {
-  const base = resolve(repoDir(entry.path)) + sep
+  const base = await safeRealPath(repoDir(entry.path)) + sep
 
   let names: string[]
   try {
@@ -99,7 +99,7 @@ export async function diagnoseEntry(entry: SkillEntry): Promise<EntryDiagnosis> 
       continue
     }
 
-    const resolved = resolve(target)
+    const resolved = await safeRealPath(target)
 
     // Does this link point inside the entry's repo directory?
     if (resolved !== base.slice(0, -1) && !resolved.startsWith(base)) continue
@@ -257,10 +257,11 @@ export async function findOrphanLinks(entries: SkillEntry[]): Promise<OrphanLink
     return [] // skills root absent — nothing to scan
   }
 
-  const reposBase = resolve(REPOS_DIR) + sep
-  const bases = entries.map((e) => resolve(repoDir(e.path)) + sep)
+  const reposBase = await safeRealPath(REPOS_DIR) + sep
+  const bases = await Promise.all(entries.map((e) => safeRealPath(repoDir(e.path))))
+  const basesWithSep = bases.map((b) => b + sep)
   const claimedBy = (resolved: string): boolean =>
-    bases.some((b) => resolved === b.slice(0, -1) || resolved.startsWith(b))
+    basesWithSep.some((b) => resolved === b.slice(0, -1) || resolved.startsWith(b))
 
   const out: OrphanLink[] = []
   for (const name of names) {
@@ -281,7 +282,7 @@ export async function findOrphanLinks(entries: SkillEntry[]): Promise<OrphanLink
       continue
     }
 
-    const resolved = resolve(target)
+    const resolved = await safeRealPath(target)
     // Only links pointing into repos/ are nexus's concern.
     if (resolved !== reposBase.slice(0, -1) && !resolved.startsWith(reposBase)) continue
     // A live entry claims it → diagnoseEntry handles its health; skip.

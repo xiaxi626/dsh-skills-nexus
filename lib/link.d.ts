@@ -29,6 +29,27 @@ export interface EntryLink {
     target: string;
 }
 /**
+ * Section 6.4 attribution predicate: `resolved` equals `base` or lies inside
+ * it. Single source for link ownership — shared by `entryLinks` (list/state
+ * derivation) and `unlinkIfPointsInto` (the attribution unlink), so both sides
+ * judge ownership identically.
+ */
+/**
+ * Canonical-path resolver: tries `realpath` first; when the path does not
+ * exist (e.g. a repo deleted before its links), walks up the directory tree
+ * to resolve the deepest existing ancestor via `realpath`, then appends the
+ * remaining (non-existing) tail.  This keeps both sides of a `pointsInto`
+ * comparison in the same canonical format even when one side has been
+ * removed.
+ *
+ * The reason this exists: `resolveLinkTarget` may return paths with **all**
+ * parent symlinks resolved (e.g. macOS `/var` → `/private/var`, or Windows
+ * 8.3 short names expanded).  The base directory against which targets are
+ * compared must go through the same resolution, or `pointsInto` will see
+ * different formats and conclude they are unrelated.
+ */
+export declare function safeRealPath(p: string): Promise<string>;
+/**
  * The directory a link points at — **including when that directory no longer
  * exists**.
  *
