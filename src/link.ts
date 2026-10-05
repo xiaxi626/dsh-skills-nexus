@@ -174,10 +174,10 @@ async function isSymlinkAt(path: string): Promise<boolean> {
  *      deleted target lands here, and `realpath` cannot see it — but a junction
  *      is a directory entry nexus may remove, so it counts as a link.
  *
- * Note for anyone probing this on Windows: `fs.realpathSync` does **not**
- * resolve junctions, while `fs.promises.realpath` does. Measuring with the sync
- * API makes a junction look like an ordinary directory and leads to the wrong
- * conclusion — the production code uses the promise API throughout.
+ * Note for anyone probing this on Windows: always use `fs.promises.realpath`
+ * in experiments, to match the production code paths. `realpathSync` has had
+ * different behaviours around junctions across Node versions and can give you
+ * misleading results.
  */
 async function isLinkEntry(path: string): Promise<boolean> {
   if (await isSymlinkAt(path)) return true
