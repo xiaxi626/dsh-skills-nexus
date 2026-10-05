@@ -4,6 +4,24 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-05
+
+**2026-10-05 · Fixed · `test/panel-render` 改名 `.tsx` 后缺运行时 `React` 绑定**
+
+- **背景**：`test/panel-render.test.ts` 改名 `.tsx` 并改用 JSX 之后，13 条渲染断言全部以 `ReferenceError: React is not defined` 失败。原因：`tsconfig.json` 未设 `jsx`，`tsx`/esbuild 因此按**经典运行时**转译，把 JSX 编译成 `React.createElement`——文件里因此必须存在 `React` 绑定，哪怕没有一行代码按名字读它。
+- **变更**：`test/panel-render.test.tsx` 补回 `import React from 'react'` 并写明它是运行时必需而非类型导入；`src/client/panel.tsx` 的同类导入本来就在（上一提交为「去掉无用导入」曾误删，已还原）。
+- **已知告警（接受）**：两处 `React` 导入都被 typescript-eslint 判为未使用，故 `eslint-disable-next-line @typescript-eslint/no-unused-vars` 被报成 **unused directive**——规则没有建模经典转译的运行时绑定，而 `--fix` 会把这条载荷行删掉。两处保留并在注释中写明。`panel.tsx` 那处在本次工作开始前就存在于基线，非本轮的净新增。lint 退出码为 0（0 error · 2 warning）；若要归零需给 `test`/`tsconfig.json` 打开 `jsx: react-jsx` 才能完全移除该导入，属独立的配置改造，不在本轮范围。
+- **验证**：`npm test` 577 通过 · 0 失败 · 3 跳过（面板文件 18/18）。
+- **如何辨识改动**：`test/panel-render.test.tsx`（顶部一处导入及其注释）、`src/client/panel.tsx`（同一处的还原）。
+
+**2026-10-05 · Fixed · B0 收尾：CSS Modules 类名映射按键排序，修 `build:client` 产物不可重现**
+
+- **背景**：`lib/client.js` 每次 `npm run build:client` 都会变。原因是 lightningcss 返回的 `exports` 顺序在两次运行之间并不固定，未排序地灌进类名映射会让**同一份输入产出字节不同的产物**——实测 27 行删、27 行增，全部只是 `{"a": "…", "b": "…"}` 的键顺序。
+- **后果**：提交重建产物时的 diff 无法审阅（每个键占一行，看起来像整块重写）；更糟的是 `git diff --exit-code -- lib` 这类校验永远为真，会掩盖真正的产物漂移——而 B0 的验收标准恰恰依赖它。
+- **变更**：`tsdown.config.ts` 的 `dsh-css-modules-inline` 在构造类名映射前对 `Object.entries(exports)` 按键排序。宿主的同名插件同样排序，此处对齐。
+- **验证**：连续跑三次 `npm run build:client`，`lib/client.js` 的 SHA256 完全一致（`B372711E…`，60,040 B）；随后 `git diff --exit-code -- lib` 返回 0，即提交的产物与新鲜构建逐字节相同。
+- **如何辨识改动**：`tsdown.config.ts`（一处 `.sort()` 及其注释）、`lib/client.js`（按新顺序重建，与上一版逐字节差别仅在键顺序）。
+
 **2026-10-05 · Changed · B2：面板原语化 + CSS Modules 布局 + `--dsw-*` 令牌主题（裁定与实现）**
 
 - **路线裁定（B0.4）**：宿主平台源码与运行中 shell 的 boot 表互证后确定——面板走「**宿主原语做原子 + CSS Modules 做布局 + `--dsw-*` 令牌做主题**」。这不是「原语 vs 自绘」的二选一：宿主自己的客户端面板就是这个组合（同一文件既 `import { StateDot, Tag }`，又 `import css from './X.module.css'`，CSS 内全是 `var(--dsw-alias-*)`）。设计稿 §7 的「固定三色强调色 + `rgba(128,128,128,…)` 半透明灰」是平台外的自造方案，**不予实现**：它需要按主题自行维护，且不会跟随宿主换肤。§7 的**紧凑行 / 信息密度**设计意图**保留**并落在 `panel.module.css`。

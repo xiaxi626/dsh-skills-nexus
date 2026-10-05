@@ -1,5 +1,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+// This file writes JSX, and `tsx` transpiles it with the **classic** runtime —
+// `tsconfig.json` sets no `jsx`, so esbuild emits `React.createElement` rather
+// than importing `react/jsx-runtime`. That makes this binding load-bearing at
+// runtime even though nothing here reads `React` by name, which is also why
+// typescript-eslint reports the disable directive below as unused: it does not
+// model what the classic transform emits. Removing the import turns all 13
+// render assertions in this file into "React is not defined".
+/* eslint-disable-next-line @typescript-eslint/no-unused-vars */
+import React from 'react'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { EntryCard, NexusPanel, adoptBackupNotice, entryState, errorText, healthSummary, matchesQuery } from '../src/client/panel.js'
