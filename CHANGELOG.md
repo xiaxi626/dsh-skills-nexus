@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-05
+
 **2026-10-05 · Fixed · CI 第四次修复：`isLinkEntry` 两侧统一 canonical，修 macOS/Windows 把真实目录当链接**
 
 - **背景**：前三次修复（`68da267` / `ef4b38a` / `063de7e`）都没让 CI 变绿：macOS 与 Windows 各 7 条固定失败，Ubuntu 三个 Node 版本全绿。7 条同源——`hasCollision` 判错（`add` 返回 202、`toggle` 返回 200，而不是 409 `collision`）与 `export` 的 `links` 记成空数组。
@@ -41,8 +43,6 @@
 - **变更**：`test/completions.test.ts` 四处期望值补 `--json`——bash add（L455）、zsh add（L548）、zsh update-flag（L555）、fish add（L607）。
 - **验证**：本地 Git Bash 加入 PATH 后 bash 测试通过（22 pass · 0 fail · 2 skip）；zsh/fish 模板源码与期望值逐字对照一致（zsh `compadd -- --name --ref --subdir --yes --json`、fish 五条 `-l` 规则含 `-l json`）。
 - **如何辨识改动**：`test/completions.test.ts`（三处字符串字面量追加 `--json`）。
-
-## [0.6.0] - 2026-10-05
 
 **2026-10-05 · Fixed · `test/panel-render` 改名 `.tsx` 后缺运行时 `React` 绑定**
 

@@ -11,9 +11,9 @@
 
 ⭐ **如果项目对你有帮助，欢迎 Star 支持！**
 
-通用 DSH skill 适配器。**安装一次**，就可以把任意 git 上的 `SKILL.md` 仓库注册为 DSH skill——一条命令添加一个。skill 仓库本身保持纯净：不需要 Cordis 插件代码，不需要 `package.json`，也不需要 `cordis.patch.yml`。
+通用 DSH skill 适配器。**安装一次**，就可以把任意包含 `SKILL.md` 的 git 仓库注册为 DSH skill——一条命令添加一个仓库。skill 仓库本身保持纯净：不需要 Cordis 插件代码，不需要 `package.json`，也不需要 `cordis.patch.yml`。
 
-本项目通过 CLI 将 SKILL.md 仓库克隆到本地 `~/.dsh/skills-nexus/repos/` 目录，然后在 DSH 官方 skills 根目录（`~/.dsh/skills/`）中创建符号链接（symlink）。官方 filesystem provider 会自动发现、监听并加载这些 skill——不再需要自定义 provider，也不再需要在运行时扫描目录。
+nexus 将 SKILL.md 仓库克隆到本地 `~/.dsh/skills-nexus/repos/` 目录，然后在 DSH 官方 skills 根目录（`~/.dsh/skills/`）中创建符号链接（symlink）。官方 filesystem provider 会自动发现、监听并加载这些 skill——不再需要自定义 provider，也不再需要在运行时扫描目录。
 
 ## 为什么需要它
 
@@ -170,15 +170,21 @@ dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo --subdir skill
 
 当 nexus 运行在 DSH **web** 会话里——无论是通过 `dsh plugin add` 注册，还是用[本地测试步骤](#本地测试步骤)里的 `--patch` overlay 挂载——设置页都会出现一个 **Skills Nexus** 段。面板与 CLI 驱动同一份 manifest、同一批克隆与同一套跨进程文件锁，两边可以随意混用（一边正在操作的 skill，另一边会收到 `busy` / `locked`）。
 
+面板使用与 DSH 设置页同源的界面组件——状态点、开关、标签、折叠行、终端输出块等——配色自动跟随宿主的亮/暗主题，看起来就是设置页原生的一部分，而非第三方拼凑的界面。
+
 在面板里你可以：
 
-- 浏览条目卡片——链接名、启用状态、固定的 commit，以及分支跟踪条目的「有更新」徽标；
+- 浏览条目卡片——链接名、启用状态、固定的 commit、`no source` / `linked directory` / `disabled` 等状态标签，以及分支跟踪条目的「有更新」徽标；
+- 在工具栏过滤列表——搜索框按名字或 url 匹配；右侧的徽标在有待更新条目时显示待更新数量，并常驻显示已注册技能总数；
 - 按 git url 添加 skill——可在折叠区填写可选项 `name`（覆盖条目名）、`ref`、`subdir`（monorepo 内的目录）——与 CLI 同一条安装流水线，含 frontmatter 归一化；
 - **导入包**——选好文件后先看逐条目判定（与 `import --dry-run` **同一套措辞**：真克隆还是落快照、以及为什么），确认后才真正导入。上传走**裸 body**、文件名放在旁边，没有 multipart 端点；
 - 给快照**接上来源**——`adopt` 动作只出现在无 git 源的条目上，仓库 url 由你填（永不猜测）；
 - 启用 / 禁用、更新、切换到其他 ref、删除条目——破坏性操作会展示服务端的后果说明，确认接受后才带确认重发；
 - **导出全部条目为 zip**——面板以服务端正路径作为可复制的 notice 展示，文件留在服务器上（没有下载按钮）；
-- 观看长操作（克隆 / 导入 / adopt / 更新 / 切换）流式进度并带取消按钮，以及对全部条目检查更新。
+- 观看长操作（克隆 / 导入 / adopt / 更新 / 切换）流式进度并带取消按钮——最近 3 条已结束的操作（done / failed / cancelled）会留在「recent operations」区——以及对全部条目检查更新；
+- 在底部独立区块运行**健康检查**：点一下 `run check`，状态点加一行摘要即展示错误、警告与可更新数量。
+
+面板底部一行文字指向宿主自带的 **Skill Manager**，用于查看其他工具管理的本地技能——本面板只列出 nexus 安装的条目。
 
 **热加载。** 链接变化由官方 filesystem provider 的 watcher 拾取，面板操作在稳定窗口内即对运行中的宿主生效——无需重启。宿主未启用 watcher 时，面板会明说该变更在下次宿主启动时生效。
 

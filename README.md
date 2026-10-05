@@ -257,10 +257,20 @@ the same clones and the same cross-process file locks, so you can mix both
 freely (a skill one side is working on answers `busy` / `locked` on the
 other).
 
+The panel is built from the same interface components DSH uses in its own
+settings — status dots, switches, tags, disclosure rows and a terminal-style
+output surface — and its colors follow the host's light/dark theme
+automatically, so it reads as a native part of Settings rather than a
+third-party add-on.
+
 From the panel you can:
 
-- browse entry cards — link names, enabled state, pinned commit, and an
+- browse entry cards — link names, enabled state, pinned commit, status tags
+  like `no source` / `linked directory` / `disabled`, and an
   `update available` badge for branch-tracked entries;
+- filter the list from the toolbar — the search box matches a name or url,
+  while a badge shows the number of entries awaiting updates (only when there
+  is at least one) next to the total registered count;
 - add skills by git url — with optional `name` (entry-name override), `ref`
   and `subdir` (a directory inside a monorepo) fields under a collapsed
   disclosure — on the same install pipeline as the CLI, including frontmatter
@@ -276,7 +286,15 @@ From the panel you can:
 - export every managed entry to a zip — the panel shows the server-side path
   as a copyable notice; the file stays on the server (no download button);
 - watch long operations (clone / import / adopt / update / switch) stream their
-  progress with a cancel button, and check for updates across all entries.
+  progress with a cancel button — the three most recent settled operations
+  (done / failed / cancelled) stay listed under **recent operations** — and
+  check for updates across all entries;
+- run a **health check** from its own section at the bottom: one `run check`
+  button, then a status dot and a one-line summary of errors, warnings and
+  available updates.
+
+A footer line points to the host's own **Skill Manager** for local skills
+managed by other tools — this panel only lists what nexus installed.
 
 **Hot reload.** Link changes are picked up by the official filesystem
 provider's watcher, so panel operations take effect in the running host
