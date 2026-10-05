@@ -1,34 +1,49 @@
 /**
- * The Settings panel (§10.4): entry-granularity skill cards, an add form
- * (git url), the job progress view (§7.5) and the destructive-action confirm
- * flow (§12.2 — the server's `409 confirm-required` question is the single
- * source of consequence wording; the panel only asks and retries).
+ * The Settings panel: entry-granularity skill rows, an add form (git url), the
+ * package-import row, the job progress view and the destructive-action confirm
+ * flow.
  *
- * The panel mirrors the command surface (§10.3): an add form (git url), the
- * **package import row** the retired `add-zip` row used to occupy (pick a file →
- * synchronous `--dry-run` preview → confirm → `202` job), an **"attach source"
- * action on source-less entries only** (`adopt`), the job progress view (§7.5)
- * and the destructive-action confirm flow (§12.2 — the server's
- * `409 confirm-required` question is the single source of consequence wording;
- * the panel only asks and retries).
+ * The panel mirrors the command surface: an add form (git url, with the
+ * optional name / ref / subdir channels), the **package import row** (pick a
+ * file → synchronous `--dry-run` preview → confirm → `202` job), an **"attach
+ * source" action on source-less entries only** (`adopt`), an **export all**
+ * button, and the job progress view. The destructive-action confirm flow takes
+ * its wording from the server: the `409 confirm-required` question is the single
+ * source of consequence text, and the panel only asks and retries. The preview
+ * renders the four verdicts of the import decision through `describeDecision`,
+ * the same function the CLI's `--dry-run` uses.
  *
- * The preview renders the four verdicts of §10.2 through `describeDecision`,
- * the same function the CLI's `--dry-run` uses — the wording is shared, not
- * re-invented here.
+ * ## Presentation
  *
- * Styling stays deliberately structural (semantic elements, no stylesheet
- * dependency): the half runs inside the host Settings shell, and hooking the
- * host UI primitives is a later refinement — the contract proven here is the
- * data flow, not the pixels.
+ * **Atoms come from the host, layout comes from CSS Modules, theme comes from
+ * `--dsw-*` tokens.** That is the platform's own arrangement, not a choice made
+ * here: the host's primitives are "Cordis-free React primitives styled only
+ * through `--dsw-*` tokens", and the host's client build compiles
+ * `x.module.css` into a hashed class map plus a self-injecting `<style>` tag.
  *
- * §11 reconciliation is live: a mutation marked `hotReload: 'pending'` polls
- * the list (2s budget) until the change is visible; `done` refreshes once;
- * `unsupported` — the preserved contract for watcher-less hosts — explains
- * the restart downgrade. `reconcileAfter` is the single funnel for all three.
+ * So `StateDot` / `Button` / `Tag` / `Switch` / `Input` / `DisclosureRow` /
+ * `TerminalBlock` / `RiskConfirmation` arrive already themed and already
+ * accessible, and `panel.module.css` only *positions* them: density, spacing
+ * and the row rhythm. The design draft's fixed three-hex-accent styling system
+ * is deliberately not implemented — it would need per-theme maintenance and
+ * would not follow the shell.
+ *
+ * `@deepseek-ai/dsh-client-ui-primitives` is one of the nine specifiers the
+ * browser loader's `require` can answer (see `PLATFORM_MODULES` in
+ * `tsdown.config.ts`), so importing it here costs the bundle nothing and ships
+ * no second copy.
+ *
+ * ## Reconciliation
+ *
+ * A mutation marked `hotReload: 'pending'` polls the list (2s budget) until the
+ * change is visible; `done` refreshes once; `unsupported` — the preserved
+ * contract for watcher-less hosts — explains the restart downgrade.
+ * `reconcileAfter` is the single funnel for all three.
  */
 import type { ReactElement } from 'react';
-import type { Job, ListEntry, NexusApi } from './api.js';
-/** Map route errors to one-line user-readable text (codes are the §7.1 contract). */
+import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives';
+import type { DoctorReport, Job, ListEntry, NexusApi } from './api.js';
+/** Map route errors to one-line user-readable text (codes are the route contract). */
 export declare function errorText(err: unknown): string;
 /**
  * Lift the adopt backup path out of the settled job's output into a panel
@@ -37,14 +52,21 @@ export declare function errorText(err: unknown): string;
  * the new source looks right, doctor lists it until then.
  */
 export declare function adoptBackupNotice(job: Job): string | null;
+/** One entry's row state, as the status dot reports it. */
+export declare function entryState(entry: ListEntry): StateDotState;
+/** The one-line health summary under the list. */
+export declare function healthSummary(report: DoctorReport): {
+    state: StateDotState;
+    text: string;
+};
+/** Does the entry match the search box? Case-insensitive name / url / subdir. */
+export declare function matchesQuery(entry: ListEntry, query: string): boolean;
 /**
- * The panel. `api` is injectable for future harness tests; production builds
- * bind the global fetch. The instance MUST be render-stable: a per-render
- * `createApi()` default would change `refresh`'s identity every render,
- * re-fire the list effect, and loop the panel in a self-sustaining fetch
- * storm (observed live as connection-pool exhaustion in the host browser).
- * Lazy useState pins it for the mount's lifetime; the prop stays the
- * test-injection seam.
+ * The panel. `api` is injectable for tests; production builds bind the global
+ * fetch. The instance MUST be render-stable: a per-render `createApi()` default
+ * would change `refresh`'s identity every render, re-fire the list effect, and
+ * loop the panel in a self-sustaining fetch storm. Lazy useState pins it for
+ * the mount's lifetime; the prop stays the injection seam.
  */
 export declare function NexusPanel({ api: apiProp }: {
     api?: NexusApi;
@@ -64,10 +86,15 @@ interface EntryCardProps {
     onAdopt: (entry: ListEntry) => void;
 }
 /**
- * One entry row. Exported for `test/panel-render.test.ts`: the card is where
- * `hasGitSource` decides which actions exist (update/switch vs attach source),
- * and that decision is pure props → markup, so it can be rendered and asserted
- * without a DOM, a click, or a mounted effect.
+ * One entry row. Exported for `test/panel-render.test.ts`: the row is where
+ * `hasGitSource` decides which actions exist (update/switch vs attach source)
+ * and where `ownership: 'external'` decides what the meta column says, and both
+ * are pure props → markup, so they can be rendered and asserted without a DOM,
+ * a click, or a mounted effect.
+ *
+ * The `pin` disclosure is local state: only one row is ever expanded, and
+ * `DisclosureRow` keeps the header/chevron behaviour consistent with the host's
+ * own panels.
  */
 export declare function EntryCard({ entry, refValue, onRefChange, adoptValue, onAdoptChange, adoptSubdirValue, onAdoptSubdirChange, onToggle, onUpdate, onRemove, onSwitchVersion, onAdopt, }: EntryCardProps): ReactElement;
 export {};

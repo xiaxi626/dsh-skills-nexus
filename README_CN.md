@@ -435,6 +435,29 @@ junction 软链），并对外暴露稳定、可依赖的机器接口：
 **没有承诺**的接口清单，见
 **[在 nexus 之上构建——面向工具开发者的机器接口](docs/build-on-nexus.zh-CN.md)**。
 
+### 改完浏览器半段后怎么验
+
+`lib/client.js` 由 `npm run build:client` 生成，而 CI **刻意不跑**它（它要求 Node
+≥ 22.18，测试矩阵从 20 起），浏览器模块表也不在类型检查范围内——loader 答不出的
+`require` 是**运行时**抛错，构建期没有任何症状。所以改 `src/client/**` 或模块表后
+必须手跑一次：
+
+1. `npm run build` && `npm run build:client`，并提交 `lib/`。
+2. 确认产物里的 `require` 全在宿主模块表内：
+
+   ```console
+   $ node -e "const s=require('fs').readFileSync('lib/client.js','utf8');\
+     console.log([...new Set([...s.matchAll(/require\(\"([^\"]+)\"\)/g)].map(m=>m[1]))].sort())"
+   [ '@deepseek-ai/dsh-client-ui-primitives', 'react', 'react/jsx-runtime' ]
+   ```
+
+   出现其它 specifier 就是 loader 会拒绝的请求。
+3. `dsh web --profile <名字>`，把这个检出装进该 profile，打开
+   **设置 → Skills Nexus**：确认面板渲染、技能行的状态点正确，并跑通一个动作
+   （切一次启停即可）。
+4. `desktop` profile 由 Electron 应用独占管理，第 3 步请用一次性 profile；
+   `dsh plugin --profile desktop …` 会被直接拒绝。
+
 ## 文档
 
 - [架构——数据流、目录布局、SKILL.md 发现规则](docs/ARCHITECTURE.zh-CN.md)

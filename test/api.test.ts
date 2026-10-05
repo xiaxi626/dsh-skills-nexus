@@ -272,6 +272,7 @@ test('list reports derived link state and runtime nulls per entry', async () => 
     subdir: null,
     commit: null,
     hasGitSource: true,
+    ownership: 'managed',
     enabled: true,
     links: [{ linkName: 'list-alpha', skillName: 'list-alpha', enabled: true }],
     update: null,
@@ -283,10 +284,35 @@ test('list reports derived link state and runtime nulls per entry', async () => 
     subdir: null,
     commit: null,
     hasGitSource: false,
+    ownership: 'managed',
     enabled: false,
     links: [],
     update: null,
   })
+})
+
+test('list reports ownership external for a --link-only entry', async () => {
+  // The one field that tells "no source yet" from "not nexus's to re-source":
+  // an external entry has no git source either, but `remove` leaves its
+  // directory alone and `adopt` refuses it. The panel cannot tell the two
+  // apart from `hasGitSource` alone, so the distinction has to come from the
+  // server — which is what this pins.
+  await clearEntries()
+  await manifest.addEntry({
+    name: 'list-linked',
+    url: 'file:/home/u/my-own-skills/list-linked',
+    gitUrl: '',
+    ref: '',
+    ownership: 'external',
+    path: 'list-linked',
+    addedAt: new Date().toISOString(),
+  })
+
+  const res = await call('/skills-nexus/list')
+  assert.equal(res.status, 200)
+  const { entries } = dataOf<{ entries: Array<Record<string, unknown>> }>(res)
+  assert.equal(entries[0]!.ownership, 'external')
+  assert.equal(entries[0]!.hasGitSource, false, 'an external entry never has a git source')
 })
 
 /* ------------------------------------------------------------------ */

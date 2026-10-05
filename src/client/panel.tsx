@@ -1,44 +1,77 @@
 /**
- * The Settings panel (§10.4): entry-granularity skill cards, an add form
- * (git url), the job progress view (§7.5) and the destructive-action confirm
- * flow (§12.2 — the server's `409 confirm-required` question is the single
- * source of consequence wording; the panel only asks and retries).
+ * The Settings panel: entry-granularity skill rows, an add form (git url), the
+ * package-import row, the job progress view and the destructive-action confirm
+ * flow.
  *
- * The panel mirrors the command surface (§10.3): an add form (git url), the
- * **package import row** the retired `add-zip` row used to occupy (pick a file →
- * synchronous `--dry-run` preview → confirm → `202` job), an **"attach source"
- * action on source-less entries only** (`adopt`), the job progress view (§7.5)
- * and the destructive-action confirm flow (§12.2 — the server's
- * `409 confirm-required` question is the single source of consequence wording;
- * the panel only asks and retries).
+ * The panel mirrors the command surface: an add form (git url, with the
+ * optional name / ref / subdir channels), the **package import row** (pick a
+ * file → synchronous `--dry-run` preview → confirm → `202` job), an **"attach
+ * source" action on source-less entries only** (`adopt`), an **export all**
+ * button, and the job progress view. The destructive-action confirm flow takes
+ * its wording from the server: the `409 confirm-required` question is the single
+ * source of consequence text, and the panel only asks and retries. The preview
+ * renders the four verdicts of the import decision through `describeDecision`,
+ * the same function the CLI's `--dry-run` uses.
  *
- * The preview renders the four verdicts of §10.2 through `describeDecision`,
- * the same function the CLI's `--dry-run` uses — the wording is shared, not
- * re-invented here.
+ * ## Presentation
  *
- * Styling stays deliberately structural (semantic elements, no stylesheet
- * dependency): the half runs inside the host Settings shell, and hooking the
- * host UI primitives is a later refinement — the contract proven here is the
- * data flow, not the pixels.
+ * **Atoms come from the host, layout comes from CSS Modules, theme comes from
+ * `--dsw-*` tokens.** That is the platform's own arrangement, not a choice made
+ * here: the host's primitives are "Cordis-free React primitives styled only
+ * through `--dsw-*` tokens", and the host's client build compiles
+ * `x.module.css` into a hashed class map plus a self-injecting `<style>` tag.
  *
- * §11 reconciliation is live: a mutation marked `hotReload: 'pending'` polls
- * the list (2s budget) until the change is visible; `done` refreshes once;
- * `unsupported` — the preserved contract for watcher-less hosts — explains
- * the restart downgrade. `reconcileAfter` is the single funnel for all three.
+ * So `StateDot` / `Button` / `Tag` / `Switch` / `Input` / `DisclosureRow` /
+ * `TerminalBlock` / `RiskConfirmation` arrive already themed and already
+ * accessible, and `panel.module.css` only *positions* them: density, spacing
+ * and the row rhythm. The design draft's fixed three-hex-accent styling system
+ * is deliberately not implemented — it would need per-theme maintenance and
+ * would not follow the shell.
+ *
+ * `@deepseek-ai/dsh-client-ui-primitives` is one of the nine specifiers the
+ * browser loader's `require` can answer (see `PLATFORM_MODULES` in
+ * `tsdown.config.ts`), so importing it here costs the bundle nothing and ships
+ * no second copy.
+ *
+ * ## Reconciliation
+ *
+ * A mutation marked `hotReload: 'pending'` polls the list (2s budget) until the
+ * change is visible; `done` refreshes once; `unsupported` — the preserved
+ * contract for watcher-less hosts — explains the restart downgrade.
+ * `reconcileAfter` is the single funnel for all three.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement, ChangeEvent, FormEvent } from 'react'
 // The `React` *namespace* is a runtime requirement of the test runner, not a
-// value this file reads: no tsconfig sets `jsx` (the client is bundled by tsdown
-// and only type-checked by tsc, so `.tsx` never reaches an emitter), and
-// tsx/esbuild therefore transpiles this component with the classic runtime —
-// emitting `React.createElement` for `test/panel-render.test.ts`. tsdown's own
-// transform uses the automatic runtime and elides this import, so the shipped
-// bundle is unchanged. One documented suppression for one line beats making
-// every future `.tsx` test carry a JSON-configuring loader.
+// value this file reads: `tsconfig.json` sets no `jsx`, and tsx/esbuild therefore
+// transpiles this component with the classic runtime — emitting
+// `React.createElement` for `test/panel-render.test.tsx`. tsdown's own transform
+// uses the automatic runtime and elides this import, so the shipped bundle is
+// unchanged. (Verified: removing it makes all 13 of that file's render assertions
+// fail with "React is not defined".)
+//
+// The disable directive below is reported as *unused*, which is the same
+// blind spot from the other side: typescript-eslint does not model the runtime
+// binding the classic transform needs, so it calls the import unused. The
+// suppression stays because `--fix` would otherwise delete a load-bearing line.
 /* eslint-disable-next-line @typescript-eslint/no-unused-vars */
 import React from 'react'
+import {
+  Button,
+  DisclosureRow,
+  IconPinOutlineRegular,
+  IconRefreshOutlineRegular,
+  IconSearchOutlineRegular,
+  IconWarningOutlineRegular,
+  Input,
+  RiskConfirmation,
+  StateDot,
+  Switch,
+  Tag,
+  TerminalBlock,
+} from '@deepseek-ai/dsh-client-ui-primitives'
+import type { StateDotState, TagTone } from '@deepseek-ai/dsh-client-ui-primitives'
 import { describeDecision } from '../import-decision.js'
 import {
   ApiError,
@@ -50,9 +83,10 @@ import {
   pollJob,
   reconcileList,
 } from './api.js'
-import type { HotReload, ImportPlan, Job, ListEntry, NexusApi } from './api.js'
+import type { DoctorReport, HotReload, ImportPlan, Job, ListEntry, NexusApi } from './api.js'
+import css from './panel.module.css'
 
-/** §11 reconciliation for `import`: every entry the plan promised shows up. */
+/** Reconciliation for `import`: every entry the plan promised shows up. */
 function importedAll(plan: ImportPlan): (entries: ListEntry[]) => boolean {
   const wanted = plan.entries.map((e) => e.name)
   return (entries) => wanted.every((name) => entries.some((e) => e.name === name))
@@ -69,7 +103,7 @@ interface TrackedJob {
 
 const shortSha = (sha: string | null): string => (sha === null ? '' : sha.slice(0, 7))
 
-/** Map route errors to one-line user-readable text (codes are the §7.1 contract). */
+/** Map route errors to one-line user-readable text (codes are the route contract). */
 export function errorText(err: unknown): string {
   if (err instanceof ApiError) {
     switch (err.error) {
@@ -129,7 +163,29 @@ export function adoptBackupNotice(job: Job): string | null {
   return null
 }
 
-/* §11 reconciliation predicates — what each mutation should make visible in
+/** One entry's row state, as the status dot reports it. */
+export function entryState(entry: ListEntry): StateDotState {
+  if (!entry.hasGitSource) return 'idle'
+  if (!entry.enabled) return 'idle'
+  if (entry.update?.hasUpdate === true) return 'warning'
+  return 'done'
+}
+
+/** The one-line health summary under the list. */
+export function healthSummary(report: DoctorReport): {
+  state: StateDotState
+  text: string
+} {
+  const { errors, warnings, updates } = report.summary
+  const parts = [`${errors} error(s)`, `${warnings} warning(s)`]
+  if (updates > 0) parts.push(`${updates} update(s) available`)
+  return {
+    state: errors > 0 ? 'error' : warnings > 0 || updates > 0 ? 'warning' : 'done',
+    text: parts.join(' · '),
+  }
+}
+
+/* Reconciliation predicates — what each mutation should make visible in
  * `list` before the host watcher is presumed caught up. */
 
 /** add: a name outside the pre-mutation baseline appears. */
@@ -156,14 +212,23 @@ function stillListed(name: string): (entries: ListEntry[]) => boolean {
   return (entries) => entries.some((e) => e.name === name)
 }
 
+/** Does the entry match the search box? Case-insensitive name / url / subdir. */
+export function matchesQuery(entry: ListEntry, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (q.length === 0) return true
+  return (
+    entry.name.toLowerCase().includes(q) ||
+    entry.url.toLowerCase().includes(q) ||
+    (entry.subdir ?? '').toLowerCase().includes(q)
+  )
+}
+
 /**
- * The panel. `api` is injectable for future harness tests; production builds
- * bind the global fetch. The instance MUST be render-stable: a per-render
- * `createApi()` default would change `refresh`'s identity every render,
- * re-fire the list effect, and loop the panel in a self-sustaining fetch
- * storm (observed live as connection-pool exhaustion in the host browser).
- * Lazy useState pins it for the mount's lifetime; the prop stays the
- * test-injection seam.
+ * The panel. `api` is injectable for tests; production builds bind the global
+ * fetch. The instance MUST be render-stable: a per-render `createApi()` default
+ * would change `refresh`'s identity every render, re-fire the list effect, and
+ * loop the panel in a self-sustaining fetch storm. Lazy useState pins it for
+ * the mount's lifetime; the prop stays the injection seam.
  */
 export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   const [api] = useState<NexusApi>(() => apiProp ?? createApi())
@@ -186,9 +251,21 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   const [adoptSubdirInputs, setAdoptSubdirInputs] = useState<Record<string, string>>({})
   /** The chosen package file — kept so the confirmed run can re-send it. */
   const [importFile, setImportFile] = useState<File | null>(null)
-  /** The synchronous `--dry-run` verdict (§10.2), once previewed. */
+  /** The synchronous `--dry-run` verdict, once previewed. */
   const [importPlan, setImportPlan] = useState<ImportPlan | null>(null)
   const [importBusy, setImportBusy] = useState(false)
+  /** Name/url filter over the rendered rows (client-side; touches no state). */
+  const [query, setQuery] = useState('')
+  /** The last `doctor` result, or null before the first check. */
+  const [health, setHealth] = useState<DoctorReport | null>(null)
+  const [healthBusy, setHealthBusy] = useState(false)
+  /**
+   * The entry awaiting a destructive-action decision. `RiskConfirmation` is a
+   * controlled overlay, so the question stays on screen until answered — the
+   * one interaction `window.confirm` could not express.
+   */
+  const [pendingRemoval, setPendingRemoval] = useState<ListEntry | null>(null)
+  const [removalAcknowledged, setRemovalAcknowledged] = useState(false)
   const alive = useRef(true)
 
   useEffect(() => {
@@ -224,12 +301,12 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   }, [])
 
   /**
-   * §11 reconciliation funnel for a mutation. `pending` (or a missing field
-   * from an older server): poll the list until `until` accepts a snapshot.
-   * `done`: the mutation never woke the watcher — one refresh suffices.
-   * `unsupported` (the preserved contract for hosts without a watcher): say
-   * plainly that the change lands on the next host start. A timeout downgrades
-   * to the manual-refresh hint while the last snapshot stays on screen.
+   * Reconciliation funnel for a mutation. `pending` (or a missing field from an
+   * older server): poll the list until `until` accepts a snapshot. `done`: the
+   * mutation never woke the watcher — one refresh suffices. `unsupported` (the
+   * preserved contract for hosts without a watcher): say plainly that the change
+   * lands on the next host start. A timeout downgrades to the manual-refresh
+   * hint while the last snapshot stays on screen.
    */
   const reconcileAfter = useCallback(
     async (
@@ -274,7 +351,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
 
   /**
    * Track a 202-accepted job: poll to settlement, then reconcile the list.
-   * `until` describes what the mutation should make visible (§11). Failed and
+   * `until` describes what the mutation should make visible. Failed and
    * cancelled jobs only refresh — there is no change to reconcile.
    */
   const track = useCallback(
@@ -302,7 +379,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
           await refresh()
         } else {
           // The job did its link work; the watcher still has to catch up —
-          // the same pending semantics as remove/toggle (§11).
+          // the same pending semantics as remove/toggle.
           await reconcileAfter(entryName, 'pending', until)
           // An adopt that kept a backup says so only in its job output; lift
           // that path into a notice so it is not buried in one line. (Set
@@ -332,10 +409,6 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     },
     [],
   )
-
-  const ask = useCallback(async (question: string): Promise<boolean> => {
-    return window.confirm(question)
-  }, [])
 
   /* ---------------- actions ---------------- */
 
@@ -383,10 +456,23 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     })
   }
 
+  /** The read-only `/doctor` route: errors, warnings and available updates. */
+  const onDoctor = (): void => {
+    void run('doctor', async () => {
+      setHealthBusy(true)
+      try {
+        const env = await api.doctor()
+        if (alive.current) setHealth(env.data)
+      } finally {
+        setHealthBusy(false)
+      }
+    })
+  }
+
   /**
    * Export every managed entry to a zip on the server (channel C). The result
    * is a path, not a download — the notice below shows it as copyable text,
-   * and `skipped[]` gets the same ⚠ treatment as the CLI's stderr.
+   * and `skipped[]` gets the same warning treatment as the CLI's stderr.
    */
   const onExport = (): void => {
     void run('export', async () => {
@@ -394,8 +480,9 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
       try {
         const env = await api.export({ all: true })
         const r = env.data
-        const skipped = r.skipped.map((s) => `⚠ skipped "${s.name}": ${s.reason}`)
-        const line = `exported ${r.entries} entr${r.entries === 1 ? 'y' : 'ies'}, ` +
+        const skipped = r.skipped.map((s) => `skipped "${s.name}": ${s.reason}`)
+        const line =
+          `exported ${r.entries} entr${r.entries === 1 ? 'y' : 'ies'}, ` +
           `${r.files} file${r.files === 1 ? '' : 's'} → ${r.out}`
         setNotice([line, ...skipped].join('\n'))
       } finally {
@@ -404,7 +491,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     })
   }
 
-  /* ---------------- package import (§10.3) ---------------- */
+  /* ---------------- package import ---------------- */
 
   /** Picking a different file invalidates the verdict shown for the old one. */
   const onPickPackage = (ev: ChangeEvent<HTMLInputElement>): void => {
@@ -433,8 +520,8 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
 
   /**
    * Step 2 — the confirmed run. The browser still holds the `File`, so the same
-   * bytes are uploaded again rather than parking a server-side upload token
-   * (see `importRoute`); the job then does the cloning and linking.
+   * bytes are uploaded again rather than parking a server-side upload token;
+   * the job then does the cloning and linking.
    */
   const onImport = (): void => {
     const file = importFile
@@ -503,12 +590,33 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     })
   }
 
+  /**
+   * Ask, then remove. The question is the server's (`409 confirm-required`), so
+   * the wording lives in one place; `RiskConfirmation` is only the surface that
+   * asks it, with the server's text as its description.
+   */
+  const ask = useCallback(async (question: string): Promise<boolean> => {
+    // Used by the confirmable() retry flow, which is entered for adopt / update
+    // / switch-version. remove() takes the explicit overlay path below instead,
+    // because that is the one destructive action with a place to put a
+    // first-class confirmation.
+    return window.confirm(question)
+  }, [])
+
+  /** Open the removal overlay; the server's question arrives on the retry. */
   const onRemove = (entry: ListEntry): void => {
+    setPendingRemoval(entry)
+    setRemovalAcknowledged(false)
+  }
+
+  /** The overlay's confirm: run the remove with the server's own question. */
+  const onConfirmRemoval = (): void => {
+    const entry = pendingRemoval
+    if (entry === null) return
+    setPendingRemoval(null)
+    setRemovalAcknowledged(false)
     void run(entry.name, async () => {
-      const done = await confirmable(
-        (confirm) => api.remove(entry.name, confirm),
-        ask,
-      )
+      const done = await confirmable((confirm) => api.remove(entry.name, confirm), ask)
       if (done === undefined) return // declined — nothing was requested
       await reconcileAfter(entry.name, done.hotReload, goneFrom(entry.name))
     })
@@ -547,105 +655,129 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     () => jobs.filter((t) => t.job.status !== 'running' && !t.stalled).slice(-3).reverse(),
     [jobs],
   )
+  /** Entries with an available update — the toolbar counter's source. */
+  const updateCount = useMemo(
+    () => entries.filter((e) => e.update?.hasUpdate === true).length,
+    [entries],
+  )
+  const visibleEntries = useMemo(
+    () => entries.filter((e) => matchesQuery(e, query)),
+    [entries, query],
+  )
 
   /* ---------------- render ---------------- */
 
   return (
-    <div className="skills-nexus-panel">
-      <p>
+    <div className={css.section}>
+      <p className={css.lede}>
         Manage skill repositories: add by git url, toggle, update, pin versions.
         Discovery itself stays with the official provider — this panel only
         manages the clones and their symlinks.
       </p>
 
       {notice !== null && (
-        <p role="status" className="skills-nexus-notice">
+        <p role="status" className={css.notice}>
           {notice}
         </p>
       )}
       {listError !== null && (
-        <p role="alert" className="skills-nexus-error">
+        <p role="alert" className={css.error}>
           failed to load skills: {listError}
         </p>
       )}
 
       <JobProgress jobs={activeJobs} onCancel={onCancelJob} />
 
-      <form onSubmit={onAdd}>
-        <label>
-          add from git url{' '}
-          <input
-            type="text"
-            placeholder="github:owner/repo"
-            value={addUrl}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => setAddUrl(e.target.value)}
-            disabled={addBusy}
-          />
-        </label>
-        <details
-          open={addOptionsOpen}
-          onToggle={(e: ChangeEvent<HTMLDetailsElement>) => setAddOptionsOpen(e.currentTarget.open)}
-        >
-          <summary>optional: name / ref / subdir</summary>
-          <label>
-            name{' '}
-            <input
-              type="text"
-              placeholder="entry name override (default: subdir leaf or repo slug)"
-              value={addName}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setAddName(e.target.value)}
-              disabled={addBusy}
-            />
-          </label>
-          <label>
-            ref{' '}
-            <input
-              type="text"
-              placeholder="branch/tag (a #ref in the url wins)"
-              value={addRef}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setAddRef(e.target.value)}
-              disabled={addBusy}
-            />
-          </label>
-          <label>
-            subdir{' '}
-            <input
-              type="text"
-              placeholder="skills/foo (a repository-relative directory)"
-              value={addSubdir}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setAddSubdir(e.target.value)}
-              disabled={addBusy}
-            />
-          </label>
-        </details>
-        <button type="submit" disabled={addBusy || addUrl.trim().length === 0}>
-          add
-        </button>
-      </form>
+      {/* ---------------- install ---------------- */}
+      <section className={css.install}>
+        <h4 className={css.groupTitle}>install</h4>
 
-      {/* The row the retired zip upload used to occupy (§8 phase 3 → §10.3). */}
-      <div>
-        <label>
-          import package{' '}
-          <input
-            type="file"
-            accept=".zip,application/zip"
-            onChange={onPickPackage}
-            disabled={importBusy}
-          />
-        </label>
-        <button
-          type="button"
-          onClick={onPreviewImport}
-          disabled={importBusy || importFile === null}
-        >
-          preview
-        </button>
-      </div>
+        <form onSubmit={onAdd}>
+          <div className={css.formRow}>
+            <Input
+              type="text"
+              placeholder="github:owner/repo"
+              value={addUrl}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setAddUrl(e.target.value)}
+              disabled={addBusy}
+              aria-label="git url"
+            />
+            <Button type="submit" variant="primary" disabled={addBusy || addUrl.trim().length === 0}>
+              add
+            </Button>
+          </div>
+
+          <details
+            className={css.optional}
+            open={addOptionsOpen}
+            onToggle={(e: ChangeEvent<HTMLDetailsElement>) => setAddOptionsOpen(e.currentTarget.open)}
+          >
+            <summary>optional: name / ref / subdir</summary>
+            <div className={css.optionalGrid}>
+              <label className={css.fieldLabel}>
+                name
+                <Input
+                  type="text"
+                  placeholder="entry name override (default: subdir leaf or repo slug)"
+                  value={addName}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setAddName(e.target.value)}
+                  disabled={addBusy}
+                />
+              </label>
+              <label className={css.fieldLabel}>
+                ref
+                <Input
+                  type="text"
+                  placeholder="branch/tag (a #ref in the url wins)"
+                  value={addRef}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setAddRef(e.target.value)}
+                  disabled={addBusy}
+                />
+              </label>
+              <label className={css.fieldLabel}>
+                subdir
+                <Input
+                  type="text"
+                  placeholder="skills/foo (a repository-relative directory)"
+                  value={addSubdir}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setAddSubdir(e.target.value)}
+                  disabled={addBusy}
+                />
+              </label>
+            </div>
+          </details>
+
+          <p className={css.hint}>
+            supports github · gitee · gitlab · gitea · any git remote
+          </p>
+        </form>
+
+        <div className={css.formRow}>
+          <label className={css.fieldLabel}>
+            import package
+            <input
+              type="file"
+              accept=".zip,application/zip"
+              onChange={onPickPackage}
+              disabled={importBusy}
+            />
+          </label>
+          <Button
+            type="button"
+            onClick={onPreviewImport}
+            disabled={importBusy || importFile === null}
+          >
+            preview
+          </Button>
+        </div>
+        <p className={css.hint}>
+          nexus package (.zip) produced by <code>export</code> — preview the plan, then confirm
+        </p>
+      </section>
 
       {importPlan !== null && (
-        <div className="skills-nexus-import-plan">
-          <p>
+        <div className={css.plan}>
+          <p className={css.hint}>
             {`package: ${importPlan.source} (${importPlan.format}) · `}
             {importPlan.labelled
               ? `manifest: ${importPlan.entries.length} entry(ies)`
@@ -654,7 +786,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
               ? ` · peeled ${importPlan.peel} wrapper level(s), root: ${importPlan.candidate ?? '.'}`
               : ''}
           </p>
-          <ul>
+          <ul className={css.planList}>
             {importPlan.entries.map((planned) => (
               <li key={planned.name}>
                 <strong>{planned.name}</strong>{' '}
@@ -666,35 +798,63 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
             ))}
           </ul>
           {importPlan.skipped.map((s) => (
-            <p key={s.name}>{`⚠ skipped by the exporting machine: "${s.name}" — ${s.reason}`}</p>
+            <p className={css.error} key={s.name}>
+              {`skipped by the exporting machine: "${s.name}" — ${s.reason}`}
+            </p>
           ))}
           {importPlan.manifestOnly && (
-            <p>⚠ this package lists sources but carries no skill content</p>
+            <p className={css.error}>this package lists sources but carries no skill content</p>
           )}
-          <button type="button" onClick={onImport} disabled={importBusy}>
-            import
-          </button>
+          <div className={css.entryActions}>
+            <Button type="button" variant="primary" onClick={onImport} disabled={importBusy}>
+              import
+            </Button>
+          </div>
         </div>
       )}
 
-      <div>
-        <button type="button" onClick={() => void refresh()} disabled={loading}>
+      {/* ---------------- toolbar ---------------- */}
+      <div className={css.toolbar}>
+        <span className={css.search}>
+          <Input
+            type="search"
+            icon={<IconSearchOutlineRegular />}
+            placeholder="filter by name or url…"
+            value={query}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
+            aria-label="filter skills"
+          />
+        </span>
+        <Button
+          type="button"
+          icon={<IconRefreshOutlineRegular />}
+          onClick={() => void refresh()}
+          disabled={loading}
+        >
           {loading ? 'loading…' : 'refresh'}
-        </button>
-        <button type="button" onClick={onCheckUpdates} disabled={checking}>
+        </Button>
+        <Button type="button" onClick={onCheckUpdates} disabled={checking}>
           {checking ? 'checking…' : 'check updates'}
-        </button>
-        <button type="button" onClick={onExport} disabled={exportBusy}>
+        </Button>
+        <Button type="button" onClick={onExport} disabled={exportBusy}>
           {exportBusy ? 'exporting…' : 'export all'}
-        </button>
+        </Button>
+        <span className={css.toolbarSpacer} />
+        {updateCount > 0 && (
+          <Tag tone="warning">{`${updateCount} update${updateCount === 1 ? '' : 's'}`}</Tag>
+        )}
+        <Tag tone="neutral">{`${entries.length} skill${entries.length === 1 ? '' : 's'}`}</Tag>
       </div>
 
       {entries.length === 0 && !loading && listError === null && (
-        <p>no skills registered yet — add one above.</p>
+        <p className={css.empty}>no skills registered yet — add one above.</p>
+      )}
+      {entries.length > 0 && visibleEntries.length === 0 && (
+        <p className={css.empty}>{`no skill matches "${query.trim()}".`}</p>
       )}
 
-      <ul>
-        {entries.map((entry) => (
+      <ul className={css.entries}>
+        {visibleEntries.map((entry) => (
           <li key={entry.name}>
             <EntryCard
               entry={entry}
@@ -703,7 +863,9 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
               adoptValue={adoptInputs[entry.name] ?? ''}
               onAdoptChange={(v) => setAdoptInputs((prev) => ({ ...prev, [entry.name]: v }))}
               adoptSubdirValue={adoptSubdirInputs[entry.name] ?? ''}
-              onAdoptSubdirChange={(v) => setAdoptSubdirInputs((prev) => ({ ...prev, [entry.name]: v }))}
+              onAdoptSubdirChange={(v) =>
+                setAdoptSubdirInputs((prev) => ({ ...prev, [entry.name]: v }))
+              }
               onToggle={onToggle}
               onUpdate={onUpdate}
               onRemove={onRemove}
@@ -715,25 +877,75 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
       </ul>
 
       {settledJobs.length > 0 && (
-        <details>
-          <summary>recent operations</summary>
-          <ul>
+        <section className={css.jobs}>
+          <h4 className={css.groupTitle}>recent operations</h4>
+          <ul className={css.history}>
             {settledJobs.map((t) => (
               <li key={t.job.id}>
-                {t.job.status === 'done' ? '✓' : t.job.status === 'cancelled' ? '–' : '✕'}{' '}
-                {t.job.kind} · {t.entryName}
-                {t.job.error !== undefined ? ` — ${t.job.error}` : ''}
+                {t.job.kind} · {t.entryName} —{' '}
+                {t.job.status === 'done' ? 'done' : t.job.status === 'cancelled' ? 'cancelled' : 'failed'}
+                {t.job.error !== undefined ? ` (${t.job.error})` : ''}
               </li>
             ))}
           </ul>
-        </details>
+        </section>
       )}
+
+      {/* ---------------- health check ---------------- */}
+      <section className={css.health}>
+        <span className={css.groupTitle}>health check</span>
+        {health === null ? (
+          <span className={css.hint}>not run yet</span>
+        ) : (
+          <>
+            <StateDot state={healthSummary(health).state} />
+            <span>{healthSummary(health).text}</span>
+          </>
+        )}
+        <span className={css.toolbarSpacer} />
+        <Button type="button" size="sm" onClick={onDoctor} disabled={healthBusy}>
+          {healthBusy ? 'checking…' : 'run check'}
+        </Button>
+      </section>
+
+      <p className={css.footer}>
+        This panel manages the skills Nexus installed. To see every local skill
+        (including the ones other tools manage), use Skill Manager.
+      </p>
+
+      {/*
+        The destructive-action overlay. Its description is the server's own
+        `question` where one is already known — the route is the single source of
+        consequence wording — and a local sentence otherwise, because the
+        question only arrives with the `409` on the first attempt.
+      */}
+      <RiskConfirmation
+        open={pendingRemoval !== null}
+        title="remove skill"
+        description={
+          pendingRemoval === null
+            ? ''
+            : `Remove "${pendingRemoval.name}"? This deletes its symlinks, its clone under repos/, and its manifest entry. ` +
+              'The confirm step asks again with the server’s own wording.'
+        }
+        acknowledgeLabel="I understand this deletes the clone"
+        cancelLabel="cancel"
+        closeLabel="close"
+        confirmLabel="remove"
+        acknowledged={removalAcknowledged}
+        onAcknowledgedChange={setRemovalAcknowledged}
+        onCancel={() => {
+          setPendingRemoval(null)
+          setRemovalAcknowledged(false)
+        }}
+        onConfirm={onConfirmRemoval}
+      />
     </div>
   )
 }
 
 /* ------------------------------------------------------------------ */
-/* Entry card                                                          */
+/* Entry row                                                           */
 /* ------------------------------------------------------------------ */
 
 interface EntryCardProps {
@@ -750,11 +962,17 @@ interface EntryCardProps {
   onSwitchVersion: (entry: ListEntry) => void
   onAdopt: (entry: ListEntry) => void
 }
+
 /**
- * One entry row. Exported for `test/panel-render.test.ts`: the card is where
- * `hasGitSource` decides which actions exist (update/switch vs attach source),
- * and that decision is pure props → markup, so it can be rendered and asserted
- * without a DOM, a click, or a mounted effect.
+ * One entry row. Exported for `test/panel-render.test.ts`: the row is where
+ * `hasGitSource` decides which actions exist (update/switch vs attach source)
+ * and where `ownership: 'external'` decides what the meta column says, and both
+ * are pure props → markup, so they can be rendered and asserted without a DOM,
+ * a click, or a mounted effect.
+ *
+ * The `pin` disclosure is local state: only one row is ever expanded, and
+ * `DisclosureRow` keeps the header/chevron behaviour consistent with the host's
+ * own panels.
  */
 export function EntryCard({
   entry,
@@ -774,32 +992,43 @@ export function EntryCard({
   // reachable remote) cannot be updated or switched — the server answers
   // `400 not-a-git-clone`, so the buttons are not offered at all.
   const canUpdate = entry.hasGitSource
-  // Update badge only exists for branch-tracking entries (tag/commit pins and
-  // source-less entries stay null, §7.2) — the runtime cache decides, no
-  // refType here.
+  // An `external` entry only links a directory the user owns: `remove` deletes
+  // the links and the manifest entry but never that directory, and `adopt`
+  // refuses it outright. Saying so is the difference between "no source" and
+  // "not yours to change".
+  const external = entry.ownership === 'external'
   const update = entry.update
+  const [pinOpen, setPinOpen] = useState(false)
+
+  const tags: Array<{ tone: TagTone; text: string }> = []
+  if (external) tags.push({ tone: 'quiet', text: 'linked directory' })
+  else if (!canUpdate) tags.push({ tone: 'quiet', text: 'no source' })
+  if (!entry.enabled) tags.push({ tone: 'outline', text: 'disabled' })
 
   return (
-    <article>
-      <header>
-        <strong>{entry.name}</strong>{' '}
-        <small>
-          {`${entry.url}${entry.subdir !== null ? ` · ${entry.subdir}` : ''}`}
-        </small>{' '}
-        {entry.enabled ? (
-          <small>enabled</small>
-        ) : (
-          <small>disabled</small>
-        )}
+    <article className={css.entryRow}>
+      <div className={css.entryHead}>
+        <StateDot state={entryState(entry)} />
+        <span className={css.entryName}>{entry.name}</span>
+        <small className={`${css.entryMeta} ${css.mono}`}>
+          {`${entry.url} · ${entry.ref || '—'}${entry.commit !== null ? ` · ${shortSha(entry.commit)}` : ''}${entry.subdir !== null ? ` · ${entry.subdir}` : ''}`}
+        </small>
+        {tags.map((t) => (
+          <Tag key={t.text} tone={t.tone}>
+            {t.text}
+          </Tag>
+        ))}
         {update !== null && update.hasUpdate && (
-          <small>update available → {shortSha(update.latestCommit)}</small>
+          <span className={css.updateArrow}>
+            <Tag tone="warning">{`update available → ${shortSha(update.latestCommit)}`}</Tag>
+          </span>
         )}
-      </header>
+      </div>
 
       {entry.links.length > 0 && (
-        <ul>
+        <ul className={css.links}>
           {entry.links.map((l) => (
-            <li key={l.linkName}>
+            <li key={l.linkName} className={l.enabled ? undefined : css.linkOff}>
               {l.enabled ? '✓' : '✕'} {l.linkName}
               {l.skillName !== l.linkName ? ` (${l.skillName})` : ''}
             </li>
@@ -807,68 +1036,125 @@ export function EntryCard({
         </ul>
       )}
 
-      <div>
-        <button type="button" onClick={() => onToggle(entry)}>
-          {entry.enabled ? 'disable' : 'enable'}
-        </button>
+      <div className={css.entryActions}>
+        <Switch
+          checked={entry.enabled}
+          onChange={() => onToggle(entry)}
+          label={entry.enabled ? `disable ${entry.name}` : `enable ${entry.name}`}
+        />
         {canUpdate && (
-          <>
-            <button type="button" onClick={() => onUpdate(entry)}>
-              update
-            </button>
-            <label>
-              pin to{' '}
-              <input
-                type="text"
-                placeholder="branch / tag / commit"
-                value={refValue}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => onRefChange(e.target.value)}
-              />
-            </label>
-            <button type="button" onClick={() => onSwitchVersion(entry)} disabled={refValue.trim().length === 0}>
-              switch
-            </button>
-          </>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => onUpdate(entry)}
+            icon={update?.hasUpdate === true ? <IconWarningOutlineRegular /> : undefined}
+          >
+            update
+          </Button>
         )}
-        {/* §10.3: "attach source" appears only where it applies — a snapshot has
-            no history to update, so this is the one action that can give it one.
-            The url is typed by the user; `adopt` never guesses it (§6). */}
-        {!canUpdate && (
+        {/* "attach source" appears only where it applies — a snapshot has no
+            history to update, and an external entry is not nexus's to re-source
+            (the adopt core refuses it). The url is typed by the user; `adopt`
+            never guesses it. */}
+        {!canUpdate && !external && (
           <>
-            <label>
-              attach source{' '}
-              <input
+            <label className={css.fieldLabel}>
+              attach source
+              <Input
                 type="text"
                 placeholder="github:owner/repo"
                 value={adoptValue}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => onAdoptChange(e.target.value)}
               />
             </label>
-            <label>
-              subdir{' '}
-              <input
+            <label className={css.fieldLabel}>
+              subdir
+              <Input
                 type="text"
                 placeholder="optional, e.g. skills/foo"
                 value={adoptSubdirValue}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => onAdoptSubdirChange(e.target.value)}
               />
             </label>
-            <button type="button" onClick={() => onAdopt(entry)} disabled={adoptValue.trim().length === 0}>
+            <Button
+              type="button"
+              size="sm"
+              variant="primary"
+              onClick={() => onAdopt(entry)}
+              disabled={adoptValue.trim().length === 0}
+            >
               adopt
-            </button>
+            </Button>
           </>
         )}
-        <button type="button" onClick={() => onRemove(entry)}>
+        <Button type="button" size="sm" variant="outline" onClick={() => onRemove(entry)}>
           remove
-        </button>
+        </Button>
       </div>
+
+      {canUpdate && (
+        <DisclosureRow
+          icon={<IconPinOutlineRegular />}
+          title={pinOpen ? 'pin — close' : 'pin to another version'}
+          open={pinOpen}
+          expandable
+          onToggle={() => setPinOpen((v) => !v)}
+        >
+          <div className={css.pinRow}>
+            <span className={css.pinInput}>
+              <Input
+                type="text"
+                placeholder="branch / tag / commit"
+                value={refValue}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => onRefChange(e.target.value)}
+                aria-label={`pin ${entry.name} to a branch, tag or commit`}
+              />
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => onSwitchVersion(entry)}
+              disabled={refValue.trim().length === 0}
+            >
+              switch
+            </Button>
+            <Button type="button" size="sm" onClick={() => setPinOpen(false)}>
+              cancel
+            </Button>
+          </div>
+        </DisclosureRow>
+      )}
+
+      {external && (
+        <small className={css.hint}>
+          remove only deletes the link and the manifest entry — the directory it
+          points at is yours and stays where it is.
+        </small>
+      )}
     </article>
   )
 }
 
 /* ------------------------------------------------------------------ */
-/* Job progress view (§7.5 / §10.4)                                    */
+/* Job progress view                                                   */
 /* ------------------------------------------------------------------ */
+
+/** Labels the terminal surface needs; this panel ships English only. */
+const TERMINAL_LABELS = {
+  signal: (signal: string) => `signal ${signal}`,
+  exitCode: (code: number) => `exit ${code}`,
+  noExitCode: 'no exit code',
+  running: 'running',
+  failed: 'failed',
+  done: 'done',
+  copy: 'copy',
+  copied: 'copied',
+  noOutput: '(no output yet)',
+  collapseAria: 'collapse output',
+  collapse: 'collapse',
+  expandAria: (hidden: number) => `expand ${hidden} more line(s)`,
+  expand: (hidden: number) => `expand ${hidden} more line(s)`,
+}
 
 function JobProgress({
   jobs,
@@ -879,23 +1165,40 @@ function JobProgress({
 }): ReactElement | null {
   if (jobs.length === 0) return null
   return (
-    <section>
-      <h4>running operations</h4>
-      <ul>
+    <section className={css.jobs}>
+      <h4 className={css.groupTitle}>running operations</h4>
+      <ul className={css.entries}>
         {jobs.map(({ job, entryName, stalled }) => (
-          <li key={job.id}>
-            <div>
-              {entryName} · {job.kind}
-              {job.stage !== undefined ? ` — ${job.stage}` : ''}
-              {job.detail !== undefined ? ` (${job.detail})` : ''}
-              {stalled ? ' — still running, polling gave up (check back later)' : ''}
+          <li key={job.id} className={css.entryRow}>
+            <div className={css.jobHead}>
+              <StateDot state={job.status === 'running' ? 'ongoing' : 'error'} />
+              <span>
+                {entryName} · {job.kind}
+                {job.stage !== undefined ? ` — ${job.stage}` : ''}
+                {job.detail !== undefined ? ` (${job.detail})` : ''}
+                {stalled ? ' — still running, polling gave up (check back later)' : ''}
+              </span>
             </div>
             {job.output.length > 0 && (
-              <pre>{job.output.slice(-6).join('')}</pre>
+              <TerminalBlock
+                command={`${job.kind} ${entryName}`}
+                output={job.output.join('')}
+                running={job.status === 'running'}
+                maxLines={6}
+                runStateDot={false}
+                labels={TERMINAL_LABELS}
+              />
             )}
-            <button type="button" onClick={() => onCancel(job)} disabled={job.status !== 'running'}>
-              cancel
-            </button>
+            <div className={css.entryActions}>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => onCancel(job)}
+                disabled={job.status !== 'running'}
+              >
+                cancel
+              </Button>
+            </div>
           </li>
         ))}
       </ul>

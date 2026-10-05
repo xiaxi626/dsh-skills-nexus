@@ -657,6 +657,30 @@ CLI — never `import` package internals or read `manifest.json`. See
 for the full contract, the ecosystem boundary, and the explicit list of
 interfaces that are **not** promised.
 
+### Verifying the browser half after a change
+
+`lib/client.js` is built by `npm run build:client`, which the CI deliberately
+does **not** run (it needs Node ≥ 22.18 while the test matrix starts at 20), and
+the browser module table is not type-checked either — a `require` the host's
+loader cannot answer is a **runtime** throw with no build-time symptom. So a
+change to `src/client/**` or to the module table needs one manual pass:
+
+1. `npm run build` && `npm run build:client`, then commit `lib/`.
+2. Confirm the bundle's `require` calls are all inside the host's module table:
+
+   ```console
+   $ node -e "const s=require('fs').readFileSync('lib/client.js','utf8');\
+     console.log([...new Set([...s.matchAll(/require\(\"([^\"]+)\"\)/g)].map(m=>m[1]))].sort())"
+   [ '@deepseek-ai/dsh-client-ui-primitives', 'react', 'react/jsx-runtime' ]
+   ```
+
+   Anything else is a specifier the loader will refuse at runtime.
+3. `dsh web --profile <name>`, install this checkout into that profile, and open
+   **Settings → Skills Nexus**. Check the panel renders, the skill rows show
+   their state dots, and one action round-trips (a toggle is enough).
+4. The `desktop` profile is managed exclusively by the Electron app, so use a
+   throwaway profile for step 3; `dsh plugin --profile desktop …` refuses.
+
 ## Documentation
 
 - [Architecture — data flow, directory layout, SKILL.md discovery](docs/ARCHITECTURE.md)

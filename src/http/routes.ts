@@ -61,7 +61,7 @@ import {
   sanitizeName,
 } from '../git.js'
 import { repoDir, NEXUS_HOME } from '../paths.js'
-import { findEntry, hasEntry, hasGitSource, listEntries, markUpdated, readManifest } from '../manifest.js'
+import { findEntry, hasEntry, hasGitSource, isExternalEntry, listEntries, markUpdated, readManifest } from '../manifest.js'
 import { entryLinks, hasCollision, linkSkill, unlinkSkill } from '../link.js'
 import { removeSkill } from '../remove.js'
 import { previewSkills } from '../resolve.js'
@@ -267,6 +267,13 @@ async function listRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
       // themselves use (`400 not-a-git-clone`), so the panel cannot disagree
       // with the server about what is updatable.
       hasGitSource: hasGitSource(l.entry),
+      // Whether nexus owns the directory this entry exposes. An `external`
+      // entry only *links* a directory the user owns: `remove` deletes the
+      // links and the manifest entry but never that directory, and `adopt`
+      // refuses it. The panel cannot tell "no source yet" from "not ours to
+      // re-source" without this, and the two need different wording and
+      // different actions — so it is a response field, not a client guess.
+      ownership: isExternalEntry(l.entry) ? ('external' as const) : ('managed' as const),
       enabled: l.enabled,
       links: await Promise.all(
         l.links.map(async (link) => {

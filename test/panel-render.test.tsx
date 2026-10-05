@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { EntryCard, NexusPanel, adoptBackupNotice, errorText } from '../src/client/panel.js'
+import { EntryCard, NexusPanel, adoptBackupNotice, entryState, errorText, healthSummary, matchesQuery } from '../src/client/panel.js'
 import { ApiError } from '../src/client/api.js'
 import type { Job, ListEntry, NexusApi } from '../src/client/api.js'
 
@@ -22,9 +22,10 @@ import type { Job, ListEntry, NexusApi } from '../src/client/api.js'
  * polling, the confirm flow and job progress are the route/client contracts,
  * covered in `test/api.test.ts` and `test/client-api.test.ts`.
  *
- * The panel is imported straight from source: `panel.tsx` carries the runtime
- * `React` import the classic-runtime transpilers need (see its own comment), so
- * no JSX-aware loader or pre-build step is involved here.
+ * The panel is imported straight from source, and this file uses JSX: tsx
+ * transpiles it with the automatic runtime (the same `jsx: react-jsx` the test
+ * tsconfig sets), so `panel.tsx` no longer needs a runtime `React` namespace
+ * import purely to satisfy a classic-runtime test runner.
  */
 
 /** An api whose `list()` never settles: the first render is all there is. */
@@ -51,7 +52,7 @@ function mountApi(): NexusApi {
 }
 
 test('the add form offers collapsed optional name / ref / subdir channels', () => {
-  const html = renderToStaticMarkup(createElement(NexusPanel, { api: mountApi() }))
+  const html = renderToStaticMarkup(<NexusPanel api={mountApi()} />)
   // Collapsed by default — the disclosure carries no open attribute …
   assert.match(html, /<summary>optional: name \/ ref \/ subdir<\/summary>/)
   assert.doesNotMatch(html, /<details open/)
@@ -63,12 +64,12 @@ test('the add form offers collapsed optional name / ref / subdir channels', () =
 })
 
 test('the panel renders the export-all button (channel C)', () => {
-  const html = renderToStaticMarkup(createElement(NexusPanel, { api: mountApi() }))
+  const html = renderToStaticMarkup(<NexusPanel api={mountApi()} />)
   assert.match(html, />\s*export all\s*</)
 })
 
 test('the panel renders the package import row (§10.3)', () => {
-  const html = renderToStaticMarkup(createElement(NexusPanel, { api: mountApi() }))
+  const html = renderToStaticMarkup(<NexusPanel api={mountApi()} />)
   assert.match(html, /import package/)
   assert.match(html, /type="file"/)
   assert.match(html, /accept="\.zip,application\/zip"/)
@@ -86,10 +87,76 @@ test('the panel renders the package import row (§10.3)', () => {
 test('the panel renders its empty state without inventing entries', () => {
   // `list()` never settles in `mountApi`, so this is the first render: the
   // panel is still loading and must not claim there are no skills yet.
-  const html = renderToStaticMarkup(createElement(NexusPanel, { api: mountApi() }))
+  const html = renderToStaticMarkup(<NexusPanel api={mountApi()} />)
   assert.match(html, /loading…/)
   assert.doesNotMatch(html, /attach source/)
   assert.doesNotMatch(html, /no skills registered yet/)
+})
+
+/* ------------------------------------------------------------------ */
+/* B1 additions: search, health check, counters, coexistence footer    */
+/* ------------------------------------------------------------------ */
+
+test('the panel offers a search box and filters on name / url / subdir', () => {
+  const html = renderToStaticMarkup(<NexusPanel api={mountApi()} />)
+  assert.match(html, /type="search"/)
+  assert.match(html, /placeholder="filter by name or url…"/)
+
+  // The predicate is pure, so the filtering rules are asserted directly rather
+  // than through a DOM event this bench cannot fire.
+  assert.equal(matchesQuery(gitEntry, ''), true, 'an empty query matches everything')
+  assert.equal(matchesQuery(gitEntry, '   '), true, 'whitespace alone is still empty')
+  assert.equal(matchesQuery(gitEntry, 'GIT-SKILL'), true, 'case-insensitive on the name')
+  assert.equal(matchesQuery(gitEntry, 'owner/'), true, 'matches the url')
+  assert.equal(matchesQuery({ ...gitEntry, subdir: 'skills/foo' }, 'skills/foo'), true)
+  assert.equal(matchesQuery(gitEntry, 'nope'), false)
+})
+
+test('the panel renders the HEALTH CHECK row with a run button', () => {
+  const html = renderToStaticMarkup(<NexusPanel api={mountApi()} />)
+  assert.match(html, /health check/i)
+  assert.match(html, /run check/)
+  // Nothing has been checked yet — it must not claim a clean bill of health.
+  assert.match(html, /not run yet/)
+})
+
+test('healthSummary maps the report counts to one dot state and one line', () => {
+  const clean = healthSummary({ version: 1, checks: [], summary: { errors: 0, warnings: 0, updates: 0 } })
+  assert.equal(clean.state, 'done')
+  assert.equal(clean.text, '0 error(s) · 0 warning(s)')
+
+  const warned = healthSummary({ version: 1, checks: [], summary: { errors: 0, warnings: 2, updates: 0 } })
+  assert.equal(warned.state, 'warning')
+  assert.match(warned.text, /2 warning\(s\)/)
+
+  const withUpdates = healthSummary({ version: 1, checks: [], summary: { errors: 0, warnings: 0, updates: 2 } })
+  assert.equal(withUpdates.state, 'warning')
+  assert.match(withUpdates.text, /2 update\(s\) available/)
+
+  // An error outranks a warning: the dot is the one thing read at a glance.
+  const broken = healthSummary({ version: 1, checks: [], summary: { errors: 1, warnings: 3, updates: 2 } })
+  assert.equal(broken.state, 'error')
+})
+
+test('the panel renders the coexistence footer with no counts when empty', () => {
+  const html = renderToStaticMarkup(<NexusPanel api={mountApi()} />)
+  assert.match(html, /Skill Manager/)
+  // The counters are derived from the list, which has not arrived yet, so the
+  // badges must not be on screen claiming "0 skills".
+  assert.doesNotMatch(html, /update<\/span>/)
+})
+
+test('the panel renders the update counter and its labels from the entry set', () => {
+  // `entryState` is the status-dot decision, asserted directly: the static
+  // render never reaches it because `list()` has not resolved.
+  assert.equal(entryState(gitEntry), 'done', 'enabled git entry, no update')
+  assert.equal(
+    entryState({ ...gitEntry, update: { hasUpdate: true, latestCommit: 'ffeeddcc', checkedAt: 'now' } }),
+    'warning',
+    'an available update is the row’s warning state',
+  )
+  assert.equal(entryState({ ...gitEntry, enabled: false }), 'idle', 'disabled is idle, not an error')
+  assert.equal(entryState(snapshotEntry), 'idle', 'a snapshot has nothing to report')
 })
 
 /* ------------------------------------------------------------------ */
@@ -125,6 +192,7 @@ const gitEntry: ListEntry = {
   subdir: null,
   commit: 'abcdef1234567890',
   hasGitSource: true,
+  ownership: 'managed',
   enabled: true,
   links: [{ linkName: 'git-skill', skillName: 'git-skill', enabled: true }],
   update: null,
@@ -137,8 +205,28 @@ const snapshotEntry: ListEntry = {
   subdir: null,
   commit: null,
   hasGitSource: false,
+  ownership: 'managed',
   enabled: false,
   links: [],
+  update: null,
+}
+
+/**
+ * An `external` entry: it only links a directory the user owns, so `remove`
+ * deletes the links and the manifest entry but never the directory, and `adopt`
+ * refuses it. It must therefore NOT offer "attach source" — the one case a
+ * source-less entry would otherwise get it.
+ */
+const externalEntry: ListEntry = {
+  name: 'linked-skill',
+  url: 'file:/home/u/my-own-skills/linked-skill',
+  ref: '',
+  subdir: null,
+  commit: null,
+  hasGitSource: false,
+  ownership: 'external',
+  enabled: true,
+  links: [{ linkName: 'linked-skill', skillName: 'linked-skill', enabled: true }],
   update: null,
 }
 
@@ -164,10 +252,41 @@ test('a source-less card offers attach source and no update/switch', () => {
 test('a git-backed card offers update/switch and never attach source', () => {
   const html = card(gitEntry)
   assert.match(html, /update/)
-  assert.match(html, /pin to/)
-  assert.match(html, /switch/)
+  // The pin control is a `DisclosureRow`: collapsed by default, so its title is
+  // in the markup and its input is not — the same "no expanded state leaks into
+  // the first render" property the details/summary version had.
+  assert.match(html, /pin to another version/)
+  assert.doesNotMatch(html, /placeholder="branch \/ tag \/ commit"/)
   assert.doesNotMatch(html, /attach source/)
   assert.doesNotMatch(html, /adopt/)
+})
+
+/* ------------------------------------------------------------------ */
+/* external entries: `ownership` changes the wording and the actions   */
+/* ------------------------------------------------------------------ */
+
+test('an external card says "linked directory" and never offers adopt', () => {
+  const html = card(externalEntry)
+  // The distinction the field exists for: this is not "a snapshot with no
+  // source yet", it is "a directory nexus does not own". `adopt` refuses such
+  // an entry outright, so offering the button would be a dead control.
+  assert.match(html, /linked directory/)
+  assert.doesNotMatch(html, /no source/)
+  assert.doesNotMatch(html, /attach source/)
+  assert.doesNotMatch(html, /adopt/)
+  // No git source means no update / switch either.
+  assert.doesNotMatch(html, />\s*update\s*</)
+  assert.doesNotMatch(html, />pin<\/button>/)
+  // The consequence the design draft requires be stated: remove does not take
+  // the directory with it.
+  assert.match(html, /remove only deletes the link and the manifest entry/)
+})
+
+test('a managed snapshot keeps the "no source" wording and the adopt action', () => {
+  const html = card(snapshotEntry)
+  assert.match(html, /no source/)
+  assert.doesNotMatch(html, /linked directory/)
+  assert.match(html, /attach source/)
 })
 
 test('a typed adopt url enables the action and is what gets sent', () => {

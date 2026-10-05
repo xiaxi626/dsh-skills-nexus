@@ -29,12 +29,21 @@ export interface EntryLink {
     target: string;
 }
 /**
- * The directory a link points at, even when that directory no longer exists.
+ * The directory a link points at — **including when that directory no longer
+ * exists**.
  *
  * `resolveLinkTarget` (`realpath`) is the right answer whenever the target is
- * live; for a dangling POSIX symlink it is `undefined`, and `readlink` still
- * knows the path — which is what lets `doctor` say "this link points at a
- * deleted clone" and offer a repair instead of giving up.
+ * live, and the only reader that works for a Windows junction. For a *dangling*
+ * POSIX symlink it is `undefined`, while `readlink` still knows the path — and
+ * that is exactly the case link cleanup runs into: `remove` and `update` delete
+ * a clone first and its links second, so by the time the links are visited their
+ * target is already gone. Reading nothing there leaves them behind, which is
+ * the "dangling link no later command can attribute" residue `update` exists to
+ * prevent.
+ *
+ * Returns `undefined` when nothing can be recovered: absent, or a Windows
+ * junction whose target was deleted (`realpath` and `readlink` both refuse such
+ * a reparse point — see the module header).
  */
 export declare function readLinkEntryTarget(path: string): Promise<string | undefined>;
 /** True when `path` is a link rather than a real directory or file. */

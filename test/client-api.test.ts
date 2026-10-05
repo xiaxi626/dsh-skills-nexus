@@ -417,6 +417,7 @@ const listEntry = (name: string, enabled = true): ListEntry => ({
   subdir: null,
   commit: null,
   hasGitSource: true,
+  ownership: 'managed',
   enabled,
   links: [],
   update: null,

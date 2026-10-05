@@ -89,6 +89,18 @@ export interface ListEntry {
    * `switch-version` are accepted or answered `400 not-a-git-clone`.
    */
   hasGitSource: boolean
+  /**
+   * Who owns the directory the entry exposes. `managed` = nexus created
+   * `repos/<path>` and `remove` may delete it. `external` = a `--link-only`
+   * adoption: the entry only links a directory the user owns, so `remove`
+   * deletes the links and the manifest entry but never that directory, and
+   * `adopt` refuses the entry outright.
+   *
+   * Served by `GET /list` (the server's `isExternalEntry` predicate) rather
+   * than inferred here: the panel needs it to tell "no source yet" from "not
+   * ours to re-source", and only the manifest knows which is true.
+   */
+  ownership: 'managed' | 'external'
   enabled: boolean
   links: ListLink[]
   update: UpdateStatus | null

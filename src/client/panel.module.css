@@ -1,0 +1,289 @@
+/*
+ * Panel layout — CSS Modules, styled only through `--dsw-*` tokens.
+ *
+ * Two rules govern this file, both from the platform's own client packages
+ * (the host's `ui-settings-plugin-inventory` panel is the model):
+ *
+ *   1. **No literal colors and no `rgba(128,128,128,…)` greys.** Every color,
+ *      radius and font is a token, so light/dark and any future theme come from
+ *      the host for free. The design draft's fixed three-hex-accent system is
+ *      deliberately not implemented: it would need to be maintained per theme
+ *      and would not track the shell.
+ *   2. **The primitives own their own looks.** Buttons, tags, dots, switches,
+ *      inputs and terminal blocks are host components; this file positions them
+ *      and sets the panel's own surface, density and spacing — it does not
+ *      restyle them.
+ *
+ * The `.section` max-width keeps the panel readable inside a wide Settings
+ * surface while letting the entry rows stay dense.
+ */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 860px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* ---------------- headings and prose ---------------- */
+
+.lede {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.groupTitle {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.hint {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.mono {
+  font-family: var(--dsw-font-markdown-code-font-family, ui-monospace, monospace);
+}
+
+/* ---------------- notices ---------------- */
+
+.notice,
+.error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-2);
+  white-space: pre-wrap;
+}
+
+.error {
+  border-color: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+/* ---------------- install surface ---------------- */
+
+.install {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.formRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.formRow > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fieldLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.optional {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.optional summary {
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.optionalGrid {
+  display: flex;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+/* ---------------- toolbar ---------------- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toolbarSpacer {
+  flex: 1 1 auto;
+}
+
+.search {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+/* ---------------- entry list ---------------- */
+
+.entries {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.entryRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.entryRow:last-child {
+  border-bottom: 0;
+}
+
+.entryHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.entryName {
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.entryMeta {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.updateArrow {
+  color: var(--dsw-alias-state-warn-primary);
+  font-size: 12px;
+}
+
+.entryActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pinRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0 2px;
+}
+
+.pinInput {
+  flex: 0 1 240px;
+  min-width: 0;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 0 0 0 18px;
+  list-style: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.linkOff {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+/* ---------------- package import ---------------- */
+
+.plan {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.planList {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* ---------------- jobs, history, health ---------------- */
+
+.jobs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jobHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.history {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.health {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.footer {
+  margin: 0;
+  padding-top: 8px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.empty {
+  margin: 0;
+  padding: 4px 0;
+  color: var(--dsw-alias-label-tertiary);
+}

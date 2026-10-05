@@ -4,6 +4,54 @@
 
 ## [Unreleased]
 
+**2026-10-05 · Changed · B2：面板原语化 + CSS Modules 布局 + `--dsw-*` 令牌主题（裁定与实现）**
+
+- **路线裁定（B0.4）**：宿主平台源码与运行中 shell 的 boot 表互证后确定——面板走「**宿主原语做原子 + CSS Modules 做布局 + `--dsw-*` 令牌做主题**」。这不是「原语 vs 自绘」的二选一：宿主自己的客户端面板就是这个组合（同一文件既 `import { StateDot, Tag }`，又 `import css from './X.module.css'`，CSS 内全是 `var(--dsw-alias-*)`）。设计稿 §7 的「固定三色强调色 + `rgba(128,128,128,…)` 半透明灰」是平台外的自造方案，**不予实现**：它需要按主题自行维护，且不会跟随宿主换肤。§7 的**紧凑行 / 信息密度**设计意图**保留**并落在 `panel.module.css`。
+- **变更**：
+  - `src/client/panel.tsx`：原子替换——状态点 → `StateDot`（含 `entryState()` 的三态推导：无源/禁用为 `idle`、有更新为 `warning`、正常为 `done`）；动作按钮 → `Button`（`primary` / `outline` 区分语义，`icon` 传宿主图标）；更新徽标与状态标签 → `Tag`（`warning` / `outline` / `quiet`）；启停开关 → `Switch`（受控，`label` 提供无障碍名）；文本输入与搜索框 → `Input`（搜索带 `IconSearchOutlineRegular` 前导图标）；`pin` 内联展开 → `DisclosureRow`（受控展开，与宿主面板的折叠行为一致）；job 输出 → `TerminalBlock`（`maxLines: 6` 取代原先手写的 `slice(-6)`）；`window.confirm` → `RiskConfirmation` 受控遮罩（需勾选确认才能执行删除）。刷新按钮带 `IconRefreshOutlineRegular`，有更新的行其 update 按钮带 `IconWarningOutlineRegular`。
+  - 新增 `src/client/panel.module.css`：布局、密度与间距全部走 `--dsw-*` 令牌（13 个令牌，已逐个对照宿主自身客户端包的 CSS 核验存在）。不重绘任何原语的外观。
+  - `src/client/panel.tsx` 头注释重写：记录路线裁定、`PLATFORM_MODULES` 的关系，以及为什么设计稿的配色系统不落地。
+  - `src/client/index.tsx`：注释记录 `settings.section`（自有独立设置行）与宿主 plugin-inventory 用的 `settings.plugins.tab`（Plugins 区内的标签页）之别，并说明后者是**信息架构**变更而非呈现变更，故不在本轮范围，避免下一个人误"修"。
+- **不做**：不实现 §7 的固定色值与自绘 `<style>` 注入；不迁移 `settings.section` → `settings.plugins.tab`；不引入 `Toast`（notice 行已足够且可被静态断言）；不重绘原语内部样式（那是宿主的所有权）。
+- **测试**：`test/panel-render.test.ts` 断言随原子替换调整（`pin` 由 `DisclosureRow` 承载后，静态渲染里是标题存在、输入不在）；新增 external 条目与 managed 快照的对照用例，钉住「新增的 `ownership` 字段如何改变文案与可用动作」。
+- **文档**：README（中英）新增「Verifying the browser half after a change」四步——`build:client` 不在 CI 内、浏览器模块表也不被类型检查，loader 答不出的 `require` 是**运行时**抛错、构建期毫无提示，所以改 `src/client/**` 或模块表必须手跑一次并目视确认。
+- **如何辨识改动**：改 `src/client/panel.tsx`（原子与 head 注释）、`src/client/index.tsx`（注释）、新增 `src/client/panel.module.css`、`test/panel-render.test.ts`、`README.md` / `README_CN.md`、`lib/client.js` 重建产物。
+
+**2026-10-05 · Added · B1：面板补接线——健康检查 UI、搜索框、更新计数徽标、底部共存提示**
+
+- **背景**：设计稿 §7 的四项在 `panel.tsx` 里此前**全部缺失**（§11 的「UI 现状」表把它们误标为已有）：无搜索输入、从不调用 `api.doctor()`（方法早已定义、服务端 `/doctor` 路由早已就绪、只是没有调用方）、无更新计数、无共存提示。四项都是纯前端消费既有契约，不需要任何服务端改动。
+- **变更**：
+  - **健康检查 UI**：工具栏下方新增 `health check` 行，`run check` 调 `api.doctor()`，以 `StateDot` + 一行摘要渲染 `summary`（`healthSummary()` 把 errors/warnings/updates 映射成「一个点的状态 + 一行文本」，错误优先于警告）。未检查时显示 `not run yet`，**不谎报健康**。
+  - **搜索框**：`Input type="search"` 带宿主搜索图标，按 name / url / subdir 客户端过滤（`matchesQuery()`，大小写不敏感、空串与纯空白视为不过滤）。无匹配时给出带引号的提示行。不触碰任何状态，因此不需要新契约。
+  - **更新计数徽标**：工具栏右侧 `Tag`，数量由 `entries[].update.hasUpdate` 派生（`updateCount`）；另有条目总数徽标。**不臆造数字**：计数为 0 时不渲染更新徽标。
+  - **底部共存提示**：按设计稿 §10 的措辞加一行，指向 Skill Manager。
+- **不做**：不做状态筛选（§11 自己判定「搜索已覆盖」）；不做「全部更新」按钮（需串行多 job，属独立设计）；不改任何 HTTP 契约。
+- **测试**：`test/panel-render.test.ts` +6（搜索框存在 + `matchesQuery` 的纯函数规则、HEALTH CHECK 行与 `run check`、`healthSummary` 四态映射、空态下不出现计数徽标、`entryState` 三态、共存提示文案）。
+- **如何辨识改动**：`src/client/panel.tsx`（`onDoctor` / `query` / `updateCount` / `health` 状态与渲染）、`test/panel-render.test.ts`。
+
+**2026-10-05 · Changed · B0：客户端模块表对齐宿主九项真表、装原语类型依赖、接入 CSS Modules 通道**
+
+- **背景**：`tsdown.config.ts` 里那张共享模块表是从第三方 vendored 副本继承的，**两个方向都错**：`@deepseek-ai/dsh-client-web-react` 与 `@deepseek-ai/dsh-client-schema-form` 在宿主里**不存在**（对整个 app.asar 做 121MB 原始字节扫描，两个字符串各 0 次命中）——按该配置自己的注释「loader 答不出的 require 必炸运行时」，这是潜伏陷阱；同时**漏了**`dsh-client-store`、`dsh-client-ui-primitives`、`dsh-client-ui-dockkit`，其中 primitives 一旦被 import 就会被 `alwaysBundle` 内联，产物出现第二份宿主原语副本。
+- **变更**：
+  - `tsdown.config.ts`：`PLATFORM_MODULES` 改为宿主真表九项（`react`、`react/jsx-runtime`、`react-dom`、`react-dom/client`、`@deepseek-ai/cordis`、`store`、`ui-slots`、`ui-primitives`、`ui-dockkit`）。注释写明**双来源互证**（平台源码 `packages/client/web/src/platform.ts` 与运行中 shell boot 表里 `staticModules` 的 `rM()` 返回表逐字一致），并写明将来加表外模块的正路是 `package.json` 的 `dsh.client.external`，不是在这里硬编码更长的表。
+  - `tsdown.config.ts`：新增 `dsh-css-modules-inline` 插件——`x.module.css` 经 lightningcss 以 `[hash]_[local]` 编译为**哈希类名映射 + 自注入 `<style data-plugin-css>`**，虚拟 id（`\0dsh-css:` + 绝对路径 + `.mjs`）把它挡在 tsdown 自己的 CSS 管线之外；注入前以 `document.querySelector('style[data-plugin-css=…]')` 去重，重跑不会重复插样式。`sourcePath()` 把 importer 先锚到工作目录，否则相对 specifier 会被解析成 `src/src/...`。
+  - `package.json`：devDependencies 增 `@deepseek-ai/dsh-client-ui-primitives@0.2.0-rc.2`（**装成 devDep 取类型，不再手写 `.d.ts` shim**；npm 公开发布、自带 `lib/types/index.d.ts`、`dist-tags.next` 正是运行中 shell 的版本）与 `lightningcss`。
+  - 新增 `src/css-modules.d.ts`：`*.module.css` 六行声明垫片（宿主自身客户端包的范式）。
+  - `tsconfig.client-types.json`：`include` 由 `**/*.ts`+`**/*.tsx` 改为 `src/client/**/*` 并补 `src/css-modules.d.ts`——`.d.ts` 垫片不是 `.ts`，旧的 glob 会静默跳过它，导致每个 `import css from './x.module.css'` 都报 TS2307（与 test tsconfig 注释里记录的是同一个坑）。
+- **验收（B0.3，做完即验）**：`npm run build:client` 后 `lib/client.js` 由 39,771 B → 59,957 B，产物内含哈希类名（如 `.aqGPsq_section`）与 `data-plugin-css` 注入代码，且 `require()` 的 specifier 恰为 `react`、`react/jsx-runtime`、`@deepseek-ai/dsh-client-ui-primitives` 三项——**全部在九项真表内，无幽灵条目、无内联的原语副本**。另用宿主 loader 协议跑了一次握手模拟：`window.__ModuleLoader__.load({ id: 'dsh-skills-nexus', factory })` 注册成功，factory 抛错的路径证明表外 require 会被立刻发现。
+- **不做**：不加 `dsh.client.external`（不需要新模块）；不把 `build:client` 接进 `build`（tsdown 要求 Node ≥22.18，CI 仍测 Node 20，与 Phase 5 的引擎决策同源）；**不改 `dsh.client.inject`**（那是宿主启动图顺序，不是运行时可 require 的表）。
+- **测试基础设施**：`npm test` 现在通过 `--import ./test/register-css.mjs` 追加两个只在测试运行的 loader 钩子——`.css` 请求解析为「类名即键名」的 Proxy 模块（类名哈希是构建产物，套件从不断言它）；`@deepseek-ai/dsh-client-ui-primitives` 重定向到 `test/primitives-stub.mjs`（真包的 `lib/index.js` 顶层 import shiki / katex / micromark 全家桶，Node 里装不动——它是为浏览器打包的，而那正是本插件加载它的地方）。原语的**真实**存在性由 `npm run build:client`（按名 import，名字不存在即构建失败）与实机冒烟覆盖，两者都在本轮的核验里跑过：真包 282 个运行时导出中本面板用到的 12 个全部命中。
+- **实机冒烟的诚实说明**：`desktop` profile 由 Electron 应用独占管理（`dsh plugin --profile desktop …` 直接拒绝），本会话无法在不改动用户 GUI 状态的前提下装入面板。已完成的替代核验：模块表九项逐字比对（平台源码 + 运行中 shell boot 表）、真包 12 个符号的运行时导出存在性、13 个 `--dsw-*` 令牌对照宿主自身客户端包 CSS 的存在性、以及上述 loader 握手模拟。**面板在真实宿主里的目视确认仍待用户执行一次**（见 README 的安装步骤）。
+- **如何辨识改动**：`tsdown.config.ts`（表 + 插件）、`package.json` / `package-lock.json`（两个 devDep + test 脚本的 loader）、新增 `src/css-modules.d.ts`、`tsconfig.client-types.json`（include）、新增 `test/register-css.mjs` / `test/css-hook.mjs` / `test/primitives-stub.mjs`。
+
+**2026-10-05 · Added · 面板与 `list --json` 的 `ownership` 字段（契约先行）**
+
+- **背景**：设计稿要求 `ownership: 'external'` 的条目按专门约定展示（meta 区写 `(linked directory)` 而非 `(no source)`、不给 `[adopt]`、`[remove]` 的确认文案须说明不删目录本身）。但 `GET /list` 此前**不返回**这个字段，而 `hasGitSource` 对「无源快照」与「external 链接」同为 `false`——面板无从区分「还没有来源」与「不是它的来源」，两者需要不同的文案和不同的可用动作。
+- **变更**：`src/http/routes.ts` 的 list 响应新增 `ownership: 'managed' | 'external'`（服务端 `isExternalEntry` 谓词的结果）；`src/client/api.ts` 的 `ListEntry` 同步镜像并写明语义。UI 只消费，不推导。
+- **不做**：不加任何新的 HTTP 路由；不暴露 `ownership` 的写入通道（当前仍只能手工编辑 manifest 产生，属防御性展示约定）。
+- **测试**：`test/api.test.ts` +1（external 条目的 `ownership` 为 `external` 且 `hasGitSource` 为 false）并补齐既有 list 用例的两处字段断言；`test/panel-render.test.ts` 新增 external 与 managed 快照的对照用例。
+- **如何辨识改动**：`src/http/routes.ts`（list 响应一个字段 + import）、`src/client/api.ts`（`ListEntry.ownership`）、`test/api.test.ts`、`test/panel-render.test.ts`、`lib/` 重建产物。
+
 **2026-10-05 · Added · CLI 写操作机器接口：`list` / `add` / `update` / `remove` / `enable` / `disable` 的 `--json`（version 1）**
 
 - **背景**：`build-on-nexus.md` 此前把写侧机器输出列为「明确不存在」，只提供 `list --names` 与 `doctor --json` 两条只读通道，外部工具（CI、第三方 GUI、sync daemon）只能靠退出码 + 事后重查状态驱动写操作，无法知道「刚才装到了哪个 commit」。P0 计划把写侧补齐为与 `doctor --json` 同级的稳定契约。
