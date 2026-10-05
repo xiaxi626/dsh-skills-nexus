@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+**2026-10-05 · Fixed · completion 测试期望值补 `--json`，修 CI bash/zsh/fish 三矩阵全红**
+
+- **背景**：`feat(cli): --json 机器接口` 给 `add` 命令新增 `--json` flag 时，三个 completion 模板源码（bash/zsh/fish）已同步更新，但 `test/completions.test.ts` 中三处期望值漏跟。本地 Windows 无 bash/zsh/fish，测试 skip 不报错；CI ubuntu 镜像装有三 shell，测试真跑后 206/207/208 全红（期望 4 个 flag，实际输出 5 个）。
+- **变更**：`test/completions.test.ts` 三处期望值补 `--json`——bash（L455）、zsh（L548）、fish（L607）。
+- **验证**：本地 Git Bash 加入 PATH 后 bash 测试通过（22 pass · 0 fail · 2 skip）；zsh/fish 模板源码与期望值逐字对照一致（zsh `compadd -- --name --ref --subdir --yes --json`、fish 五条 `-l` 规则含 `-l json`）。
+- **如何辨识改动**：`test/completions.test.ts`（三处字符串字面量追加 `--json`）。
+
 ## [0.6.0] - 2026-10-05
 
 **2026-10-05 · Fixed · `test/panel-render` 改名 `.tsx` 后缺运行时 `React` 绑定**

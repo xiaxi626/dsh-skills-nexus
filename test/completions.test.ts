@@ -452,7 +452,7 @@ test('the emitted bash template completes correctly in a real bash', { skip: !HA
       'add-flag|--name',
       // bash has no trouble with a bare `--`; PowerShell cannot reach its
       // completer at all there, which is why there is no mirror assertion.
-      'add-bare-dashes|--name --ref --subdir --yes',
+      'add-bare-dashes|--name --ref --subdir --yes --json',
       'doctor-bare-dashes|--json --updates --quiet',
       'shell-bare|bash zsh fish powershell',
       'shell-b|bash',
@@ -545,7 +545,7 @@ test('the emitted zsh template completes correctly in a real zsh', { skip: !HAS_
     assert.deepEqual(items!.split(' ').sort(), routed)
 
     assert.deepEqual(rest, [
-      'add-flags|-- --name --ref --subdir --yes',
+      'add-flags|-- --name --ref --subdir --yes --json',
       'doctor-bare-dashes|-- --json --updates --quiet',
       'shell-values|-- bash zsh fish powershell',
       'update-names|alpha beta',
@@ -604,7 +604,7 @@ test('the emitted fish template completes correctly in a real fish', { skip: !HA
       ['sub', 'dsh-skills-nexus ', routed],
       ['sub-prefix-d', 'dsh-skills-nexus d', ['disable', 'doctor']],
       ['add-flag', 'dsh-skills-nexus add --n', ['--name']],
-      ['add-bare-dashes', 'dsh-skills-nexus add --', ['--name', '--ref', '--subdir', '--yes']],
+      ['add-bare-dashes', 'dsh-skills-nexus add --', ['--name', '--ref', '--subdir', '--yes', '--json']],
       ['doctor-bare-dashes', 'dsh-skills-nexus doctor --', ['--json', '--quiet', '--updates']],
       ['shell-prefix', 'dsh-skills-nexus completions --shell b', ['bash']],
       ['update-skill', 'dsh-skills-nexus update ', ['alpha', 'beta']],
