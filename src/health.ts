@@ -20,9 +20,10 @@
  *   - Only missing targets produce issues.
  */
 
-import { readdir, readlink, lstat, stat } from 'node:fs/promises'
+import { readdir, stat } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
 import { OFFICIAL_SKILLS_DIR, REPOS_DIR, repoDir } from './paths.js'
+import { isLinkAt, readLinkEntryTarget } from './link.js'
 import { readManifest } from './manifest.js'
 import { isDetachedHead, lsRemoteCommit } from './git.js'
 import { setUpdateStatus } from './update-cache.js'
@@ -56,9 +57,15 @@ export interface HealthIssue {
  *   - 'disabled'       — no symlink in the skills root points to this entry (normal)
  *   - 'missing-target' — a symlink was found and resolved, but the target directory does not exist
  *
- * A symlink whose readlink fails cannot be attributed to any entry (its target
- * is unreadable), so it is skipped here; the FS-side `findOrphanLinks()` scan
- * reports it instead as an `unreadable-link`.
+ * A link whose target cannot be resolved at all cannot be attributed to any
+ * entry, so it is skipped here; the FS-side `findOrphanLinks()` scan reports it
+ * instead as an `unreadable-link`.
+ *
+ * Targets are read with `resolveLinkTarget` (`realpath`), not
+ * `lstat` + `readlink`: on Windows `linkSkill` creates an NTFS junction, which
+ * `lstat` reports as a plain directory and `readlink` refuses with `EINVAL`, so
+ * the old pair classified every healthy junction as "disabled" and every broken
+ * one as "disabled" too — a check that could not see the thing it checks.
  */
 export async function diagnoseEntry(entry: SkillEntry): Promise<EntryDiagnosis> {
   const base = resolve(repoDir(entry.path)) + sep
@@ -72,33 +79,29 @@ export async function diagnoseEntry(entry: SkillEntry): Promise<EntryDiagnosis> 
   }
 
   let foundLink = false
+  let brokenLink = false
 
   for (const name of names) {
     const linkPath = resolve(OFFICIAL_SKILLS_DIR, name)
 
-    // Check if it's a symlink
-    let st
-    try {
-      st = await lstat(linkPath)
-    } catch {
-      continue
-    }
-    if (!st.isSymbolicLink()) continue
-
-    // Read the symlink target
-    let target: string
-    try {
-      target = await readlink(linkPath)
-    } catch {
-      // lstat says symlink but readlink fails — broken at OS level. We can't
-      // read the target, so we can't confirm it belongs to this entry; skip.
-      // findOrphanLinks() reports it as an unreadable-link instead.
+    const target = await readLinkEntryTarget(linkPath)
+    if (target === undefined) {
+      // No target to read. POSIX always answers for a link, so this is a
+      // Windows junction with a deleted target: `realpath` and `readlink` both
+      // refuse such a reparse point. It is still a link nexus created, and its
+      // target is gone by definition, so the entry it belonged to is broken —
+      // but which entry that is cannot be recovered, so it only counts when
+      // nothing healthy shows up for the entry being diagnosed.
+      if (await isLinkAt(linkPath)) {
+        foundLink = true
+        brokenLink = true
+      }
       continue
     }
 
-    const resolved = resolve(OFFICIAL_SKILLS_DIR, target)
+    const resolved = resolve(target)
 
-    // Does this symlink point inside the entry's repo directory?
+    // Does this link point inside the entry's repo directory?
     if (resolved !== base.slice(0, -1) && !resolved.startsWith(base)) continue
 
     foundLink = true
@@ -112,17 +115,17 @@ export async function diagnoseEntry(entry: SkillEntry): Promise<EntryDiagnosis> 
       }
     } catch {
       // Target path doesn't exist on disk.
+      brokenLink = true
       // Continue scanning — there might be another link that IS valid.
       continue
     }
   }
 
   if (!foundLink) return 'disabled'
-
-  // We found link(s) pointing to this entry but none had a valid target.
-  // Distinguish: if we got here, at least one symlink resolved to a path
-  // inside the entry's repo but stat() failed on it.
-  return 'missing-target'
+  // A link that resolves into this entry but has no target left: the entry is
+  // broken and `update` can repair it.
+  if (brokenLink) return 'missing-target'
+  return 'disabled'
 }
 
 /* ------------------------------------------------------------------ */
@@ -225,18 +228,26 @@ export interface OrphanLink {
 }
 
 /**
- * Symlinks in `OFFICIAL_SKILLS_DIR` that nexus can no longer account for.
+ * Links in `OFFICIAL_SKILLS_DIR` that nexus can no longer account for.
  *
- * Only symlinks whose resolved target falls inside `REPOS_DIR` are considered —
+ * Only links whose resolved target falls inside `REPOS_DIR` are considered —
  * anything pointing elsewhere is the user's own skill, not nexus's business.
  * Three cases:
- *   - `unreadable-link` — readlink failed; the target is unknown, so the link
- *     cannot be attributed to nexus. A caution only — never a delete hint.
+ *   - `unreadable-link` — the target cannot be resolved at all; the target is
+ *     unknown, so the link cannot be attributed to nexus. A caution only —
+ *     never a delete hint.
  *   - `dangling-link`   — target resolves inside repos/ but no longer exists.
  *   - `orphan-link`     — target exists inside repos/ but no entry claims it.
  *
  * A link that a live entry *does* claim is skipped here — `diagnoseEntry`
  * already reports its health, so this avoids double-reporting the same problem.
+ *
+ * Reading through `resolveLinkTarget` is what makes a Windows junction visible
+ * at all (`lstat` reports one as a plain directory, so the former
+ * `isSymbolicLink()` guard skipped every link nexus had created). The
+ * `unreadable-link` case keeps its meaning — a target that truly cannot be
+ * resolved — while a junction whose target was deleted now correctly lands in
+ * `dangling-link`, which is the actionable one.
  */
 export async function findOrphanLinks(entries: SkillEntry[]): Promise<OrphanLink[]> {
   let names: string[]
@@ -255,24 +266,22 @@ export async function findOrphanLinks(entries: SkillEntry[]): Promise<OrphanLink
   for (const name of names) {
     const linkPath = resolve(OFFICIAL_SKILLS_DIR, name)
 
-    let st
-    try {
-      st = await lstat(linkPath)
-    } catch {
-      continue
-    }
-    if (!st.isSymbolicLink()) continue // a real dir/file the user placed — ignore
+    // A real directory or file the user placed here is not nexus's business.
+    if (!(await isLinkAt(linkPath))) continue
 
-    let target: string
-    try {
-      target = await readlink(linkPath)
-    } catch {
-      // Can't read the target → can't confirm nexus ownership. Caution only.
+    const target = await readLinkEntryTarget(linkPath)
+    if (target === undefined) {
+      // The target is genuinely unknown. On POSIX this cannot happen for a link
+      // (`readlink` always answers), so it means a Windows junction whose target
+      // was deleted: `realpath` and `readlink` both refuse such a reparse point
+      // and `lstat` reports a plain directory, so there is nothing left to
+      // attribute it with. Reported as `unreadable-link` — a caution, never a
+      // delete hint — rather than guessed at.
       out.push({ name, code: 'unreadable-link' })
       continue
     }
 
-    const resolved = resolve(OFFICIAL_SKILLS_DIR, target)
+    const resolved = resolve(target)
     // Only links pointing into repos/ are nexus's concern.
     if (resolved !== reposBase.slice(0, -1) && !resolved.startsWith(reposBase)) continue
     // A live entry claims it → diagnoseEntry handles its health; skip.

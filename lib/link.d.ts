@@ -1,31 +1,52 @@
 import type { SkillEntry } from './types.js';
 /**
- * Manage symlinks that expose cloned skills to the official DSH skills root.
+ * Manage links that expose cloned skills to the official DSH skills root.
  *
  * The official filesystem provider only scans one level deep under
- * `~/.dsh/skills/`, so nexus creates one symlink per discovered skill at the
- * top level. This way:
+ * `~/.dsh/skills/`, so nexus creates one link per discovered skill at the top
+ * level. This way:
  *   - The official provider handles discovery, watching, and error tolerance.
  *   - Nexus still manages git clones, subdir installs, and collection repos.
- *   - enable/disable is just create/remove symlink — lightweight and atomic.
+ *   - enable/disable is just create/remove link — lightweight and atomic.
+ *
+ * On Windows `linkSkill` creates an **NTFS junction**, because a real directory
+ * symlink needs a privilege junctions do not. That single choice is why every
+ * reader below goes through `resolveLinkTarget` (`realpath`) and every removal
+ * through `removeLinkEntry` (`rmdir`): Node reports a junction as an ordinary
+ * directory to `lstat`, refuses `readlink` on it with `EINVAL`, and refuses
+ * `unlink` on it with `EPERM`. The former `lstat` + `readlink` + `unlink`
+ * triple therefore made every junction invisible and undeletable, which showed
+ * up as "an entry with three links reports itself disabled, and `disable`
+ * silently removes nothing".
  */
-/** True if a symlink (or directory) exists at the official skill path. */
+/** True if a link (or directory) exists at the official skill path. */
 export declare function isLinked(skillName: string): Promise<boolean>;
-/** One symlink that belongs to an entry: its name and resolved target path. */
+/** One link that belongs to an entry: its name and resolved target path. */
 export interface EntryLink {
-    /** Symlink name under the official skills root. */
+    /** Link name under the official skills root. */
     name: string;
     /** Absolute resolved target — inside the entry's clone (or one of its subdirs). */
     target: string;
 }
 /**
- * All symlinks in the official skills root whose target resolves inside the
- * entry's clone (or one of its subdirs) — the entry↔link one-to-many
- * relation (§6.4).
+ * The directory a link points at, even when that directory no longer exists.
+ *
+ * `resolveLinkTarget` (`realpath`) is the right answer whenever the target is
+ * live; for a dangling POSIX symlink it is `undefined`, and `readlink` still
+ * knows the path — which is what lets `doctor` say "this link points at a
+ * deleted clone" and offer a repair instead of giving up.
+ */
+export declare function readLinkEntryTarget(path: string): Promise<string | undefined>;
+/** True when `path` is a link rather than a real directory or file. */
+export declare function isLinkAt(path: string): Promise<boolean>;
+/**
+ * All links in the official skills root whose target resolves inside the
+ * entry's clone (or one of its subdirs) — the entry-to-link one-to-many
+ * relation (section 6.4).
  *
  * State is looked up by link *target*, not by name: multi-skill repos create
- * one symlink per discovered skill (named after each skill's frontmatter),
- * so no symlink ever carries the entry name. A name-based `isLinked(entry.name)`
+ * one link per discovered skill (named after each skill's frontmatter), so no
+ * link ever carries the entry name. A name-based `isLinked(entry.name)`
  * reported such entries as disabled even while all of their skills were
  * linked — breaking `list`, the `disable` early-return, and the default
  * `update` target filter. Scanning targets works for single- and multi-skill
@@ -33,35 +54,55 @@ export interface EntryLink {
  */
 export declare function entryLinks(entry: SkillEntry): Promise<EntryLink[]>;
 /**
- * True when the entry is enabled — at least one symlink points into its
- * clone. Thin wrapper over `entryLinks`, the single target-ownership scanner.
+ * True when the entry is enabled — at least one link points into its clone.
+ * Thin wrapper over `entryLinks`, the single target-ownership scanner.
  */
 export declare function isEntryEnabled(entry: SkillEntry): Promise<boolean>;
 /**
- * Create a symlink in the official skills root pointing to `targetDir`.
+ * Create a link in the official skills root pointing to `targetDir`.
  *
- * If a symlink already exists at the same name it is replaced atomically
- * (unlink then symlink). Parent directories are created as needed.
+ * On Windows this is an NTFS junction (`symlink(..., 'junction')`), which needs
+ * no elevation — and which `resolveLinkTarget`, unlike `lstat`/`readlink`,
+ * reports correctly. Every reader of a link in this module goes through it for
+ * that reason.
+ *
+ * An existing entry at the same name is replaced: any link (ours or stale,
+ * including a dangling one), and a plain file. A populated real directory is
+ * left in place — `symlink` then fails with `EEXIST`, which is the honest
+ * outcome, rather than deleting content the user put there.
  */
 export declare function linkSkill(skillName: string, targetDir: string): Promise<void>;
-/** Remove a skill's symlink from the official skills root. */
+/**
+ * Remove a skill's link from the official skills root.
+ *
+ * A real directory the user placed there is left alone: `isLinkEntry` only
+ * reports true for a link (`realpath` resolves elsewhere) or for something
+ * that resolves nowhere (a dangling link, which on Windows is a reparse point
+ * `lstat` cannot see either).
+ */
 export declare function unlinkSkill(skillName: string): Promise<void>;
 /**
- * Remove the symlink at `linkPath` when its readlink target resolves into
- * `dir` (or equals it) — the §6.4 target-attribution unlink. Returns true
- * iff a link was removed; a missing path, a non-symlink, or a link owned by
- * another clone leaves the filesystem untouched. Attribution is judged by
+ * Remove the link at `linkPath` when its resolved target lies inside `dir` (or
+ * equals it) — the section 6.4 target-attribution unlink. Returns true iff a
+ * link was removed; a missing path, a non-link, or a link owned by another
+ * clone leaves the filesystem untouched. Attribution is judged by
  * `pointsInto`, the same predicate `entryLinks` uses, so "which links belong
  * to an entry" has one answer everywhere.
+ *
+ * The predicate is also the guard: a path that resolves into a clone is a link
+ * nexus created, because a real directory a user placed in the skills root
+ * resolves to itself and therefore lies outside `dir`.
  */
 export declare function unlinkIfPointsInto(linkPath: string, dir: string): Promise<boolean>;
 /**
- * Resolve a skill symlink to its target path. Returns `undefined` if the
- * symlink does not exist or is not a symlink.
+ * Resolve a skill link to the directory it exposes. Returns `undefined` if the
+ * path does not exist or cannot be resolved (a dangling or cyclic link) — see
+ * `resolveLinkTarget` for why this reads through `realpath` rather than
+ * `readlink`.
  */
 export declare function readLinkTarget(skillName: string): Promise<string | undefined>;
-/** Check whether the official skills root has a non-symlink directory/file
- *  that would collide with a new skill name. Returns true if a collision
- *  exists (i.e. a real directory or file, not a nexus-managed symlink). */
+/** Check whether the official skills root has a non-link directory/file that
+ *  would collide with a new skill name. Returns true if a collision exists
+ *  (i.e. a real directory or file, not a nexus-managed link). */
 export declare function hasCollision(skillName: string): Promise<boolean>;
 //# sourceMappingURL=link.d.ts.map

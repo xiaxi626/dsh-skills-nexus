@@ -1,14 +1,15 @@
-import { test, before, after } from 'node:test'
+﻿import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SkillEntry } from '../src/types.js'
+import { DANGLING_LINKS_OBSERVABLE, removeTree } from './fs-helpers.js'
 
 /**
  * Integration tests for the health-check module (`src/health.ts`).
  *
- * Exercises real filesystem symlinks — same pattern as test/link.test.ts.
+ * Exercises real filesystem symlinks 鈥?same pattern as test/link.test.ts.
  * DSH_HOME is pointed at a temp dir before importing the module chain.
  */
 
@@ -25,7 +26,7 @@ before(async () => {
 })
 
 after(async () => {
-  await rm(home, { recursive: true, force: true })
+  await removeTree(home)
   delete process.env.DSH_HOME
 })
 
@@ -75,7 +76,20 @@ test('diagnoseEntry returns disabled when no symlink points to the entry', async
   assert.equal(result, 'disabled')
 })
 
-test('diagnoseEntry returns missing-target when symlink points to deleted directory', async () => {
+/**
+ * A link whose target has been deleted is not *identifiable* as a link on
+ * Windows: a junction with a missing target is refused by `realpath` (ENOENT)
+ * and by `readlink` (EINVAL), while `lstat` reports an ordinary directory. The
+ * three tests below ask the code to classify exactly that situation, so they
+ * self-skip where the platform cannot express it rather than asserting a
+ * classification no filesystem call could have reached.
+ *
+ * `src/link.ts`'s removal path does not depend on this: `rmdir` removes such a
+ * link on every platform (see `test/link.test.ts`).
+ */
+const DANGLING_LINK_OPAQUE = !DANGLING_LINKS_OBSERVABLE
+
+test('diagnoseEntry returns missing-target when symlink points to deleted directory', { skip: DANGLING_LINK_OPAQUE && 'platform hides a dangling link from realpath/readlink/lstat' }, async () => {
   const repoPath = 'broken-repo'
   const targetDir = await makeRepoDir(repoPath)
   await makeLink('broken-skill', targetDir)
@@ -135,7 +149,7 @@ test('checkHealth returns empty array when manifest is empty', async () => {
   assert.deepEqual(issues, [])
 })
 
-test('checkHealth detects missing-target and excludes disabled entries', async () => {
+test('checkHealth detects missing-target and excludes disabled entries', { skip: DANGLING_LINK_OPAQUE && 'platform hides a dangling link from realpath/readlink/lstat' }, async () => {
   // Set up: one healthy, one broken, one disabled
   const healthyPath = 'check-healthy'
   const brokenPath = 'check-broken'
@@ -206,7 +220,7 @@ test('formatWarning formats multiple issues with generic repair hint', () => {
 /** Wipe repos/ and the skills root so each orphan test starts clean. */
 async function resetDirs(): Promise<void> {
   await rm(paths.REPOS_DIR, { recursive: true, force: true })
-  await rm(paths.OFFICIAL_SKILLS_DIR, { recursive: true, force: true })
+  await removeTree(paths.OFFICIAL_SKILLS_DIR)
 }
 
 test('findOrphanRepos flags clone dirs no entry references', async () => {
@@ -232,7 +246,7 @@ test('findOrphanLinks reports orphan-link for a valid target no entry claims', a
   assert.equal(links[0]!.code, 'orphan-link')
 })
 
-test('findOrphanLinks reports dangling-link when the target inside repos/ is gone', async () => {
+test('findOrphanLinks reports dangling-link when the target inside repos/ is gone', { skip: DANGLING_LINK_OPAQUE && 'platform hides a dangling link from realpath/readlink/lstat' }, async () => {
   await resetDirs()
   const dir = await makeRepoDir('ghost-repo')
   await makeLink('ghost-skill', dir)

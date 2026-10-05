@@ -1,10 +1,19 @@
-import { test, before, after, beforeEach } from 'node:test'
+﻿import { test, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SkillEntry } from '../src/types.js'
 import type { DoctorReport } from '../src/cli/commands/doctor.js'
+import { DANGLING_LINKS_OBSERVABLE, removeTree } from './fs-helpers.js'
+
+/**
+ * See the marker's own comment in test/fs-helpers.ts: on Windows a link whose
+ * target has been deleted cannot be staged or observed, so the three checks
+ * below self-skip there instead of asserting a classification no filesystem
+ * call could have reached.
+ */
+const DANGLING_LINK_OPAQUE = !DANGLING_LINKS_OBSERVABLE
 
 /**
  * Integration tests for the `doctor` command (`src/cli/commands/doctor.ts`).
@@ -27,13 +36,13 @@ before(async () => {
 })
 
 after(async () => {
-  await rm(home, { recursive: true, force: true })
+  await removeTree(home)
   delete process.env.DSH_HOME
 })
 
 beforeEach(async () => {
   await rm(paths.NEXUS_HOME, { recursive: true, force: true })
-  await rm(paths.OFFICIAL_SKILLS_DIR, { recursive: true, force: true })
+  await removeTree(paths.OFFICIAL_SKILLS_DIR)
 })
 
 /* ------------------------------------------------------------------ */
@@ -124,7 +133,7 @@ test('a healthy install reports ok across checks', async () => {
   assert.equal(findCheck(report, 'orphan-link').status, 'ok')
 })
 
-test('a broken symlink is an error (missing-target), exit 1', async () => {
+test('a broken symlink is an error (missing-target), exit 1', { skip: DANGLING_LINK_OPAQUE && 'platform cannot stage or observe a dangling link' }, async () => {
   const dir = await makeClone('broken-repo')
   await makeLink('broken-skill', dir)
   await rm(dir, { recursive: true, force: true })
@@ -163,7 +172,7 @@ test('an unclaimed valid symlink is orphan-link (warn)', async () => {
   assert.equal(link.severity, 'warn')
 })
 
-test('a dangling symlink into repos/ with no entry is dangling-link (error)', async () => {
+test('a dangling symlink into repos/ with no entry is dangling-link (error)', { skip: DANGLING_LINK_OPAQUE && 'platform cannot stage or observe a dangling link' }, async () => {
   const dir = await makeClone('ghost')
   await makeLink('ghost-skill', dir)
   await rm(dir, { recursive: true, force: true })
@@ -186,7 +195,7 @@ test('a corrupt manifest is an error', async () => {
 
 test('a corrupt manifest suppresses orphan checks (no mass-delete false positives)', async () => {
   // A healthy clone + link exist, but the manifest is unreadable. Ownership is
-  // unknown, so orphan checks must be SKIPPED — never flag everything for deletion.
+  // unknown, so orphan checks must be SKIPPED 鈥?never flag everything for deletion.
   const dir = await makeClone('good-repo')
   await makeLink('good-skill', dir)
   await mkdir(paths.NEXUS_HOME, { recursive: true })
@@ -223,7 +232,7 @@ test('a corrupt manifest suppresses orphan checks (no mass-delete false positive
 
 test('a manifest with a malformed entry is corrupt-manifest and does not throw', async () => {
   await mkdir(paths.NEXUS_HOME, { recursive: true })
-  // Parseable JSON, correct version, but the entry is missing required fields —
+  // Parseable JSON, correct version, but the entry is missing required fields 鈥?
   // must be reported structurally, not crash downstream repoDir()/readlink().
   await writeFile(
     paths.MANIFEST_PATH,
@@ -257,7 +266,7 @@ test('a clone missing .git is git-sanity warn', async () => {
 })
 
 /* ------------------------------------------------------------------ */
-/* Source-less entries (§2.1 form (b) / §6.2 doctor 分流)              */
+/* Source-less entries (搂2.1 form (b) / 搂6.2 doctor 鍒嗘祦)              */
 /* ------------------------------------------------------------------ */
 
 /** A snapshot entry: empty git fields are structural, not corruption. */
@@ -280,7 +289,7 @@ test('a source-less entry passes the manifest shape check (empty git fields are 
   const report = await doctorMod.runChecks(false)
   assert.equal(findCheck(report, 'manifest').status, 'ok')
   assert.match(findCheck(report, 'manifest').detail ?? '', /1 entry/)
-  // Trusted manifest → orphan checks run instead of being skipped.
+  // Trusted manifest 鈫?orphan checks run instead of being skipped.
   assert.equal(findCheck(report, 'orphan-repo').status, 'ok')
   assert.equal(findCheck(report, 'orphan-link').status, 'ok')
   assert.equal(findCheck(report, 'symlinks').status, 'ok')
@@ -311,7 +320,7 @@ test('git-sanity counts only git clones in a mixed manifest', async () => {
   assert.equal(g.detail, '0/1 clones have .git')
 })
 
-test('missing-target on a source-less entry suggests reinstall, not update', async () => {
+test('missing-target on a source-less entry suggests reinstall, not update', { skip: DANGLING_LINK_OPAQUE && 'platform cannot stage or observe a dangling link' }, async () => {
   const dir = await makeClone('snap-broken', { git: false })
   await makeLink('snap-broken-skill', dir)
   await rm(dir, { recursive: true, force: true })
@@ -335,7 +344,7 @@ test('doctor --updates stays silent for source-less entries (not-applicable)', a
 })
 
 /* ------------------------------------------------------------------ */
-/* external-disabled check (§1.5 / §6.2)                               */
+/* external-disabled check (搂1.5 / 搂6.2)                               */
 /* ------------------------------------------------------------------ */
 
 test('external *.disabled markers are reported as external-disabled (warn)', async () => {
@@ -349,7 +358,7 @@ test('external *.disabled markers are reported as external-disabled (warn)', asy
   assert.equal(ext.issues.length, 1)
   assert.equal(ext.issues[0]!.code, 'external-disabled')
   assert.match(ext.issues[0]!.detail ?? '', /SKILL\.md\.disabled/)
-  // Caution: no fix/delete hint — the marker belongs to the external tool.
+  // Caution: no fix/delete hint 鈥?the marker belongs to the external tool.
   assert.equal(ext.issues[0]!.fix, undefined)
 })
 

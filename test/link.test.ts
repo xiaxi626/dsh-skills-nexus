@@ -1,25 +1,31 @@
-import { test, before, after } from 'node:test'
+﻿import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, isAbsolute, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { SkillEntry } from '../src/types.js'
 
 /**
- * Integration tests for the symlink layer (`src/link.ts`).
+ * Integration tests for the link layer (`src/link.ts`).
  *
  * These exercise the real filesystem primitives — `linkSkill` → `isEntryEnabled`
  * → `unlinkSkill` — rather than mocking them, because this is exactly the code
- * that behaves differently per platform:
+ * that behaves differently per platform. What the platform actually gives us:
  *
  *   - Windows: `symlink(target, path, 'junction')` creates an NTFS junction.
- *     Junctions do not require elevated privileges (unlike real symlinks) and
- *     `readlink` returns the clean absolute target with no `\\?\` prefix. The
- *     `isEntryEnabled` exact-match branch (`resolved === base.slice(0, -1)`)
- *     is what makes a junction pointing straight at a repo root count as
- *     enabled.
+ *     It needs no elevation (a real directory symlink does), but Node reports
+ *     it as a **plain directory**: `lstat().isSymbolicLink()` is false,
+ *     `readlink()` fails with `EINVAL`, and `unlink()` fails with `EPERM`.
+ *     `realpath()` resolves it correctly, and `rmdir()` removes it without
+ *     touching the target — which is why `src/link.ts` reads through
+ *     `resolveLinkTarget` and removes through `removeLinkEntry` instead of
+ *     using the `lstat`/`readlink`/`unlink` triple.
  *   - macOS / Linux: the third `symlink` argument is ignored and a regular
- *     directory symlink is created.
+ *     directory symlink is created; both readers work either way.
+ *
+ * The assertions below are therefore written against *resolution* (does the
+ * link point where it should?) and not against link flavour, so one suite
+ * covers both platforms. The one deliberate `lstat` use is for existence.
  *
  * `paths.ts` reads DSH_HOME at import time, so the env var must be set before
  * the first import of the link→paths chain (same pattern as test/add.test.ts).
@@ -76,22 +82,23 @@ function assertLinkTarget(actual: string | undefined, expected: string): void {
   assert.equal(resolve(actual), resolve(expected))
 }
 
-test('linkSkill creates a symlink/junction that isLinked and readLinkTarget see', async () => {
+test('linkSkill creates a link that isLinked and readLinkTarget see', async () => {
   const targetDir = await makeRepoDir('repo-a')
 
   assert.equal(await link.isLinked('skill-a'), false, 'absent before linking')
   await link.linkSkill('skill-a', targetDir)
 
   assert.equal(await link.isLinked('skill-a'), true, 'present after linking')
-  const st = await lstat(paths.skillLinkPath('skill-a'))
-  // Junctions on Windows report as symlinks via lstat, same as macOS/Linux.
-  assert.equal(st.isSymbolicLink(), true, 'link is a symlink/junction, not a real dir')
 
   const target = await link.readLinkTarget('skill-a')
   assert.ok(target, 'readLinkTarget resolves the link')
-  // Junction targets are absolute on Windows; symlinks are absolute here too
-  // because linkSkill is always handed an absolute repo path.
-  assert.equal(isAbsolute(target), true, 'target is an absolute path')
+  // The assertion that matters, and the portable one: the link RESOLVES to the
+  // directory it was created for. Do not assert `lstat().isSymbolicLink()` —
+  // on Windows (Node 24) an NTFS junction reports `S_IFDIR` there, so that
+  // check fails for a link that works perfectly, which is exactly how the
+  // junction blind spot stayed hidden. `resolve` also normalizes the trailing
+  // separator Node 20's `readlink` added on Windows.
+  assert.equal(resolve(target), resolve(targetDir), 'target is the linked directory')
   assert.equal(await link.readLinkTarget('not-a-skill'), undefined)
 })
 
