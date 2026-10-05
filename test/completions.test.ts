@@ -552,7 +552,7 @@ test('the emitted zsh template completes correctly in a real zsh', { skip: !HAS_
       // `--yes` is accepted before the names, so it must not consume the slot.
       'remove-yes|alpha beta',
       'remove-second|',
-      'update-flag|',
+      'update-flag|-- --json',
       'unknown-cmd|',
     ])
   } finally {

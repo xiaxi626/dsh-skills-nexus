@@ -4,10 +4,17 @@
 
 ## [Unreleased]
 
-**2026-10-05 · Fixed · completion 测试期望值补 `--json`，修 CI bash/zsh/fish 三矩阵全红**
+**2026-10-05 · Fixed · `entryLinks` 路径解析走 `realpath` 对齐链接目标，修 macOS/Windows 全矩阵 link 归属失败**
 
-- **背景**：`feat(cli): --json 机器接口` 给 `add` 命令新增 `--json` flag 时，三个 completion 模板源码（bash/zsh/fish）已同步更新，但 `test/completions.test.ts` 中三处期望值漏跟。本地 Windows 无 bash/zsh/fish，测试 skip 不报错；CI ubuntu 镜像装有三 shell，测试真跑后 206/207/208 全红（期望 4 个 flag，实际输出 5 个）。
-- **变更**：`test/completions.test.ts` 三处期望值补 `--json`——bash（L455）、zsh（L548）、fish（L607）。
+- **背景**：`fix(link)` 把链接读取从 `lstat`+`readlink` 改为 `realpath`（`resolveLinkTarget`），解决了 Windows junction 不可见的问题。但 `entryLinks` 和 `unlinkIfPointsInto` 中链接目标走 `realpath`（解析整条路径链上的所有符号链接），而 `base`/`dir` 只用 `resolve`（不解析父级符号链接）。macOS 上 `/var` → `/private/var` 是合成符号链接，temp 目录路径经 `realpath` 后多出一段 `/private`，导致 `pointsInto` 永远 false——所有 entry 报告 `enabled: false`、`links: []`。Windows CI runner 的 temp 路径也有类似 reparse point 解析差异。
+- **变更**：`src/link.ts` 新增 `safeRealPath`（`realpath` + 路径不存在时回退 `resolve`）；`entryLinks` 的 `base` 和 `unlinkIfPointsInto` 的 `dir` 改走 `safeRealPath`，与 `resolveLinkTarget` 同一把尺子。
+- **验证**：本地六步门禁全通过（577 · 574 pass · 0 fail · 3 skip）。
+- **如何辨识改动**：`src/link.ts`（新增 `safeRealPath` 函数、`entryLinks` 和 `unlinkIfPointsInto` 各一处调用）、`lib/link.js`（重建产物）。
+
+**2026-10-05 · Fixed · completion 测试期望值补 `--json`，修 CI bash/zsh/fish 矩阵全红**
+
+- **背景**：`feat(cli): --json 机器接口` 给 `add` 命令新增 `--json` flag 时，三个 completion 模板源码（bash/zsh/fish）已同步更新，但 `test/completions.test.ts` 中三处 `add` 期望值漏跟。同时 zsh 测试中 `update --x` 的期望值也漏了 `--json`（`update` 命令接受 `--json`，zsh `compadd` 记录全量候选）。本地 Windows 无 bash/zsh/fish，测试 skip 不报错；CI ubuntu 镜像装有三 shell，测试真跑后全红。
+- **变更**：`test/completions.test.ts` 四处期望值补 `--json`——bash add（L455）、zsh add（L548）、zsh update-flag（L555）、fish add（L607）。
 - **验证**：本地 Git Bash 加入 PATH 后 bash 测试通过（22 pass · 0 fail · 2 skip）；zsh/fish 模板源码与期望值逐字对照一致（zsh `compadd -- --name --ref --subdir --yes --json`、fish 五条 `-l` 规则含 `-l json`）。
 - **如何辨识改动**：`test/completions.test.ts`（三处字符串字面量追加 `--json`）。
 

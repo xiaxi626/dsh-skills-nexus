@@ -1,4 +1,4 @@
-import { symlink, lstat, unlink, mkdir, readdir, rmdir, readlink } from 'node:fs/promises'
+import { symlink, lstat, unlink, mkdir, readdir, rmdir, readlink, realpath } from 'node:fs/promises'
 import { dirname, resolve, sep } from 'node:path'
 import { OFFICIAL_SKILLS_DIR, repoDir, resolveLinkTarget, skillLinkPath } from './paths.js'
 import type { SkillEntry } from './types.js'
@@ -48,6 +48,26 @@ export interface EntryLink {
  * derivation) and `unlinkIfPointsInto` (the attribution unlink), so both sides
  * judge ownership identically.
  */
+/**
+ * Resolve every symlink in `p` — matching what `resolveLinkTarget` (`realpath`)
+ * does for link targets.  Falls back to plain `resolve` when the path does not
+ * exist yet, so callers can compare a not-yet-created directory against
+ * already-resolved targets without throwing.
+ *
+ * The reason this exists: `resolveLinkTarget` returns paths with **all** parent
+ * symlinks resolved (e.g. macOS `/var` → `/private/var`).  The base directory
+ * against which targets are compared must go through the same resolution, or
+ * `pointsInto` will see `/private/var/...` on one side and `/var/...` on the
+ * other and conclude they are unrelated.
+ */
+async function safeRealPath(p: string): Promise<string> {
+  try {
+    return await realpath(p)
+  } catch {
+    return resolve(p)
+  }
+}
+
 function pointsInto(resolved: string, base: string): boolean {
   return resolved === base || resolved.startsWith(base + sep)
 }
@@ -182,7 +202,7 @@ export async function isLinkAt(path: string): Promise<boolean> {
  * repos alike and does not require the clone to be present.
  */
 export async function entryLinks(entry: SkillEntry): Promise<EntryLink[]> {
-  const base = resolve(repoDir(entry.path))
+  const base = await safeRealPath(repoDir(entry.path))
   let names: string[] = []
   try {
     names = await readdir(OFFICIAL_SKILLS_DIR)
@@ -264,7 +284,7 @@ export async function unlinkSkill(skillName: string): Promise<void> {
 export async function unlinkIfPointsInto(linkPath: string, dir: string): Promise<boolean> {
   const target = await resolveLinkTarget(linkPath)
   if (target !== undefined) {
-    if (!pointsInto(resolve(target), resolve(dir))) return false
+    if (!pointsInto(resolve(target), await safeRealPath(dir))) return false
   } else if (!(await isLinkEntry(linkPath))) {
     // Nothing there, or a real directory: neither is a link of ours.
     // (A link whose target is already gone resolves nowhere — the clone was
