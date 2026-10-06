@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+**2026-10-06 · Fixed · `test/toggle.test.ts` 幽灵登记修复：list 用例改走 OpsIO seam，第二条用例恢复 TAP 登记与失败归因**
+
+- **背景（对 2026-09-28「过程记录」的更正）**：该记录称第二条用例（bare update 默认目标）的「幽灵登记」*与声明位置相关、移至文件末尾即恢复、断言失败不会报红*。本轮实测三点全部不成立：① 把该用例移到文件末尾后计数仍是 5，幽灵**转移给新的执行前驱**（首条用例消失）；② 真因与名字、与「第二条」这个位置都无关，而是 **list 用例（文件第 3 个执行）在测试体内替换 `process.stdout.write` 并在 `finally` 恢复**——node:test 子进程模式下，这会让紧邻其前的用例失去 TAP 登记（最小复现：6 个平凡用例中任何一个做「替换→恢复 stdout.write」，其前驱必消失，Node 20.19 / 22.20 / 24.19 行为一致；`node file.ts` 直跑与 `--test-isolation=none` 进程内模式则不丢）；③ 失败**不会静默**：幽灵用例的回调每次真实执行、断言真实在跑，其失败使退出码为 1（全量 `npm test` 实测 578 · 574 pass · **1 fail**），但失败被挂在文件级（`test at test\toggle.test.ts:1:1` → 泛化消息 `'test failed'`），**用例名与断言消息在整个输出中消失**——缺陷是「零归因」而非「永不报红」。
+- **变更（纯测试，零 src / 零 lib）**：list 用例删除对 `process.stdout.write` 的猴子补丁，改为向已有的 `list(argv, io = cliIO)` 注入参数（`src/cli/commands/list.ts:30` 的 OpsIO seam 自始存在）传入 recording IO（`emit` 收行、其余 no-op），断言集合一字未改。该捕获模式与 `test/adopt.test.ts`、`test/export.test.ts`、`test/import.test.ts`、`test/add-update-json.test.ts`、`test/json-io.test.ts` 既有写法一致——全仓库其余 6 个含流补丁的测试文件经核对源码用例数与 TAP 计数全部相符（补丁均位于「调用前已有 await 的 helper」内或只补 stderr），本次不动。
+- **验证**：① `node --import tsx --test --test-reporter=tap test/toggle.test.ts` 由 5 条恢复为 **6 条具名 `ok 1…ok 6`**；② 负向探针（临时在 t2 注入 `assert.fail(...)`，验完即撤）报告为 `not ok 2 - multi-skill entry is included in the bare update default targets` 且携带断言消息（修复前同样的失败只报文件级 1:1 + `'test failed'`）；③ 同一负向探针在 Node **20.19.0 / 22.20.0 / 24.19.0** 各验一次，归因均正确；④ 六步门禁 `typecheck` / `lint` / `test:build` / `build` / `build:client` 退出码均 0，`build` 与 `build:client` 后 `git diff` 对 `lib/` 零漂移；全量 `npm test` **579 条 · 576 通过 · 0 失败 · 3 跳过**（上一提交基线 578 · 575 · 0 · 3，+1 恰为恢复登记的幽灵用例）。
+- **不做**：不移动任何用例声明位置（实测幽灵只会转移给新前驱；且后续批量 toggle 用例一旦插在 list 之前会再次复发——seam 修法与用例位置无关）；不改 `src/` 与 `lib/`（注入参数早已存在）；不清理其他测试文件的流补丁（计数均正确，超出本次范围）。
+- **如何辨识改动**：`git status --short` 应为 M 2——`test/toggle.test.ts`（顶部新增一行 `import type { OpsIO }`；list 用例改为 recording IO）与本 CHANGELOG；无新增文件，`src/`、`lib/`、`package.json` 零变化。
+
 ## [0.6.0] - 2026-10-05
 
 **2026-10-05 · Fixed · CI 第四次修复：`isLinkEntry` 两侧统一 canonical，修 macOS/Windows 把真实目录当链接**

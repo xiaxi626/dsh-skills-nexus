@@ -5,6 +5,7 @@ import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import type { OpsIO } from '../src/ops-io.js'
 
 /**
  * Integration tests for enable/disable (`toggle`) against multi-skill repos.
@@ -140,19 +141,24 @@ test('multi-skill entry is included in the bare update default targets', async (
 })
 
 test('list reports a multi-skill entry as on while its links exist', async () => {
-  const writes: string[] = []
-  const orig = process.stdout.write
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ;(process.stdout as any).write = (chunk: any) => {
-    writes.push(String(chunk))
-    return true
+  // Capture through the OpsIO seam instead of replacing process.stdout.write.
+  // Replacing/restoring the stream inside a test body makes node:test (in
+  // child-process mode) drop the immediately preceding test from TAP
+  // registration: its body still runs, but a failure surfaces only as a
+  // file-level 'test failed' with no test name or assertion message. Same
+  // capture pattern as test/adopt.test.ts / test/export.test.ts.
+  const lines: string[] = []
+  const io: OpsIO = {
+    confirm: async () => true,
+    progress: () => {},
+    emit: (line: string) => {
+      lines.push(line)
+    },
+    error: () => {},
+    interactive: false,
   }
-  try {
-    assert.equal(await list.list([]), 0)
-  } finally {
-    process.stdout.write = orig
-  }
-  const output = writes.join('')
+  assert.equal(await list.list([], io), 0)
+  const output = lines.join('')
   const row = output.split('\n').find((l) => l.includes('src-multi'))
   assert.ok(row, 'list shows the src-multi row')
   assert.match(row!, /^on\s/)
