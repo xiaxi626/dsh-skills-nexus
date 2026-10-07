@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+**2026-10-07 · Fixed · 补全测试期望未随 `diff` 子命令同步更新导致 CI 失败**
+
+- **根因**：`diff` 子命令添加到 bash/fish 补全模板时（命令列表新增 `diff`），`test/completions.test.ts` 中 `sub-prefix-d` 测试用例的期望值仍为 `disable doctor`，未包含同样以 `d` 开头的 `diff`，导致 bash 和 fish 补全测试在全部平台失败。
+- **修复**：bash 测试 `'sub-prefix-d|disable doctor'` → `'sub-prefix-d|diff disable doctor'`；fish 测试 `['disable', 'doctor']` → `['diff', 'disable', 'doctor']`。
+- **教训**：新增子命令时须同步检查四类位置——① 路由表（`src/cli/index.ts`）、② 补全模板命令列表（`src/cli/commands/completions/{bash,zsh,fish,powershell}.ts`）、③ 补全测试期望值（`test/completions.test.ts`）、④ `--help` 输出。遗漏任何一处都会在 CI 矩阵中全量暴露。
+- **验证**：`typecheck`、`lint`、`npm test` 全部通过，636 项中 633 通过、0 失败、3 跳过。
+
 **2026-10-07 · Added · Git 精确版本导入与锁定展示**
 
 本次更新实现了 Nexus Git 恢复与预览的闭环：`import --locked` 按 package label 记录的 commit 做 depth-1 fetch + detached checkout，仅在远端明确报告 commit 不可获取时回退 snapshot；manifest 写入 `locked: true`，`list` 增加 `LOCK` 列，`doctor --updates` 区分显式 package lock 与普通 detached pin；`diff` 提供只读远端差异预览；文档双语同步；CI 在 Ubuntu/Windows/macOS × Node 20/22/24 矩阵中显式运行 compiled CLI 本地 `file://` 端到端测试。

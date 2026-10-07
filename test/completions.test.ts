@@ -485,7 +485,7 @@ test('the emitted bash template completes correctly in a real bash', { skip: !HA
     assert.deepEqual(items!.split(' ').sort(), routed)
 
     assert.deepEqual(rest, [
-      'sub-prefix-d|disable doctor',
+      'sub-prefix-d|diff disable doctor',
       'add-flag|--name',
       // bash has no trouble with a bare `--`; PowerShell cannot reach its
       // completer at all there, which is why there is no mirror assertion.
@@ -657,7 +657,7 @@ test('the emitted fish template completes correctly in a real fish', { skip: !HA
     // Positions where no other rule can contribute: exact sets.
     const exact: [string, string, string[]][] = [
       ['sub', 'dsh-skills-nexus ', routed],
-      ['sub-prefix-d', 'dsh-skills-nexus d', ['disable', 'doctor']],
+      ['sub-prefix-d', 'dsh-skills-nexus d', ['diff', 'disable', 'doctor']],
       ['add-flag', 'dsh-skills-nexus add --n', ['--name']],
       ['add-bare-dashes', 'dsh-skills-nexus add --', ['--name', '--ref', '--subdir', '--yes', '--json']],
       ['doctor-bare-dashes', 'dsh-skills-nexus doctor --', ['--json', '--quiet', '--updates']],
