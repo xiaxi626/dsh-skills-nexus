@@ -13,9 +13,10 @@
  * reach the browser bundle that also renders this text.
  */
 
-/** One verdict of a plan (§10.2): either the remote answers, or it does not. */
+/** One verdict of a plan (§10.2): follow a ref, restore an exact commit, or use the payload. */
 export type ImportDecision =
-  | { kind: 'git'; url: string; ref: string }
+  | { kind: 'git-ref'; url: string; ref: string }
+  | { kind: 'git-locked'; url: string; ref: string; commit: string }
   | { kind: 'snapshot'; reason: SnapshotReason }
 
 /**
@@ -23,7 +24,13 @@ export type ImportDecision =
  * not answer in time. The two must never be conflated, or a slow network looks
  * like a deleted repository (§10.2). `not-checked` is `--no-net-check`.
  */
-export type SnapshotReason = 'no-source' | 'unreachable' | 'timeout' | 'no-remote' | 'not-checked'
+export type SnapshotReason =
+  | 'no-source'
+  | 'unreachable'
+  | 'timeout'
+  | 'no-remote'
+  | 'not-checked'
+  | 'commit-unavailable'
 
 /**
  * How one planned entry will land, in the wording of §10.2 — a label only, no
@@ -34,8 +41,12 @@ export interface DecisionCarrier {
 }
 
 export function describeDecision(entry: DecisionCarrier): string {
-  if (entry.decision.kind === 'git') {
+  if (entry.decision.kind === 'git-ref') {
     return `will clone from ${entry.decision.url} (${entry.decision.ref})`
+  }
+  if (entry.decision.kind === 'git-locked') {
+    return `will clone locked commit ${entry.decision.commit} from ${entry.decision.url} ` +
+      `(source ref: ${entry.decision.ref}; snapshot fallback only if that commit is unavailable)`
   }
   switch (entry.decision.reason) {
     case 'unreachable':
@@ -46,6 +57,8 @@ export function describeDecision(entry: DecisionCarrier): string {
       return 'will import as snapshot (--no-remote)'
     case 'not-checked':
       return 'will import as snapshot (remote not checked)'
+    case 'commit-unavailable':
+      return 'will import as snapshot (locked commit unavailable)'
     default:
       return 'will import as snapshot (source unknown)'
   }

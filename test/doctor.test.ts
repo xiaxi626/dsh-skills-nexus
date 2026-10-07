@@ -343,6 +343,31 @@ test('doctor --updates stays silent for source-less entries (not-applicable)', a
   )
 })
 
+test('doctor distinguishes an explicit import lock from an ordinary detached pin', async () => {
+  await makeClone('explicit-lock')
+  await makeClone('detached-pin')
+  await writeManifest([
+    makeEntry('explicit-lock', 'explicit-lock', {
+      commit: 'a'.repeat(40),
+      locked: true,
+    }),
+    makeEntry('detached-pin', 'detached-pin', {
+      ref: 'v1.0.0',
+      commit: 'b'.repeat(40),
+    }),
+  ])
+
+  const updates = findCheck(await doctorMod.runChecks(true), 'updates')
+  const explicit = updates.issues.find((i) => i.name === 'explicit-lock')
+  const detached = updates.issues.find((i) => i.name === 'detached-pin')
+  assert.equal(explicit?.code, 'locked')
+  assert.equal(explicit?.locked, true)
+  assert.match(explicit?.detail ?? '', /exact package commit/)
+  assert.equal(detached?.code, 'locked')
+  assert.equal(detached?.locked, undefined)
+  assert.match(detached?.detail ?? '', /pinned at v1\.0\.0/)
+})
+
 /* ------------------------------------------------------------------ */
 /* external-disabled check (搂1.5 / 搂6.2)                               */
 /* ------------------------------------------------------------------ */

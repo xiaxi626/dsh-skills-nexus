@@ -341,6 +341,8 @@ export interface ImportOptions {
   noNetCheck: boolean
   /** Land everything as a snapshot, even when the label records a remote. */
   noRemote: boolean
+  /** Restore each labelled entry at its exact recorded commit. */
+  locked: boolean
   /** One entry per skill instead of one per candidate root. */
   each: boolean
   /** Replace an existing entry of the same name. */
@@ -367,6 +369,7 @@ export function parseImportArgs(argv: string[]): ImportOptions {
   let dryRun = false
   let noNetCheck = false
   let noRemote = false
+  let locked = false
   let each = false
   let force = false
   let yes = false
@@ -399,6 +402,10 @@ export function parseImportArgs(argv: string[]): ImportOptions {
         boolean(flag, inlineVal)
         noRemote = true
         break
+      case '--locked':
+        boolean(flag, inlineVal)
+        locked = true
+        break
       case '--each':
         boolean(flag, inlineVal)
         each = true
@@ -430,6 +437,9 @@ export function parseImportArgs(argv: string[]): ImportOptions {
     }
   }
 
+  if (locked && (noRemote || noNetCheck)) {
+    throw new Error('--locked is mutually exclusive with --no-remote and --no-net-check')
+  }
   if (positionals.length === 0) {
     throw new Error('missing package path; usage: dsh-skills-nexus import <package> [--dry-run]')
   }
@@ -444,6 +454,7 @@ export function parseImportArgs(argv: string[]): ImportOptions {
     dryRun,
     noNetCheck,
     noRemote,
+    locked,
     each,
     force,
     ...(name === undefined ? {} : { name }),

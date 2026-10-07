@@ -7,6 +7,10 @@ This guide verifies the **version-lock ("lockfile-lite")** changes:
 - `update` dispatches by pin type: **branch pins fast-forward**, **tag/commit
   pins are fixed points** (verify only, never pull), and a pinned checkout that
   drifted is **restored automatically**.
+- `import --locked` creates a distinct explicit package lock: the clone is
+  detached at the exported commit, `list` shows `LOCK=yes`, and
+  `doctor --updates` identifies the exact package commit. A successful
+  `switch-version` clears this explicit lock.
 - Re-adding an already-registered repo is **refused** without touching its
   clone.
 
@@ -42,6 +46,8 @@ The suite never touches your real environment: every test file uses a temp
 | `test/update.test.ts` | branch pin fast-forwards and re-stamps the commit; tag pin is a fixed point; a drifted checkout is restored; a dirty worktree (normalization artifacts) never blocks fast-forward or restoration |
 | `test/git.test.ts` | `getHeadCommit` / `isDetachedHead` / `resolveRefCommit` / `checkoutRef`; clone at a tag → detached HEAD, at a branch → symbolic HEAD |
 | `test/manifest.test.ts` | `markUpdated` stamps `updatedAt` + `commit` |
+| `test/import.test.ts` / `test/list.test.ts` / `test/doctor.test.ts` | exact package-commit restore and fallback boundary; explicit lock display and distinction from ordinary detached pins |
+| `test/switch-version.test.ts` | a successful explicit version switch clears a package lock |
 
 ---
 

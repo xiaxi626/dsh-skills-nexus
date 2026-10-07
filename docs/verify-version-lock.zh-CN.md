@@ -4,6 +4,7 @@
 
 - `add` 会把实际安装到的 commit 记入 `manifest.json`（新增 `commit` 字段）——`list` 以短 SHA 显示。
 - `update` 按 pin 类型分派：**分支 pin 快进拉取**、**tag/commit pin 是固定点**（只校验、绝不拉取），已固定但发生漂移的 checkout 会**自动恢复**。
+- `import --locked` 创建一种独立的显式 package lock：克隆 detached 在导出 commit，`list` 显示 `LOCK=yes`，`doctor --updates` 标明精确 package commit。成功执行 `switch-version` 后该显式锁被清除。
 - 重复 `add` 已注册的仓库会被**拒绝**，且不影响已有克隆。
 
 以下操作都是安全的：不碰你真实的 `~/.dsh`、不访问任何 GitHub 仓库、当前仓库只被读取（或经 `npm run build` 重新编译）。所有临时状态都在专用临时目录里，最后统一删除。
@@ -34,6 +35,8 @@ npm run test:build  # 可选：把 src+test 编译到 test-dist/，无 loader �
 | `test/update.test.ts` | 分支 pin 快进并重新盖章 commit；tag pin 是固定点；漂移的 checkout 被恢复；脏工作区（归一化产物）不阻塞快进与漂移恢复 |
 | `test/git.test.ts` | `getHeadCommit` / `isDetachedHead` / `resolveRefCommit` / `checkoutRef`；按 tag 克隆 → detached HEAD，按分支克隆 → symbolic HEAD |
 | `test/manifest.test.ts` | `markUpdated` 盖章 `updatedAt` + `commit` |
+| `test/import.test.ts` / `test/list.test.ts` / `test/doctor.test.ts` | 精确 package commit 恢复与回退边界；显式锁展示及其与普通 detached pin 的区分 |
+| `test/switch-version.test.ts` | 成功显式切换版本会清除 package lock |
 
 ---
 

@@ -90,6 +90,11 @@ export interface CloneResult {
     /** Non-fatal caveats to show the user (degraded or ignored optimizations). */
     warnings: string[];
 }
+/** An exact package commit is no longer fetchable from its recorded remote. */
+export declare class CommitUnavailableError extends Error {
+    readonly commit: string;
+    constructor(commit: string, message: string);
+}
 /** This Git cannot run the sparse step, so the clone is simply complete. */
 export declare const SPARSE_UNSUPPORTED_WARNING = "sparse checkout is unavailable in this Git \u2014 the whole repository was materialized";
 /**
@@ -117,6 +122,7 @@ export declare const FILTER_IGNORED_WARNING = "the remote ignored the blob filte
  */
 export declare function cloneRepo(spec: GitSpec, dest: string, options?: {
     subdir?: string;
+    exactCommit?: string;
 }): Promise<CloneResult>;
 /**
  * Resolve the commit SHA a remote currently advertises for `ref`, via
@@ -181,6 +187,23 @@ export declare function discardLocalChanges(dest: string): Promise<void>;
  * present locally: all three fetches fail, resolution still succeeds.
  */
 export declare function fetchRepo(dest: string, ref: string): Promise<FetchOutcome>;
+/**
+ * Fetch one remote comparison target into FETCH_HEAD without updating a local
+ * branch or tag. Partial clones retain their blob:none filter; the subsequent
+ * diff may therefore lazy-fetch only the blobs it actually compares.
+ */
+export declare function fetchDiffTarget(dest: string, ref: string, options?: {
+    exactBranch?: boolean;
+}): Promise<string>;
+/**
+ * Render a deterministic, non-interactive commit diff. External diff drivers
+ * and textconv filters are disabled because repository-controlled config or
+ * attributes must not execute helpers while previewing untrusted content.
+ */
+export declare function diffRepo(dest: string, fromCommit: string, toCommit: string, options?: {
+    stat?: boolean;
+    pathspec?: string;
+}): Promise<string>;
 /** What {@link fetchRepo} managed to land locally — the input to
  *  {@link resolveSwitchTarget}. */
 export type FetchOutcome = 'branch' | 'tag' | 'sha' | 'none';
@@ -235,5 +258,12 @@ export declare function checkoutBranch(dest: string, branch: string): Promise<vo
  * argument (see `isSafeRef`).
  */
 export declare function getCurrentBranch(dest: string): Promise<string | undefined>;
+/** 按精确 commit 恢复 HEAD；branch 恢复不得取当前 remote tip。 */
+export declare function restoreCheckout(dest: string, commit: string, branch?: string): Promise<void>;
+export declare const ROLLBACK_REF_PREFIX = "refs/nexus/rollback/";
+export declare function assertRollbackRef(ref: string): void;
+export declare function createRollbackAnchor(dest: string, ref: string, commit: string): Promise<void>;
+export declare function deleteRollbackAnchor(dest: string, ref: string): Promise<void>;
+export declare function rollbackAnchors(dest: string): Promise<string[]>;
 export {};
 //# sourceMappingURL=git.d.ts.map

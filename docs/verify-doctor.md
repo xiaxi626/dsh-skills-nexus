@@ -49,7 +49,7 @@ The suite never touches your real environment: every test file uses a temp
 
 | test file | what it verifies |
 |---|---|
-| `test/doctor.test.ts` | fresh install is all-ok (exit 0); healthy install; broken symlink → `missing-target` (exit 1) with no orphan-link double-report; orphan-repo / orphan-link / dangling-link; corrupt manifest; **corrupt manifest suppresses orphan checks (no mass-delete false positives)**; **malformed entry is reported structurally, never throws**; `.corrupt-` backup; missing `.git`; `--json` version-1 contract; `--quiet`; usage errors (exit 2); `parseDoctorArgs`; `formatHuman` |
+| `test/doctor.test.ts` | fresh install is all-ok (exit 0); healthy install; broken symlink → `missing-target` (exit 1) with no orphan-link double-report; orphan-repo / orphan-link / dangling-link; corrupt manifest; **corrupt manifest suppresses orphan checks (no mass-delete false positives)**; **malformed entry is reported structurally, never throws**; `.corrupt-` backup; missing `.git`; explicit package lock vs ordinary detached pin; `--json` version-1 contract; `--quiet`; usage errors (exit 2); `parseDoctorArgs`; `formatHuman` |
 | `test/health.test.ts` | `diagnoseEntry` (`ok` / `disabled` / `missing-target`); `findOrphanRepos` / `findOrphanLinks` three-way classification (`orphan-link` / `dangling-link` / `unreadable-link`); `checkHealth`; `formatWarning` |
 
 The two bolded `doctor.test.ts` cases are the regression anchors for the
@@ -190,8 +190,11 @@ unset DSH_HOME
 `--updates` is the only networked check. It compares each **branch-pinned**
 entry's recorded `commit` against the remote tip (`git ls-remote`). A
 **tag/commit pin** (detached HEAD) is an intentional fixed point: it is reported
-as `locked` (info) and never as "behind". `--updates` results are `info`-level —
-they never count as errors/warnings and never change the exit code.
+as `locked` (info) and never as "behind". An explicit package lock created by
+`import --locked` has the same issue code but a distinct detail (`exact package
+commit`) and optional JSON field `locked: true`; an ordinary detached pin omits
+that field. `--updates` results are `info`-level — they never count as
+errors/warnings and never change the exit code.
 
 With the local `file://` remote from Part 2 this is fully hermetic:
 
@@ -233,7 +236,7 @@ Against a real GitHub repo the behaviour is identical; only the remote differs.
 | `orphan-repo` | clone dirs under `repos/` that no entry references |
 | `orphan-link` | symlinks into `repos/` that no entry claims |
 | `git-sanity` | each clone still has a `.git` |
-| `updates` | (only with `--updates`) branch pins vs their remote |
+| `updates` | (only with `--updates`) branch pins vs their remote; explicit package locks and detached pins are reported without advancing them |
 
 ### Status → label → counting
 
@@ -263,7 +266,7 @@ as `--json=x`).
 | `orphan-check-skipped` | warn | the orphan scan was skipped because the manifest is unreadable | repair the manifest first (see `corrupt-manifest`) |
 | `missing-git` | warn | a clone is missing its `.git` | `remove <name>` then `add` again |
 | `behind-remote` | info | a branch pin is behind its remote (`--updates` only) | `update <name>` |
-| `locked` | info | a tag/commit pin, intentionally not tracking (`--updates` only) | none — this is expected |
+| `locked` | info | an explicit package commit lock (`locked: true`) or an ordinary detached tag/commit pin (`--updates` only) | none — this is expected; use `switch-version` to choose another ref |
 
 ### `--json` shape (stable contract, `version: 1`)
 
@@ -283,7 +286,8 @@ as `--json=x`).
 
 Issues are **inlined** under their check (there is no top-level `issues` array).
 `severity` is `error` / `warn` / `info`; `status` is `ok` / `warn` / `error` /
-`update-available`. Consumers should key off `version` and treat unknown codes
+`update-available`. A `locked` issue includes optional `locked: true` only for an
+explicit package lock. Consumers should key off `version` and treat unknown codes
 as forward-compatible.
 
 ---

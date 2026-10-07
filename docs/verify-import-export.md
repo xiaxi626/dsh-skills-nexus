@@ -6,7 +6,8 @@ This guide verifies the **package channels** (channel C and D of
 - **`export`** — package one or more entries into a zip with a
   `nexus-package.json` label carrying source metadata.
 - **`import`** — rebuild entries from a package, preferring git re-clone when
-  the label's url is reachable, falling back to snapshot.
+  the label's url is reachable; `--locked` instead restores the labelled exact
+  commit and falls back to the payload only when that commit is unavailable.
 - **`adopt`** — give a frozen (no-git-source) entry a real git identity so it
   becomes updatable.
 
@@ -27,10 +28,12 @@ delete at the end.
 ## Part 1 — test suite (quality gates)
 
 ```bash
-npm run typecheck   # tsc --noEmit (strict)
-npm run lint        # ESLint 9 + typescript-eslint
-npm test            # node:test + tsx — expected: all tests pass
-npm run build       # tsc -> lib/
+npm run typecheck     # tsc --noEmit (strict)
+npm run lint          # ESLint 9 + typescript-eslint
+npm run test:build    # compile src+test to test-dist/
+npm run build         # tsc -> lib/
+npm run build:client  # browser bundle + client declarations
+npm test              # node:test + tsx — expected: all tests pass
 ```
 
 Relevant test coverage:
@@ -38,9 +41,17 @@ Relevant test coverage:
 | test file | what it verifies |
 |---|---|
 | `test/export.test.ts` | label structure, payload (no `.git`), PKZip round trip, `ownership: 'external'` boundary, `--all` includes disabled, CLI surface |
-| `test/import.test.ts` | label-driven git restore vs snapshot fallback, peel scan (candidate root discovery), four-state reachability, `--dry-run` plan, `--each` / `--subdir` scope, state restoration (enabled/links), bare package handling, error grading (`no-skill-found` / `skill-nested-too-deep`) |
+| `test/import.test.ts` | label-driven git restore vs snapshot fallback; `--locked` exact detached restore after a branch moves, narrow commit-unavailable fallback, hard failure for missing remotes, metadata/flag validation, and independent `--each` clones; peel scan, `--dry-run`, state restoration, bare packages, and error grading |
 | `test/adopt.test.ts` | seven-step sequence, skill-set comparison, backup/restore, link rebuild, `--force` re-source, `--prune`, failure rollback (byte-level manifest/link/directory restoration), external entry refusal |
 | `test/zip.test.ts` | PKZip codec: round trip, zip-slip rejection, `.git` skip, size/entry limits, encryption rejection |
+
+Locked-import checkpoints covered by the suite:
+
+1. Export a labelled entry at commit A, then advance its source branch to B.
+2. Import the package with `--locked`; `git rev-parse HEAD` remains A and HEAD is detached.
+3. `list` reports `LOCK=yes`; `doctor --updates` identifies an exact package commit rather than an ordinary detached pin.
+4. A successful `switch-version` clears the explicit lock.
+5. Only an explicit remote response that A is unavailable uses the packaged snapshot. Missing remotes, authentication failures, unsafe metadata, and ambiguous Git errors fail instead.
 
 ---
 
@@ -303,8 +314,8 @@ unset DSH_HOME
   covered by `test/panel-render.test.ts`; this walkthrough exercises the CLI
   that both the panel and the command line share via `src/import.ts`.
 - **`--each` scope** — the walkthrough imports whole packages as one entry;
-  `--each` (one entry per candidate root) is covered by
-  `test/import.test.ts`.
+  `--each` is covered by `test/import.test.ts`, including `--each --locked`
+  creating one independent clone per skill at the same recorded commit.
 - **External entries** — `export --all` skipping `ownership: 'external'`
   entries is covered by `test/export.test.ts`; the walkthrough does not
   create external entries (they require `--link-only` setup).

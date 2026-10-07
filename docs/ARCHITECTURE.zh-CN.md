@@ -13,7 +13,7 @@ flowchart TD
     end
 
     subgraph NEXUS["dsh-skills-nexus（~/.dsh/skills-nexus/）"]
-        A["CLI<br/><i>add · update · remove</i>"]
+        A["CLI<br/><i>add · import · update · remove</i>"]
         M["manifest.json<br/><i>状态后端</i>"]
         R["repos/<br/><i>git 克隆（subdir 安装为稀疏）</i>"]
     end
@@ -41,7 +41,7 @@ flowchart TD
     style G fill:#f1f5f9,stroke:#64748b,stroke-width:2px,color:#000
 ```
 
-- **CLI 管写入**：`add` / `update` / `remove` 等命令操作 git、写 `manifest.json`，并在 `~/.dsh/skills/` 中创建/删除 symlink
+- **CLI 管写入**：`add` / `import` / `update` / `remove` 等命令操作 git、写 `manifest.json`，并在 `~/.dsh/skills/` 中创建/删除 symlink
 - **官方 provider 管读取**：DSH 内置的 filesystem provider 自动扫描 `~/.dsh/skills/`，发现 symlink 指向的 skill
 - **两边解耦**：CLI 只管克隆和 symlink；发现和加载完全交给官方 provider
 
@@ -56,6 +56,12 @@ dsh-skills-nexus add github:owner/repo
    └─ 创建 symlink        →  ~/.dsh/skills/<skill-name>/  →  指向 repos/<name>/
    └─ 追加条目              →  ~/.dsh/skills-nexus/manifest.json
 
+dsh-skills-nexus import package.zip --locked
+   └─ 校验 labelled source metadata 与完整 commit SHA
+   └─ 浅克隆/获取记录的 commit，再 detached checkout
+   └─ 以 locked: true 写入条目；仅当远端明确报告该 commit 不可获取时
+      才使用包内载荷
+
 DSH filesystem provider（官方内置）
    └─ 扫描 ~/.dsh/skills/ → 自动发现所有 symlink 指向的 skill
    └─ 读取每个 SKILL.md 的 frontmatter + body
@@ -68,6 +74,7 @@ DSH filesystem provider（官方内置）
 - **多 skill 仓库支持**：集合仓库为每个发现的 skill 创建一个 symlink——都展平在 `~/.dsh/skills/` 顶层，官方 provider 单层扫描即可发现。
 - **安装时归一化**：修正不合法的 frontmatter 名称，补全缺失的 description，确保官方 provider 不会静默跳过 skill。
 - **enable/disable 轻量**：只是创建/删除 symlink，克隆数据始终保留在 `repos/` 中。
+- **显式 package lock 是 manifest 事实**：`import --locked` 检出包记录的精确 commit 后写入 `locked: true`。健康检查不会根据 detached HEAD 推导该字段，因此普通 tag/commit pin 仍可区分；成功执行 `switch-version` 后显式锁被清除。
 
 ## SKILL.md 发现规则（每个克隆仓库内）
 

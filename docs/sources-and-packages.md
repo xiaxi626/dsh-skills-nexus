@@ -14,7 +14,7 @@ git source.
 |---|---|---|---|---|
 | A | `add <spec>` | `url + ref + commit` from the clone | Yes | Public or private git repos |
 | B | `import <dir>` | Probed from `.git` remote or metadata; empty if none | Probed → yes; otherwise frozen | Skills already on disk, legacy directories |
-| C | `export` / `import <pkg>` | `nexus-package.json` label inside the package | Label has url and reachable → yes; otherwise frozen | Cross-machine migration, offline delivery |
+| C | `export` / `import <pkg>` | `nexus-package.json` label inside the package | Reachable source → yes; `--locked` restores the exact commit; otherwise frozen | Cross-machine migration, reproducible restore, offline delivery |
 | D | `adopt <name> --url` | User provides it explicitly | Yes, after the operation completes | A frozen entry whose repository was found later |
 
 ## Channel A: git source (`add`)
@@ -85,6 +85,7 @@ entries are recorded in the label's `skipped[]` array.
 ```bash
 dsh-skills-nexus import <file|dir>
 dsh-skills-nexus import <file> --dry-run                 # preview only
+dsh-skills-nexus import <file> --locked                  # restore exact recorded commits
 dsh-skills-nexus import <file> --no-remote               # force snapshot
 ```
 
@@ -93,6 +94,7 @@ Accepts a package (zip or directory) and rebuilds entries from it.
 | Flag | Effect |
 |---|---|
 | `--dry-run` | Preview what would happen without touching nexus state |
+| `--locked` | Restore labelled entries at their exact recorded commits; requires safe non-empty `gitUrl`/`ref` and a full 40–64 digit SHA |
 | `--no-net-check` | Skip remote reachability checks (zero wait, offline-safe) |
 | `--no-remote` | Force snapshot even when the label records a reachable url |
 | `--name <name>` | Override the entry name (single-entry packages) |
@@ -130,13 +132,18 @@ the label's recorded url is reachable:
 
 | Condition | Outcome |
 |---|---|
+| `--locked` + complete labelled source metadata | Skip the reachability probe; shallow-fetch and detach at the recorded commit, with `locked: true` in the installed manifest |
 | Label has url, url is reachable | Re-clone from git — updatable entry |
 | Label has url, url is unreachable | Snapshot (frozen), with `(url unreachable)` note |
 | Label has url, check times out (5s default) | Snapshot, with `(url check timed out)` note |
 | No label (bare package) | Snapshot, with `(source unknown)` note |
 
-`--no-net-check` skips reachability entirely; all entries show
-`(not checked)` instead of `unreachable`.
+`--locked` is mutually exclusive with `--no-net-check` and `--no-remote`, and
+bare packages cannot use it. An exact restore falls back to the packaged
+snapshot only when the remote explicitly reports the recorded commit as
+unavailable; network, authentication, local-object, and ambiguous Git failures
+remain errors. `--no-net-check` skips reachability entirely; all normal-import
+entries show `(not checked)` instead of `unreachable`.
 
 **State restoration.** The label records `enabled` and link names from the
 exporting machine. Import restores them as-is — a disabled skill on the
@@ -165,11 +172,13 @@ package: claude-skills.zip (zip) · manifest: none (source unknown)
   skills/beta       name=beta-skill    will import as snapshot (source unknown)
 ```
 
-The decision has one fork: **does the package carry a label, and is the
-recorded url reachable right now?** Four states:
+Normal import asks whether the package carries a label and whether the recorded
+url is reachable. `--locked` instead validates the label and plans the exact
+recorded commit without probing the remote:
 
 | Condition | Output |
 |---|---|
+| `--locked` + valid labelled entry | `will clone locked commit <commit> from <url> (source ref: <ref>; snapshot fallback only if that commit is unavailable)` |
 | Label + url reachable | `will clone from <url> (<ref>)` |
 | Label + url unreachable | `will import as snapshot (<url> unreachable)` |
 | Label + check timed out | `will import as snapshot (<url> check timed out)` |
@@ -233,7 +242,7 @@ must provide it explicitly.
       "url": "github:trae-community/trae-skills",
       "gitUrl": "https://github.com/trae-community/trae-skills.git",
       "ref": "main",
-      "commit": "abc1234",
+      "commit": "0123456789abcdef0123456789abcdef01234567",
       "subdir": "skills/daily-trend-writer",
       "enabled": true,
       "skills": [
@@ -254,7 +263,7 @@ must provide it explicitly.
 | `schema` / `version` | Yes | Higher `version` → refuse and suggest upgrade; lower → best effort |
 | `entries[].name` | Yes | Suggested entry name; `--name` or conflict policy may override |
 | `entries[].gitUrl` / `ref` / `subdir` | No | Present → prefer git channel; absent → snapshot |
-| `entries[].commit` | No | Informational only, not used for validation |
+| `entries[].commit` | No for normal import | Exact revision; `--locked` requires a full 40–64 digit SHA and restores it |
 | `entries[].enabled` | No | Enabled state at export time; import **restores** it (default: enabled) |
 | `entries[].skills[]` | No | Candidate skills and link names; used by `--dry-run` / panel preview |
 | `skipped[]` | No | Entries skipped during export and why; import uses this to prompt manual handling |
@@ -266,7 +275,9 @@ entry paths are rejected (zip-slip defense). Symlinks are skipped. URLs
 carrying credentials (`https://user:token@host`) are rejected.
 
 **Security (import).** The same restrictions apply during extraction.
-External packages must not carry `.git` entries (refused if found).
+External packages must not carry `.git` entries (refused if found). Before
+`--locked` invokes Git, it validates the recorded URL and ref with the normal
+argument-safety boundary and accepts only a full hexadecimal commit SHA.
 
 ## Entry storage forms
 
@@ -278,6 +289,11 @@ Each entry in the manifest takes one of three forms, which determines how
 | Git clone | nexus (`repos/<path>`) | Yes | Delete link + clone + deregister | `gitUrl` non-empty |
 | Snapshot copy | nexus (`repos/<path>`) | No | Same as git clone | `gitUrl` empty |
 | External directory | **User's own** | No | **Only delete link and registration, never the directory** | `ownership: 'external'` |
+
+An explicit package lock is still a Git clone, but `update` verifies its recorded
+commit instead of advancing the source ref. `list` exposes `LOCK=yes`, and
+`doctor --updates` distinguishes this manifest flag from an ordinary detached
+tag/commit pin. A successful `switch-version` clears the explicit lock.
 
 The updatability predicate is `hasGitSource(entry)` in `src/manifest.ts`
 — true when `gitUrl.length > 0`. External entries have empty `gitUrl`,

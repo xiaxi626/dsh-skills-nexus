@@ -19,7 +19,7 @@
  * operation just did (P0 §2.3).
  */
 /** Any shape `emitJson` may write: all of them carry the version. */
-export type JsonReport = ListJsonReport | AddJsonReport | UpdateJsonReport | RemoveJsonReport | ToggleJsonReport;
+export type JsonReport = ListJsonReport | AddJsonReport | UpdateJsonReport | RollbackJsonReport | RemoveJsonReport | ToggleJsonReport;
 /**
  * The unexpected-fatal payload (P0 §4.6): written to **stderr** with exit 1
  * (or exit 2 when it is really a usage error), so a consumer that captured only
@@ -58,6 +58,8 @@ export interface ListJsonEntry {
     ref: string;
     subdir: string | null;
     commit: string | null;
+    /** Present and true only for an explicit package commit lock. */
+    locked?: boolean;
     hasGitSource: boolean;
     ownership: 'managed' | 'external';
     enabled: boolean;
@@ -115,6 +117,23 @@ export interface UpdateJsonReport {
         updated: number;
         failed: number;
     };
+}
+/** rollback 的方向是当前版本 → 恢复版本，而非原操作方向。 */
+export interface RollbackJsonResult {
+    name: string;
+    status: 'rolled-back' | 'failed';
+    fromCommit: string | null;
+    toCommit: string | null;
+    fromRef: string | null;
+    toRef: string | null;
+    wasDirty?: boolean;
+    links?: string[];
+    message?: string;
+    error?: string;
+}
+export interface RollbackJsonReport {
+    version: 1;
+    results: RollbackJsonResult[];
 }
 export type RemoveJsonStatus = 'removed' | 'not-found' | 'failed';
 export interface RemoveJsonResult {

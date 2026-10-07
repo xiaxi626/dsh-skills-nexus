@@ -70,6 +70,10 @@ export interface GitInstallParams {
   subdirLeaf: string | undefined
   /** Skip the large-collection confirmation. */
   yes: boolean | undefined
+  /** Exact package commit to fetch and check out detached. */
+  exactCommit?: string
+  /** Mark the manifest entry as explicitly locked to `exactCommit`. */
+  locked?: boolean
   io: OpsIO
 }
 
@@ -133,7 +137,19 @@ export type GitInstallFailCode =
  * stays with the caller.
  */
 export async function installFromGit(params: GitInstallParams): Promise<GitInstallResult> {
-  const { spec, gitSpec, subdir: normalizedSubdir, path, skillName, name, subdirLeaf, yes, io } = params
+  const {
+    spec,
+    gitSpec,
+    subdir: normalizedSubdir,
+    path,
+    skillName,
+    name,
+    subdirLeaf,
+    yes,
+    exactCommit,
+    locked,
+    io,
+  } = params
   const dest = repoDir(path)
   await mkdir(dest, { recursive: true })
   // Remove the empty dir we just created so clone can work
@@ -147,8 +163,11 @@ export async function installFromGit(params: GitInstallParams): Promise<GitInsta
   const spin = io.spin ?? (<T>(_message: string, fn: () => Promise<T>): Promise<T> => fn())
   let clone: CloneResult
   try {
-    clone = await spin(`cloning (${gitSpec.ref})`, () =>
-      cloneRepo(gitSpec, dest, { subdir: normalizedSubdir }),
+    clone = await spin(`cloning (${exactCommit ?? gitSpec.ref})`, () =>
+      cloneRepo(gitSpec, dest, {
+        subdir: normalizedSubdir,
+        ...(exactCommit === undefined ? {} : { exactCommit }),
+      }),
     )
   } catch (err) {
     // Clean up any partially-created directory so a retry starts clean.
@@ -293,6 +312,7 @@ export async function installFromGit(params: GitInstallParams): Promise<GitInsta
     gitUrl: gitSpec.url,
     ref: gitSpec.ref,
     commit,
+    ...(locked === true ? { locked: true } : {}),
     subdir: normalizedSubdir,
     path,
     addedAt: new Date().toISOString(),

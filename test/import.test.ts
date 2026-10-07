@@ -333,7 +333,7 @@ test('a labelled package round-trips an entry back into an updatable git clone',
   const { plan, result } = await importer.importPackage({ source: out, io })
   assert.equal(
     plan.entries[0]!.decision.kind,
-    'git',
+    'git-ref',
     'a recorded remote that answers wins over the payload files',
   )
   assert.ok(result !== undefined)
@@ -352,6 +352,159 @@ test('a labelled package round-trips an entry back into an updatable git clone',
   assert.equal((await stat(join(clone, 'SKILL.md'))).isFile(), true)
   // The links are back, pointing into the fresh clone.
   assert.deepEqual((await linker.entryLinks(entry!)).map((l) => l.name), ['round-trip'])
+})
+
+/* ------------------------------------------------------------------ */
+/* Exact package commit locks                                          */
+/* ------------------------------------------------------------------ */
+
+test('--locked restores the recorded commit detached after the source ref moves', async () => {
+  await clearManifest()
+  const remoteDir = join(home, 'remote-locked-restore')
+  await makeRepo(remoteDir, 'locked-old')
+  const remote = fileUrl(remoteDir)
+  const recorded = await gitMod.getHeadCommit(remoteDir)
+  const source = await writeZip('locked-restore.zip', {
+    [exporter.PACKAGE_MANIFEST]: labelWith([{
+      name: 'locked-restore',
+      gitUrl: remote,
+      ref: 'main',
+      commit: recorded,
+    }]),
+    'skills/locked-restore/SKILL.md': skillMd('locked-old'),
+  })
+
+  await writeFile(join(remoteDir, 'SKILL.md'), skillMd('locked-new'), 'utf8')
+  await git(remoteDir, ['add', '.'])
+  await git(remoteDir, ['commit', '-m', 'move main'])
+  assert.notEqual(await gitMod.getHeadCommit(remoteDir), recorded)
+
+  const { plan, result } = await importer.importPackage({ source, locked: true, io })
+  assert.deepEqual(plan.entries[0]!.decision, {
+    kind: 'git-locked',
+    url: remote,
+    ref: 'main',
+    commit: recorded,
+  })
+  assert.deepEqual(result?.failed, [])
+  assert.equal(result?.installed[0]?.kind, 'git')
+
+  const entry = (await manifest.readManifest()).skills.find((s) => s.name === 'locked-restore')
+  assert.ok(entry !== undefined)
+  assert.equal(entry.ref, 'main', 'the moving source ref is retained for display and later switching')
+  assert.equal(entry.commit, recorded)
+  assert.equal(entry.locked, true)
+  const clone = paths.repoDir(entry.path)
+  assert.equal(await gitMod.getHeadCommit(clone), recorded)
+  assert.equal(await gitMod.isDetachedHead(clone), true)
+  assert.match(await readFile(join(clone, 'SKILL.md'), 'utf8'), /locked-old/)
+})
+
+test('--locked falls back only when the recorded commit is explicitly unavailable', async () => {
+  await clearManifest()
+  const remoteDir = join(home, 'remote-locked-fallback')
+  await makeRepo(remoteDir, 'locked-fallback')
+  const source = await writeZip('locked-fallback.zip', {
+    [exporter.PACKAGE_MANIFEST]: labelWith([{
+      name: 'locked-fallback',
+      gitUrl: fileUrl(remoteDir),
+      ref: 'main',
+      commit: 'f'.repeat(40),
+    }]),
+    'skills/locked-fallback/SKILL.md': skillMd('locked-fallback'),
+  })
+
+  const { result } = await importer.importPackage({ source, locked: true, io })
+  assert.deepEqual(result?.failed, [])
+  assert.equal(result?.installed[0]?.kind, 'snapshot')
+  assert.equal(result?.installed[0]?.reason, 'commit-unavailable')
+  const entry = (await manifest.readManifest()).skills.find((s) => s.name === 'locked-fallback')
+  assert.ok(entry !== undefined)
+  assert.equal(entry.gitUrl, '', 'a fallback payload is a snapshot, not a pretend clone')
+  assert.equal(entry.locked, undefined)
+})
+
+test('--locked does not turn a missing remote into a snapshot fallback', async () => {
+  await clearManifest()
+  const source = await writeZip('locked-missing-remote.zip', {
+    [exporter.PACKAGE_MANIFEST]: labelWith([{
+      name: 'locked-missing-remote',
+      gitUrl: missingRemote('locked-missing-remote'),
+      ref: 'main',
+      commit: 'a'.repeat(40),
+    }]),
+    'skills/locked-missing-remote/SKILL.md': skillMd('locked-missing-remote'),
+  })
+
+  const { result } = await importer.importPackage({ source, locked: true, io })
+  assert.equal(result?.installed.length, 0)
+  assert.equal(result?.failed.length, 1)
+  assert.match(result?.failed[0]?.reason ?? '', /repository|does not exist|not found/i)
+  assert.equal((await manifest.readManifest()).skills.length, 0)
+})
+
+test('--locked rejects bare packages, incomplete labels and offline snapshot flags', async () => {
+  await clearManifest()
+  const bare = await writeZip('locked-bare.zip', { 'SKILL.md': skillMd('locked-bare') })
+  assert.equal((await refusalOf(bare, { locked: true })).code, 'invalid-package')
+
+  const incomplete = await writeZip('locked-incomplete.zip', {
+    [exporter.PACKAGE_MANIFEST]: labelWith([{ name: 'locked-incomplete', commit: 'a'.repeat(40) }]),
+    'skills/locked-incomplete/SKILL.md': skillMd('locked-incomplete'),
+  })
+  assert.equal((await refusalOf(incomplete, { locked: true })).code, 'invalid-package')
+
+  await assert.rejects(
+    importer.importPackage({ source: bare, locked: true, noRemote: true, io }),
+    /mutually exclusive/,
+  )
+  await assert.rejects(
+    importer.importPackage({ source: bare, locked: true, noNetCheck: true, io }),
+    /mutually exclusive/,
+  )
+})
+
+test('--each with --locked creates independent clones at the same recorded commit', async () => {
+  await clearManifest()
+  const remoteDir = join(home, 'remote-locked-each')
+  await mkdir(join(remoteDir, 'alpha'), { recursive: true })
+  await mkdir(join(remoteDir, 'beta'), { recursive: true })
+  await git(remoteDir, ['init'])
+  await git(remoteDir, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  await git(remoteDir, ['config', 'user.email', 'test@example.com'])
+  await git(remoteDir, ['config', 'user.name', 'Nexus Test'])
+  await writeFile(join(remoteDir, 'alpha', 'SKILL.md'), skillMd('alpha'), 'utf8')
+  await writeFile(join(remoteDir, 'beta', 'SKILL.md'), skillMd('beta'), 'utf8')
+  await git(remoteDir, ['add', '.'])
+  await git(remoteDir, ['commit', '-m', 'collection'])
+  const recorded = await gitMod.getHeadCommit(remoteDir)
+  const remote = fileUrl(remoteDir)
+  const source = await writeZip('locked-each.zip', {
+    [exporter.PACKAGE_MANIFEST]: labelWith([{
+      name: 'collection',
+      gitUrl: remote,
+      ref: 'main',
+      commit: recorded,
+      skills: [
+        { root: 'skills/collection/alpha', name: 'alpha', description: 'alpha', links: [] },
+        { root: 'skills/collection/beta', name: 'beta', description: 'beta', links: [] },
+      ],
+    }]),
+    'skills/collection/alpha/SKILL.md': skillMd('alpha'),
+    'skills/collection/beta/SKILL.md': skillMd('beta'),
+  })
+
+  const { result } = await importer.importPackage({ source, locked: true, each: true, io })
+  assert.deepEqual(result?.failed, [])
+  const entries = (await manifest.readManifest()).skills.filter((e) => ['alpha', 'beta'].includes(e.name))
+  assert.equal(entries.length, 2)
+  assert.notEqual(entries[0]!.path, entries[1]!.path)
+  for (const entry of entries) {
+    assert.equal(entry.commit, recorded)
+    assert.equal(entry.locked, true)
+    assert.equal(await gitMod.getHeadCommit(paths.repoDir(entry.path)), recorded)
+    assert.equal(await gitMod.isDetachedHead(paths.repoDir(entry.path)), true)
+  }
 })
 
 /* ------------------------------------------------------------------ */
@@ -652,7 +805,14 @@ test('--each plans one entry per skill instead of one per candidate root', async
 /* ------------------------------------------------------------------ */
 
 test('import usage errors exit 2 and write nothing', async () => {
-  const cases: string[][] = [[], ['--bogus'], ['alpha.zip', 'beta.zip']]
+  const cases: string[][] = [
+    [],
+    ['--bogus'],
+    ['alpha.zip', 'beta.zip'],
+    ['alpha.zip', '--locked', '--no-remote'],
+    ['alpha.zip', '--locked', '--no-net-check'],
+    ['alpha.zip', '--locked=false'],
+  ]
   for (const argv of cases) {
     const { io: cliIo, lines } = captureIO()
     assert.equal(await cli.importCommand(argv, cliIo), 2, `argv: ${argv.join(' ')}`)

@@ -79,6 +79,7 @@ export async function list(argv: string[], io: OpsIO = cliIO): Promise<number> {
       s.subdir ?? '—',
       s.ref,
       s.commit ? short(s.commit) : '—',
+      s.locked === true ? 'yes' : '—',
       present,
       s.updatedAt ? relative(s.updatedAt) : '—',
     ])
@@ -88,11 +89,11 @@ export async function list(argv: string[], io: OpsIO = cliIO): Promise<number> {
   const srcW = Math.max(6, ...rows.map((r) => r[2]!.length))
   const subW = Math.max(6, ...rows.map((r) => r[3]!.length))
   io.emit(
-    `    ${'NAME'.padEnd(nameW)}  ${'SOURCE'.padEnd(srcW)}  ${'SUBDIR'.padEnd(subW)}  REF           COMMIT    DIR      UPDATED\n`,
+    `    ${'NAME'.padEnd(nameW)}  ${'SOURCE'.padEnd(srcW)}  ${'SUBDIR'.padEnd(subW)}  REF           COMMIT    LOCK  DIR      UPDATED\n`,
   )
   for (const r of rows) {
     io.emit(
-      `${r[0]}  ${r[1]!.padEnd(nameW)}  ${r[2]!.padEnd(srcW)}  ${r[3]!.padEnd(subW)}  ${r[4]!.padEnd(13)}${r[5]!.padEnd(9)}${r[6]!.padEnd(9)}${r[7]}\n`,
+      `${r[0]}  ${r[1]!.padEnd(nameW)}  ${r[2]!.padEnd(srcW)}  ${r[3]!.padEnd(subW)}  ${r[4]!.padEnd(13)}${r[5]!.padEnd(10)}${r[6]!.padEnd(6)}${r[7]!.padEnd(9)}${r[8]}\n`,
     )
   }
   io.emit(
@@ -126,6 +127,7 @@ async function listJson(io: OpsIO): Promise<number> {
     ref: entry.ref,
     subdir: entry.subdir ?? null,
     commit: entry.commit ?? null,
+    ...(entry.locked === true ? { locked: true } : {}),
     hasGitSource: entry.gitUrl.length > 0,
     ownership: entry.ownership === 'external' ? 'external' : 'managed',
     enabled,

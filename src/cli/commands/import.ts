@@ -37,6 +37,7 @@ export async function importCommand(argv: string[], io: OpsIO = cliIO): Promise<
       dryRun: options.dryRun,
       noNetCheck: options.noNetCheck,
       noRemote: options.noRemote,
+      locked: options.locked,
       each: options.each,
       force: options.force,
       yes: options.yes,
@@ -91,7 +92,11 @@ function printPlan(plan: ImportPlan, io: OpsIO): void {
 
 function printSummary(result: ImportResult, io: OpsIO): void {
   for (const entry of result.installed) {
-    const how = entry.kind === 'git' ? 'cloned' : 'snapshot'
+    const how = entry.kind === 'git'
+      ? 'cloned'
+      : entry.reason === 'commit-unavailable'
+        ? 'snapshot (locked commit unavailable)'
+        : 'snapshot'
     const links = entry.links.length > 0 ? entry.links.join(', ') : '(no links — disabled upstream)'
     io.emit(`  ✓ ${entry.name}: ${how} → ${entry.path}; links: ${links}\n`)
   }

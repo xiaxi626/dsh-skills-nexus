@@ -1,5 +1,5 @@
 import type { OpsIO } from './ops-io.js';
-import type { ImportDecision } from './import-decision.js';
+import type { ImportDecision, SnapshotReason } from './import-decision.js';
 import type { PackageSkipped } from './export.js';
 /**
  * `import` — channel C of the sources & packages design
@@ -97,6 +97,8 @@ export interface ImportOptions {
     noRemote?: boolean;
     /** Skip the remote probe entirely (offline: no waiting, no verdict). */
     noNetCheck?: boolean;
+    /** Restore labelled entries at their exact recorded commits. */
+    locked?: boolean;
     /** Override the entry name (single-entry packages only). */
     name?: string;
     /** Restrict a labelled package to one entry name. */
@@ -114,8 +116,10 @@ export interface ImportedEntry {
     kind: 'git' | 'snapshot';
     links: string[];
     enabled: boolean;
-    /** Where a snapshot's files came from, for the summary line. */
+    /** Where the installed files landed, for the summary line. */
     path: string;
+    /** Why a snapshot was selected, including an exact-commit fallback. */
+    reason?: SnapshotReason;
 }
 export interface ImportResult {
     source: string;

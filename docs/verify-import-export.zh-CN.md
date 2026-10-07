@@ -3,7 +3,7 @@
 本指南验证**包通道**（[sources-and-packages.md](sources-and-packages.zh-CN.md) 中的通道 C 和 D）：
 
 - **`export`** — 将一个或多个条目打包为 zip，附带 `nexus-package.json` 标签记录来源元数据。
-- **`import`** — 从包中重建条目，当标签中的 url 可达时优先走 git 重新克隆，否则落快照。
+- **`import`** — 从包中重建条目，标签中的 url 可达时优先走 git 重新克隆；`--locked` 则恢复标签记录的精确 commit，仅当该 commit 不可获取时回退载荷。
 - **`adopt`** — 给冻结（无 git 源）条目一个真正的 git 身份，使其可更新。
 
 以下操作均安全：不会触碰你的真实 `~/.dsh`，不会联系任何 GitHub 仓库，当前仓库只读（或通过 `npm run build` 重建）。所有临时状态位于专用临时目录中，最后删除。
@@ -19,10 +19,12 @@
 ## 第一部分 — 测试套件（质量门禁）
 
 ```bash
-npm run typecheck   # tsc --noEmit（严格模式）
-npm run lint        # ESLint 9 + typescript-eslint
-npm test            # node:test + tsx——预期：全部通过
-npm run build       # tsc -> lib/
+npm run typecheck     # tsc --noEmit（严格模式）
+npm run lint          # ESLint 9 + typescript-eslint
+npm run test:build    # 把 src+test 编译到 test-dist/
+npm run build         # tsc -> lib/
+npm run build:client  # 浏览器 bundle + client 声明
+npm test              # node:test + tsx——预期：全部通过
 ```
 
 相关测试覆盖：
@@ -30,9 +32,17 @@ npm run build       # tsc -> lib/
 | 测试文件 | 验证内容 |
 |---|---|
 | `test/export.test.ts` | 标签结构、载荷（不含 `.git`）、PKZip 往返、`ownership: 'external'` 边界、`--all` 包含禁用条目、CLI 表面 |
-| `test/import.test.ts` | 标签驱动的 git 恢复 vs 快照回退、剥壳扫描（候选根发现）、四态可达性、`--dry-run` 预览、`--each` / `--subdir` 范围选择、状态还原（enabled/links）、裸包处理、错误分级（`no-skill-found` / `skill-nested-too-deep`） |
+| `test/import.test.ts` | 标签驱动的 git 恢复 vs 快照回退；`--locked` 在分支移动后精确 detached 恢复、仅 commit unavailable 回退、远端缺失硬失败、元数据/flag 校验、`--each` 独立 clone；以及剥壳扫描、`--dry-run`、状态还原、裸包与错误分级 |
 | `test/adopt.test.ts` | 七步编排、技能集比对、备份/恢复、链接重建、`--force` 换源、`--prune`、失败回退（逐字节 manifest/链接/目录恢复）、外部条目拒绝 |
 | `test/zip.test.ts` | PKZip 编解码器：往返、zip-slip 拒绝、`.git` 跳过、体积/条目上限、加密拒绝 |
+
+测试套件覆盖的锁定导入检查点：
+
+1. 在 commit A 导出 labelled entry，再将来源分支推进到 B。
+2. 用 `--locked` 导入；`git rev-parse HEAD` 仍为 A，且 HEAD detached。
+3. `list` 报告 `LOCK=yes`；`doctor --updates` 将其识别为精确 package commit，而非普通 detached pin。
+4. 成功执行 `switch-version` 后显式锁被清除。
+5. 只有远端明确报告 A 不可获取时才使用包内快照；远端缺失、认证失败、不安全元数据与含糊的 Git 错误均失败。
 
 ---
 
@@ -279,6 +289,6 @@ unset DSH_HOME
 
 - **真实 GitHub 网络** — 本地 `file://` 远程模拟相同的 git 语义，无网络抖动。对真实 GitHub 仓库的运行应表现一致。
 - **面板导入 UI** — 面板的文件选择器 + 预览 + 确认流程由 `test/panel-render.test.ts` 覆盖；本演练使用的 CLI 是面板和命令行通过 `src/import.ts` 共享的。
-- **`--each` 范围** — 演练将整包作为一个条目导入；`--each`（每个候选根一个条目）由 `test/import.test.ts` 覆盖。
+- **`--each` 范围** — 演练将整包作为一个条目导入；`test/import.test.ts` 覆盖 `--each`，包括 `--each --locked` 为每个 skill 创建锁在同一记录 commit 的独立 clone。
 - **外部条目** — `export --all` 跳过 `ownership: 'external'` 条目由 `test/export.test.ts` 覆盖；演练不创建外部条目（需要 `--link-only` 设置）。
 - **Node 20 / 22 / 24 矩阵** — CI 在 push/PR 时运行完整门禁集。

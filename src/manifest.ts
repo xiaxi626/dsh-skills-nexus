@@ -111,13 +111,14 @@ export async function removeEntry(name: string): Promise<SkillEntry | undefined>
  * ("lockfile-lite": the manifest always knows the exact installed version)
  * and, for `switch-version`, the newly checked-out ref (§8.2 step 7).
  */
-export async function markUpdated(name: string, commit?: string, ref?: string): Promise<void> {
+export async function markUpdated(name: string, commit?: string, ref?: string, locked?: boolean): Promise<void> {
   const manifest = await readManifest()
   const entry = findEntry(manifest, name)
   if (!entry) return
   entry.updatedAt = new Date().toISOString()
   if (commit) entry.commit = commit
   if (ref) entry.ref = ref
+  if (locked !== undefined) entry.locked = locked
   await writeManifest(manifest)
 }
 

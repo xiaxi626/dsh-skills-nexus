@@ -36,6 +36,7 @@ export const ROUTED_SUBCOMMANDS = [
   'adopt',
   'completions',
   'disable',
+  'diff',
   'doctor',
   'enable',
   'export',
@@ -46,6 +47,7 @@ export const ROUTED_SUBCOMMANDS = [
   'pull',
   'remove',
   'rm',
+  'rollback',
   'switch-version',
   'update',
 ] as const
@@ -56,9 +58,12 @@ Usage:
   dsh-skills-nexus add    <repo-spec>...              [--name <name>] [--subdir <path>] [--yes] [--json]
   dsh-skills-nexus list [--names | --json]
   dsh-skills-nexus update [name] [--json]   # refresh clones (default: all enabled)
+  dsh-skills-nexus rollback <name> [--json] # 恢复最近一次成功的版本变更
+  dsh-skills-nexus diff <name> [<ref>] [--stat]
+                                            # preview remote changes without checkout
   dsh-skills-nexus export <name>... | --all [--out <file>]
                                             # package skills for another machine
-  dsh-skills-nexus import <package> [--dry-run] [--force]
+  dsh-skills-nexus import <package> [--dry-run] [--locked] [--force]
                                             # rebuild entries from a package
   dsh-skills-nexus adopt  <name> --url <repo> [--ref <ref>] [--subdir <path>] [--force] [--prune]
                                             # give a source-less entry a git source
@@ -80,7 +85,7 @@ Options:
                     always reports the mode used and warns when the clone was complete.
   --yes             skip confirmation prompts (large collections; multi-match removal)
   --json            emit a stable machine-readable report (version 1) on stdout.
-                    Supported by add, list, update, remove, enable and disable; stdout
+                    Supported by add, list, update, rollback, remove, enable and disable; stdout
                     then carries the JSON document alone and every diagnostic goes to
                     stderr. Prompts cannot be answered in this mode, so pass --yes for
                     the operations that would otherwise ask. Exit codes: 0 ok, 1 error
@@ -109,6 +114,8 @@ Options:
                     rebuilt as real clones (updatable); the rest land as
                     snapshots and can be adopted later.
   --dry-run         report what would happen and touch nothing
+  --locked          restore labelled entries at their exact recorded commits;
+                    falls back to payload only when that commit is unavailable
   --subdir <path>   import one root only: a package-relative directory for a
                     bare package, an entry name for a labelled one
   --each            one entry per skill instead of one entry per package root
@@ -132,6 +139,19 @@ Options:
 
   completions options:
   --shell <name>    target shell: bash, zsh, fish or powershell
+
+  rollback:
+    仅支持单 entry，恢复最近一次 branch update 或 switch-version，不提供 redo。
+    当前 HEAD、manifest 和链接必须匹配恢复记录；dirty worktree 警告后丢弃。
+    成功后恢复点已消费；如需再次前进请使用 update/switch-version。
+
+  diff options:
+  --stat            show a diffstat instead of the unified patch
+    Only an attached, explicitly unlocked branch may omit <ref>; tags, commits,
+    detached HEADs and explicitly locked entries must name a target. The remote
+    comparison uses a depth-1 fetch and never checks out or rewrites manifest or
+    links. A partial clone keeps blob:none; the first comparison may fetch blobs
+    lazily, so a large diff can take longer.
 
   switch-version options:
   --type <t>        hint how <ref> should be treated: branch, tag or commit. The

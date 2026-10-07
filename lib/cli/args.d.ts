@@ -122,6 +122,8 @@ export interface ImportOptions {
     noNetCheck: boolean;
     /** Land everything as a snapshot, even when the label records a remote. */
     noRemote: boolean;
+    /** Restore each labelled entry at its exact recorded commit. */
+    locked: boolean;
     /** One entry per skill instead of one per candidate root. */
     each: boolean;
     /** Replace an existing entry of the same name. */

@@ -12,11 +12,16 @@
  * pulls in `node:fs` / `node:child_process` / the zip codec, none of which may
  * reach the browser bundle that also renders this text.
  */
-/** One verdict of a plan (§10.2): either the remote answers, or it does not. */
+/** One verdict of a plan (§10.2): follow a ref, restore an exact commit, or use the payload. */
 export type ImportDecision = {
-    kind: 'git';
+    kind: 'git-ref';
     url: string;
     ref: string;
+} | {
+    kind: 'git-locked';
+    url: string;
+    ref: string;
+    commit: string;
 } | {
     kind: 'snapshot';
     reason: SnapshotReason;
@@ -26,7 +31,7 @@ export type ImportDecision = {
  * not answer in time. The two must never be conflated, or a slow network looks
  * like a deleted repository (§10.2). `not-checked` is `--no-net-check`.
  */
-export type SnapshotReason = 'no-source' | 'unreachable' | 'timeout' | 'no-remote' | 'not-checked';
+export type SnapshotReason = 'no-source' | 'unreachable' | 'timeout' | 'no-remote' | 'not-checked' | 'commit-unavailable';
 /**
  * How one planned entry will land, in the wording of §10.2 — a label only, no
  * name, counts or conflict markers (those belong to the caller's line format).

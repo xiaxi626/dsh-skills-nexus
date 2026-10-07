@@ -28,6 +28,7 @@ export type JsonReport =
   | ListJsonReport
   | AddJsonReport
   | UpdateJsonReport
+  | RollbackJsonReport
   | RemoveJsonReport
   | ToggleJsonReport
 
@@ -74,6 +75,8 @@ export interface ListJsonEntry {
   ref: string
   subdir: string | null
   commit: string | null
+  /** Present and true only for an explicit package commit lock. */
+  locked?: boolean
   hasGitSource: boolean
   ownership: 'managed' | 'external'
   enabled: boolean
@@ -138,6 +141,25 @@ export interface UpdateJsonReport {
   version: 1
   results: UpdateJsonResult[]
   summary: { updated: number; failed: number }
+}
+
+/** rollback 的方向是当前版本 → 恢复版本，而非原操作方向。 */
+export interface RollbackJsonResult {
+  name: string
+  status: 'rolled-back' | 'failed'
+  fromCommit: string | null
+  toCommit: string | null
+  fromRef: string | null
+  toRef: string | null
+  wasDirty?: boolean
+  links?: string[]
+  message?: string
+  error?: string
+}
+
+export interface RollbackJsonReport {
+  version: 1
+  results: RollbackJsonResult[]
 }
 
 /* ------------------------------------------------------------------ */

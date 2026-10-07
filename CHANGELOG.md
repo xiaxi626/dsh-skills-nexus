@@ -4,6 +4,47 @@
 
 ## [Unreleased]
 
+**2026-10-07 · Fixed · 补全测试期望未随 `diff` 子命令同步更新导致 CI 失败**
+
+- **根因**：`diff` 子命令添加到 bash/fish 补全模板时（命令列表新增 `diff`），`test/completions.test.ts` 中 `sub-prefix-d` 测试用例的期望值仍为 `disable doctor`，未包含同样以 `d` 开头的 `diff`，导致 bash 和 fish 补全测试在全部平台失败。
+- **修复**：bash 测试 `'sub-prefix-d|disable doctor'` → `'sub-prefix-d|diff disable doctor'`；fish 测试 `['disable', 'doctor']` → `['diff', 'disable', 'doctor']`。
+- **教训**：新增子命令时须同步检查四类位置——① 路由表（`src/cli/index.ts`）、② 补全模板命令列表（`src/cli/commands/completions/{bash,zsh,fish,powershell}.ts`）、③ 补全测试期望值（`test/completions.test.ts`）、④ `--help` 输出。遗漏任何一处都会在 CI 矩阵中全量暴露。
+- **验证**：`typecheck`、`lint`、`npm test` 全部通过，636 项中 633 通过、0 失败、3 跳过。
+
+**2026-10-07 · Added · Git 精确版本导入与锁定展示**
+
+本次更新实现了 Nexus Git 恢复与预览的闭环：`import --locked` 按 package label 记录的 commit 做 depth-1 fetch + detached checkout，仅在远端明确报告 commit 不可获取时回退 snapshot；manifest 写入 `locked: true`，`list` 增加 `LOCK` 列，`doctor --updates` 区分显式 package lock 与普通 detached pin；`diff` 提供只读远端差异预览；文档双语同步；CI 在 Ubuntu/Windows/macOS × Node 20/22/24 矩阵中显式运行 compiled CLI 本地 `file://` 端到端测试。
+
+- 新增 `import <package> --locked`：仅接受记录完整安全 `gitUrl`、`ref` 与 40–64 位 commit SHA 的 labelled package，以 depth-1 fetch 和 detached checkout 恢复导出时的精确提交；`--each` 为每个 skill 建立独立 clone，并保留原 source ref。
+- 精确提交仅在远端明确表示该 commit 不可获取时回退 package payload snapshot；网络、认证、本地对象及模糊 Git 错误继续失败，不静默降级。`--locked` 与 `--no-remote`、`--no-net-check` 互斥，bare package 不支持锁定恢复。
+- manifest 以 `locked: true` 标记显式 package lock；`list` 增加 `LOCK` 列，list JSON、既有 HTTP list 与 client 类型仅为显式锁追加可选字段；`doctor --updates` 区分 package lock 与普通 detached tag/commit pin。成功 `switch-version` 后清除显式锁。
+- CLI usage 与 bash、zsh、fish、PowerShell 补全同步；未新增 JSON 命令、HTTP 路由或面板操作入口。
+- 文档同步：README、架构、来源与包、版本锁、doctor 及 import/export 验证指南均补充精确恢复、严格回退边界、显式锁展示与 JSON 可选字段说明。
+- CI 在 Ubuntu、Windows、macOS 与 Node 20/22/24 矩阵中显式运行 compiled CLI 本地 `file://` 端到端测试，覆盖无差异预览退出 0、远端推进后的只读 diff，以及精确 commit 锁定恢复与 list/doctor 展示；全程不依赖外网。
+- 验证：`typecheck`、`lint`、`test:build`、`build`、`build:client`、`npm test` 六步门禁全部通过；全量 636 项中 633 通过、0 失败、3 项因本机缺少 bash/zsh/fish 跳过（较上一阶段新增 8 项），另有 1 项 compiled CLI 本地源集成测试通过；保留既有 2 条 lint warning，构建生成物零漂移。
+
+**Git 远端差异预览**
+
+- 新增 `diff <name> [<ref>] [--stat]`：在 per-entry 锁内以 depth-1 fetch 比较当前 HEAD 与远端目标，默认输出无颜色 unified diff，`--stat` 仅输出统计；发现实际 branch 且未显式 locked 时可省略目标，detached、tag/commit pin 与显式 locked entry 必须明确给出 branch、tag 或 SHA。
+- diff 不 checkout，不写 manifest 或链接，差异存在仍退出 0；仅允许 Git 更新 `FETCH_HEAD`、浅克隆边界及对象缓存。subdir entry 用 skill root pathspec 限定范围；partial clone 的 fetch 继续使用 `--filter=blob:none`，比较时按需获取目标 blob。Git 调用保持参数数组，ref 经安全校验，预览禁用 external diff 与 textconv。
+- CLI 帮助说明首次比较和大型 diff 的下载/耗时特征；bash、zsh、fish、PowerShell 同步 `diff`、动态 entry 名和 `--stat` 补全。不新增 JSON、HTTP 路由或面板入口。
+- 验证：新增 branch 默认目标、显式 branch/tag/SHA、detached/locked 拒绝、subdir、stat、状态不变、partial clone lazy blob、参数安全及锁测试；`typecheck`、`lint`、`test:build`、`build`、`build:client`、`npm test` 六步门禁全部通过，全量 628 项中 625 通过、0 失败、3 项因本机缺少 bash/zsh/fish 跳过（较上一阶段新增 7 项），PowerShell 实际补全通过；保留既有 2 条 lint warning。
+
+**Git 单次版本回滚**
+
+- 新增 `rollback <name> [--json]`，在 per-entry 锁内恢复最近一次 branch 更新或 switch-version；校验当前 HEAD、branch/detached、manifest 版本与完整链接集合，拒绝漂移或旧链接名被他人占用的情况。dirty worktree 警告后丢弃；成功消费恢复点并提示再次前进需使用 update/switch-version，不提供 redo。
+- 每个 entry 的恢复记录存于 `<NEXUS_HOME>/rollback/<entry>.json`，用唯一 `refs/nexus/rollback/<token>` 锚定旧 commit，再通过临时 JSON 的原子 rename 发布；读取时验证 anchor 与旧 commit 一致。发布失败保留原恢复点，孤立 ref 可由后续成功操作清理；Git GC 后旧 detached 对象仍可恢复。
+- 恢复点记录实际 HEAD、精确 commit、ref、显式 locked、updatedAt、启用状态与全部链接。branch no-op、detached/locked 校验及 pin 纠偏不覆盖已有恢复点；switch-version 清除显式 locked，rollback 可恢复它。恢复失败会还原执行前 checkout、重新归一化 frontmatter、恢复链接与 manifest，并保留原始错误和恢复诊断。
+- CLI 与 HTTP update 共用恢复点逻辑；未新增 HTTP 路由或面板控件。JSON 使用实际回滚方向并隔离人类 stdout；CLI 帮助及 bash/zsh/fish/PowerShell 补全同步。
+- 验证：`typecheck`、`lint`、`test:build`、`build`、`build:client`、`npm test` 六步门禁全部通过；全量 621 项，618 通过、0 失败、3 跳过，较此前 585 项增加 36 项（35 项 rollback 测试及 1 项 PowerShell 实际补全测试）。本机缺少可用 bash/zsh/fish，三项运行时补全测试跳过，其模板契约测试通过；保留既有 2 条 lint warning。生成物由构建命令生成。
+
+**Git 版本变更恢复安全**
+
+- CLI 与 HTTP update 使用同一单 entry 核心，统一 dirty 处理、版本判断、frontmatter 归一化、链接重建和 manifest 写回；CLI 批量与 JSON、HTTP job 形态不变。
+- update / switch-version 晚期失败后，按原 branch 名及精确 commit（或 detached commit）恢复 checkout，重新归一化旧版本并恢复原链接、别名及 manifest 字段；恢复失败附加诊断并保留原始异常。
+- 更新前捕获完整链接集合，避免 checkout 删除目录后 Windows junction 无法归属；新链接冲突不覆盖其他 entry 或用户文件。
+- 验证：六步门禁全部通过；全量测试 585 项，582 通过、0 失败、3 跳过（基线 579 项，新增 6 项恢复测试）。lint 保留基线的 2 条 warning；生成物由 build / build:client 重建。
+
 **2026-10-06 · Fixed · `test/toggle.test.ts` 幽灵登记修复：list 用例改走 OpsIO seam，第二条用例恢复 TAP 登记与失败归因**
 
 - **背景（对 2026-09-28「过程记录」的更正）**：该记录称第二条用例（bare update 默认目标）的「幽灵登记」*与声明位置相关、移至文件末尾即恢复、断言失败不会报红*。本轮实测三点全部不成立：① 把该用例移到文件末尾后计数仍是 5，幽灵**转移给新的执行前驱**（首条用例消失）；② 真因与名字、与「第二条」这个位置都无关，而是 **list 用例（文件第 3 个执行）在测试体内替换 `process.stdout.write` 并在 `finally` 恢复**——node:test 子进程模式下，这会让紧邻其前的用例失去 TAP 登记（最小复现：6 个平凡用例中任何一个做「替换→恢复 stdout.write」，其前驱必消失，Node 20.19 / 22.20 / 24.19 行为一致；`node file.ts` 直跑与 `--test-isolation=none` 进程内模式则不丢）；③ 失败**不会静默**：幽灵用例的回调每次真实执行、断言真实在跑，其失败使退出码为 1（全量 `npm test` 实测 578 · 574 pass · **1 fail**），但失败被挂在文件级（`test at test\toggle.test.ts:1:1` → 泛化消息 `'test failed'`），**用例名与断言消息在整个输出中消失**——缺陷是「零归因」而非「永不报红」。

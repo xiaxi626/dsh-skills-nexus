@@ -14,7 +14,7 @@ flowchart TD
     end
 
     subgraph NEXUS["dsh-skills-nexus  (~/.dsh/skills-nexus/)"]
-        A["CLI<br/><i>add · update · remove</i>"]
+        A["CLI<br/><i>add · import · update · remove</i>"]
         M["manifest.json<br/><i>state backend</i>"]
         R["repos/<br/><i>git clones (sparse for subdir)</i>"]
     end
@@ -42,7 +42,7 @@ flowchart TD
     style G fill:#f1f5f9,stroke:#64748b,stroke-width:2px,color:#000
 ```
 
-- **CLI writes**: `add` / `update` / `remove` commands operate git, update `manifest.json`, and create/remove symlinks in `~/.dsh/skills/`
+- **CLI writes**: `add` / `import` / `update` / `remove` commands operate git, update `manifest.json`, and create/remove symlinks in `~/.dsh/skills/`
 - **Official provider reads**: the built-in filesystem provider scans `~/.dsh/skills/` and discovers skills through symlinks
 - **Decoupled**: CLI only manages clones and symlinks; discovery and serving are entirely handled by the official provider
 
@@ -56,6 +56,12 @@ dsh-skills-nexus add github:owner/repo
    └─ normalize frontmatter  (fix invalid names to kebab-case, add missing description)
    └─ create symlink     →  ~/.dsh/skills/<skill-name>/  →  points to repos/<name>/
    └─ append entry       →  ~/.dsh/skills-nexus/manifest.json
+
+dsh-skills-nexus import package.zip --locked
+   └─ validate labelled source metadata + full commit SHA
+   └─ shallow clone/fetch the recorded commit, then checkout detached
+   └─ append entry with locked: true; use payload only when the remote
+      explicitly reports that commit unavailable
 
 DSH filesystem provider (official, built-in)
    └─ scans ~/.dsh/skills/ → discovers all symlinked skills automatically
@@ -78,6 +84,10 @@ Key design points:
   skips a skill.
 - **Lightweight enable/disable**: just create/remove symlinks — clone data
   always stays in `repos/`.
+- **Explicit package locks are manifest facts**: `import --locked` records
+  `locked: true` after checking out the package's exact commit. Health checks
+  do not infer this flag from detached HEAD, so ordinary tag/commit pins remain
+  distinguishable. A successful `switch-version` clears the explicit lock.
 
 ## SKILL.md discovery (per cloned repo)
 

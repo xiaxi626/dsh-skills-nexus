@@ -324,6 +324,8 @@ export type UpdateCheckStatus =
 export interface UpdateCheck {
   name: string
   status: UpdateCheckStatus
+  /** True only for an explicit package commit lock, not every detached HEAD. */
+  locked?: boolean
   /** Commit recorded in the manifest (when present and a remote was resolved). */
   local?: string
   /** Commit resolved from the remote (only for `behind-remote` / `current`). */
@@ -375,9 +377,12 @@ async function checkEntryUpdate(e: SkillEntry, io: OpsIO): Promise<UpdateCheck> 
     return { name: e.name, status: 'absent' }
   }
 
-  // Detached HEAD = tag/commit pin — version-locked, never "behind" (§7.2).
-  const locked = await isDetachedHead(dir).catch(() => false)
-  if (locked) return { name: e.name, status: 'locked' }
+  // An explicit package lock is a manifest fact; do not infer it from HEAD.
+  if (e.locked === true) return { name: e.name, status: 'locked', locked: true }
+
+  // Other detached HEADs are tag/commit pins, but not explicit import locks.
+  const detached = await isDetachedHead(dir).catch(() => false)
+  if (detached) return { name: e.name, status: 'locked' }
 
   io.progress('checking updates', e.name)
   const remote = await lsRemoteCommit(e.gitUrl, e.ref)

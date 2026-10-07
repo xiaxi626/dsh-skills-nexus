@@ -98,7 +98,7 @@ dsh-skills-nexus add github:owner/repo --subdir skills/foo   # 只安装集合�
 dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills   # 自定义条目名（条目名回退链：--name > subdir 末段 > 仓库名）
 
 # 查看 / 维护
-dsh-skills-nexus list                               # 列出所有已注册 skill（含来源仓库 SOURCE、commit、subdir、状态）
+dsh-skills-nexus list                               # 列出所有条目（含来源、commit、subdir、显式锁、状态）
 dsh-skills-nexus list --json                        # …或输出同内容的带版本号 JSON 报告
 dsh-skills-nexus update [name]                      # 刷新（分支 pin 拉取；tag/commit pin 校验）
 dsh-skills-nexus switch-version <name> <ref> [--type <branch|tag|commit>]  # 把克隆切到另一个 ref（fetch、checkout、重归一化、重建链接）
@@ -113,7 +113,8 @@ dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>  # 输出对应 
 dsh-skills-nexus export --all -o migrate.zip        # 打包全部条目（含禁用条目）
 dsh-skills-nexus export <name>... -o one.zip        # …或只打包其中几个
 dsh-skills-nexus import migrate.zip --dry-run       # 逐条目预览：真克隆还是落快照；零副作用
-dsh-skills-nexus import migrate.zip                 # 在本机重建这些条目
+dsh-skills-nexus import migrate.zip                 # 按记录的 ref 重建条目
+dsh-skills-nexus import migrate.zip --locked        # 恢复各条目记录的精确 commit
 dsh-skills-nexus adopt <name> --url github:owner/repo   # 给无 git 源的条目补回来路
 ```
 
@@ -152,8 +153,9 @@ $ dsh-skills-nexus add github:owner/repo --json | jq '.results[0]'
 
 - **包内绝不含 `.git`**，也不含任何凭据。它携带的是技能**和它们的来路**：每个条目的 `url` / `gitUrl` / `ref` / `commit` / `subdir`、启用状态与链接名。`export --all` 连禁用条目一起打包，因此整机迁移能还原出原机的样子。
 - **`import` 优先重新克隆**：标签里记录的远端此刻可达时，走与 `add` 同一条安装路径——真浅克隆，可 `update`、可 `switch-version`。只有在没有来源、或远端不可达时才落成**快照**；即便如此，原机的状态也会被还原：在那边禁用的技能到这里仍然禁用，链接名也原样保留。
+- **`--locked` 精确恢复导出时的版本**：只接受 selected entry 含安全 `gitUrl`、非空 `ref` 与 40–64 位完整 commit SHA 的 labelled package。nexus 跳过可达性探测，对该 commit 执行 depth-1 fetch 和 detached checkout，并在 manifest 中标记显式锁。只有远端明确报告「commit 不可获取」才回退包内快照；网络、认证和含糊的 Git 错误仍会失败。裸包不支持 `--locked`，且该选项不能与 `--no-remote` 或 `--no-net-check` 同用。
 - **`--dry-run` 先看后动，零副作用**，逐条目打印四种判定之一：`will clone from <url> (<ref>)`、`will import as snapshot (<url> unreachable)`、`will import as snapshot (<url> check timed out)`（5 秒探测——网络慢绝不能被写成"仓库没了"），以及无标签包的 `will import as snapshot (source unknown)`。别人打的 zip 就属于最后这种：它的技能靠更宽容的扫描找到；层级太深时用 `--subdir <path>` 显式指定根。
-- **包是用来跨机器的，不是用来安装的**：有网就直接 `add`，`export` / `import` 负责整体搬迁（或接收别人交付的技能）。`--no-net-check` 完全跳过探测（离线零等待）、`--no-remote` 一律落快照、`--each` 每个技能一个条目、`--force` 替换同名已注册条目。
+- **包是用来跨机器的，不是用来安装的**：有网就直接 `add`，`export` / `import` 负责整体搬迁（或接收别人交付的技能）。`--no-net-check` 完全跳过探测（离线零等待）、`--no-remote` 一律落快照、`--each` 每个技能一个条目（与 `--locked` 合用时，每个技能各有一份锁在记录 commit 的独立 clone）、`--force` 替换同名已注册条目。`list` 的 `LOCK` 列显示显式 package lock；`doctor --updates` 会将其与普通 detached tag/commit pin 区分。成功执行 `switch-version` 后显式锁被清除。
 
 ### 把冻结条目救回来：`adopt`
 

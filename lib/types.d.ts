@@ -22,6 +22,8 @@ export interface SkillEntry {
      * a moving branch.
      */
     commit?: string;
+    /** 显式按 package commit 锁定；缺失按 false 解释，不从 HEAD 推导。 */
+    locked?: boolean;
     /**
      * Path of the skill root *inside* the clone, e.g. `skills/foo` — set when
      * the repo was installed piecemeal via `--subdir`. Absent = the clone root

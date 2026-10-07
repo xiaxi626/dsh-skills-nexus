@@ -230,11 +230,12 @@ interface GitRun {
  * installs, and `execFile` (argument arrays, no shell) is used so refs, URLs
  * and paths are never re-interpreted by a shell.
  */
-async function runGit(args: string[], cwd?: string): Promise<GitRun> {
+async function runGit(args: string[], cwd?: string, maxBuffer?: number): Promise<GitRun> {
   try {
     const { stdout, stderr } = await execFileAsync('git', args, {
       cwd,
       env: { ...process.env, LC_ALL: 'C', LANG: 'C' },
+      ...(maxBuffer === undefined ? {} : { maxBuffer }),
     })
     return { ok: true, text: stdout + stderr }
   } catch (err) {
@@ -247,8 +248,8 @@ async function runGit(args: string[], cwd?: string): Promise<GitRun> {
 }
 
 /** Run Git for a real work step; a non-zero exit throws Git's own message. */
-async function git(args: string[], cwd?: string): Promise<string> {
-  const { ok, text } = await runGit(args, cwd)
+async function git(args: string[], cwd?: string, maxBuffer?: number): Promise<string> {
+  const { ok, text } = await runGit(args, cwd, maxBuffer)
   if (!ok) throw new Error(text.trim() || `git ${args[0] ?? 'command'} failed`)
   return text
 }
@@ -355,6 +356,14 @@ export interface CloneResult {
   warnings: string[]
 }
 
+/** An exact package commit is no longer fetchable from its recorded remote. */
+export class CommitUnavailableError extends Error {
+  constructor(readonly commit: string, message: string) {
+    super(message)
+    this.name = 'CommitUnavailableError'
+  }
+}
+
 /** This Git cannot run the sparse step, so the clone is simply complete. */
 export const SPARSE_UNSUPPORTED_WARNING =
   'sparse checkout is unavailable in this Git — the whole repository was materialized'
@@ -435,9 +444,12 @@ async function cloneFullRepo(spec: GitSpec, dest: string): Promise<void> {
 export async function cloneRepo(
   spec: GitSpec,
   dest: string,
-  options: { subdir?: string } = {},
+  options: { subdir?: string; exactCommit?: string } = {},
 ): Promise<CloneResult> {
   const subdir = options.subdir === undefined ? undefined : normalizeSubdir(options.subdir)
+  if (options.exactCommit !== undefined) {
+    return cloneExactCommit(spec.url, dest, options.exactCommit, subdir)
+  }
   if (subdir === undefined || subdir === '.') {
     await cloneFullRepo(spec, dest)
     return { mode: 'full', warnings: [] }
@@ -508,6 +520,87 @@ export async function cloneRepo(
 }
 
 /**
+ * Clone and detach at one exact commit recorded by a package. The initial clone
+ * establishes origin without trusting the package's moving ref; the explicit
+ * depth-1 fetch is the only operation whose narrowly recognised "object is no
+ * longer available" failures may become a snapshot fallback in `import`.
+ */
+async function cloneExactCommit(
+  url: string,
+  dest: string,
+  commit: string,
+  subdir?: string,
+): Promise<CloneResult> {
+  if (!/^[0-9a-f]{40,64}$/i.test(commit)) throw new Error('Invalid exact commit')
+  await assertCloneTargetAbsent(dest)
+
+  const sparseRequested = subdir !== undefined && subdir !== '.'
+  const sparse = sparseRequested && await hasSparseCheckoutCommand()
+  const warnings: string[] = sparseRequested && !sparse ? [SPARSE_UNSUPPORTED_WARNING] : []
+  try {
+    const cloneArgs = ['clone', '--depth', '1', '--no-checkout']
+    if (sparse) cloneArgs.push('--filter=blob:none')
+    const cloneOnce = async (): Promise<void> => {
+      try {
+        const output = await git([...cloneArgs, url, dest])
+        if (sparse && /filtering not recognized by server/i.test(output)) {
+          warnings.push(FILTER_IGNORED_WARNING)
+        }
+      } catch (err) {
+        await discardClone(dest)
+        throw err
+      }
+    }
+    await retry(cloneOnce, { retries: 1, minDelay: 500 })
+
+    const fetched = await runGit(
+      ['fetch', '--depth', '1', ...(sparse ? ['--filter=blob:none'] : []), 'origin', commit],
+      dest,
+    )
+    if (!fetched.ok) {
+      const message = fetched.text.trim() || `git fetch failed for ${commit}`
+      if (isUnavailableCommitMessage(message, commit)) {
+        throw new CommitUnavailableError(commit, message)
+      }
+      throw new Error(message)
+    }
+
+    if (!sparse) {
+      await git(['checkout', '--detach', commit], dest)
+      return { mode: 'full', warnings }
+    }
+
+    const capabilities = await sparseSetCapabilities(dest)
+    if (!capabilities.cone) {
+      warnings.push(SPARSE_UNSUPPORTED_WARNING)
+      await git(['checkout', '--detach', commit], dest)
+      return { mode: 'full', warnings }
+    }
+
+    const setArgs = ['sparse-checkout', 'set', '--cone']
+    if (capabilities.skipChecks) setArgs.push('--skip-checks')
+    setArgs.push('--', subdir!)
+    await git(setArgs, dest)
+    await git(['checkout', '--detach', commit], dest)
+    return { mode: 'sparse', warnings }
+  } catch (err) {
+    await discardClone(dest)
+    throw err
+  }
+}
+
+/** Only explicit remote-object refusal messages qualify for snapshot fallback. */
+function isUnavailableCommitMessage(message: string, commit: string): boolean {
+  const escaped = commit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return (
+    new RegExp(`couldn't find remote ref ${escaped}`, 'i').test(message) ||
+    new RegExp(`not our ref ${escaped}`, 'i').test(message) ||
+    /server does not allow request for unadvertised object/i.test(message) ||
+    /no such ref was fetched/i.test(message)
+  )
+}
+
+/**
  * Resolve the commit SHA a remote currently advertises for `ref`, via
  * `git ls-remote`. Returns `undefined` on any failure (offline, private repo,
  * a raw commit SHA the server does not advertise, or timeout) so callers can
@@ -567,6 +660,7 @@ export async function isDetachedHead(dest: string): Promise<boolean> {
 
 /** Resolve a local ref (branch / tag / commit) to its commit SHA. */
 export async function resolveRefCommit(dest: string, ref: string): Promise<string> {
+  assertSafeRef(ref)
   const { stdout } = await execFileAsync(
     'git', ['rev-parse', '--verify', `${ref}^{commit}`], { cwd: dest },
   )
@@ -575,6 +669,7 @@ export async function resolveRefCommit(dest: string, ref: string): Promise<strin
 
 /** Check out a local ref, leaving the clone detached (restores a pinned tag/commit). */
 export async function checkoutRef(dest: string, ref: string): Promise<void> {
+  assertSafeRef(ref)
   await execFileAsync('git', ['checkout', ref], { cwd: dest })
 }
 
@@ -645,6 +740,68 @@ export async function fetchRepo(dest: string, ref: string): Promise<FetchOutcome
   // Raw commit SHA (writes FETCH_HEAD only; a mapping cannot apply).
   const sha = await runGit(['fetch', '--depth', '1', 'origin', ref], dest)
   return sha.ok ? 'sha' : 'none'
+}
+
+/**
+ * Fetch one remote comparison target into FETCH_HEAD without updating a local
+ * branch or tag. Partial clones retain their blob:none filter; the subsequent
+ * diff may therefore lazy-fetch only the blobs it actually compares.
+ */
+export async function fetchDiffTarget(
+  dest: string,
+  ref: string,
+  options: { exactBranch?: boolean } = {},
+): Promise<string> {
+  assertSafeRef(ref)
+  const valid = await runGit(['check-ref-format', '--allow-onelevel', ref])
+  if (!valid.ok) {
+    throw new Error(`Invalid diff ref ${JSON.stringify(ref)}: expected a branch, tag or commit.`)
+  }
+
+  const partial = await runGit(['config', '--bool', 'remote.origin.promisor'], dest)
+  const args = ['fetch', '--depth', '1', '--no-tags', '--refmap=']
+  if (partial.ok && partial.text.trim() === 'true') args.push('--filter=blob:none')
+  const remoteRef = options.exactBranch ? `refs/heads/${ref}` : ref
+  // An explicit empty destination suppresses the clone's configured fetch
+  // mapping: only FETCH_HEAD, shallow boundaries and fetched objects may move.
+  args.push('origin', `${remoteRef}:`)
+
+  const fetched = await runGit(args, dest)
+  if (!fetched.ok) {
+    throw new Error(
+      fetched.text.trim() || `Remote ref ${JSON.stringify(ref)} could not be fetched.`,
+    )
+  }
+  return resolveRefCommit(dest, 'FETCH_HEAD')
+}
+
+/**
+ * Render a deterministic, non-interactive commit diff. External diff drivers
+ * and textconv filters are disabled because repository-controlled config or
+ * attributes must not execute helpers while previewing untrusted content.
+ */
+export async function diffRepo(
+  dest: string,
+  fromCommit: string,
+  toCommit: string,
+  options: { stat?: boolean; pathspec?: string } = {},
+): Promise<string> {
+  for (const commit of [fromCommit, toCommit]) {
+    if (!/^[0-9a-f]{40,64}$/i.test(commit)) throw new Error('Invalid diff commit')
+  }
+  const args = [
+    '--no-pager',
+    'diff',
+    '--no-color',
+    '--no-ext-diff',
+    '--no-textconv',
+    ...(options.stat ? ['--stat'] : []),
+    fromCommit,
+    toCommit,
+  ]
+  if (options.pathspec !== undefined) args.push('--', normalizeSubdir(options.pathspec))
+  // Node's execFile default is 1 MiB, far below a realistic unified diff.
+  return git(args, dest, 64 * 1024 * 1024)
 }
 
 /** What {@link fetchRepo} managed to land locally — the input to
@@ -749,8 +906,47 @@ export async function checkoutBranch(dest: string, branch: string): Promise<void
  * argument (see `isSafeRef`).
  */
 export async function getCurrentBranch(dest: string): Promise<string | undefined> {
-  const { ok, text } = await runGit(['symbolic-ref', '--short', '-q', 'HEAD'], dest)
+  const { ok, text } = await runGit(['symbolic-ref', '-q', 'HEAD'], dest)
   if (!ok) return undefined
-  const name = text.trim()
+  const name = text.trim().replace(/^refs\/heads\//, '')
   return name.length > 0 && isSafeRef(name) ? name : undefined
+}
+
+/** 按精确 commit 恢复 HEAD；branch 恢复不得取当前 remote tip。 */
+export async function restoreCheckout(dest: string, commit: string, branch?: string): Promise<void> {
+  if (!/^[0-9a-f]{40,64}$/i.test(commit)) throw new Error('Invalid checkout commit')
+  if (branch === undefined) {
+    await git(['checkout', '--detach', commit], dest)
+    return
+  }
+  assertSafeRef(branch)
+  await git(['check-ref-format', `refs/heads/${branch}`], dest)
+  await git(['checkout', '-B', branch, commit], dest)
+  await git(['config', '--replace-all', 'remote.origin.fetch', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], dest)
+  await git(['config', `branch.${branch}.remote`, 'origin'], dest)
+  await git(['config', `branch.${branch}.merge`, `refs/heads/${branch}`], dest)
+}
+
+export const ROLLBACK_REF_PREFIX = 'refs/nexus/rollback/'
+
+export function assertRollbackRef(ref: string): void {
+  if (!/^refs\/nexus\/rollback\/[a-f0-9]{32}$/.test(ref)) {
+    throw new Error('Invalid rollback anchor ref')
+  }
+}
+
+export async function createRollbackAnchor(dest: string, ref: string, commit: string): Promise<void> {
+  assertRollbackRef(ref)
+  if (!/^[a-f0-9]{40,64}$/.test(commit)) throw new Error('Invalid anchor commit')
+  await git(['update-ref', ref, commit, '0'.repeat(commit.length)], dest)
+}
+
+export async function deleteRollbackAnchor(dest: string, ref: string): Promise<void> {
+  assertRollbackRef(ref)
+  await git(['update-ref', '-d', ref], dest)
+}
+
+export async function rollbackAnchors(dest: string): Promise<string[]> {
+  const text = await git(['for-each-ref', '--format=%(refname)', ROLLBACK_REF_PREFIX], dest)
+  return text.trim().split(/\r?\n/).filter((ref) => /^refs\/nexus\/rollback\/[a-f0-9]{32}$/.test(ref))
 }

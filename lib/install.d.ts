@@ -52,6 +52,10 @@ export interface GitInstallParams {
     subdirLeaf: string | undefined;
     /** Skip the large-collection confirmation. */
     yes: boolean | undefined;
+    /** Exact package commit to fetch and check out detached. */
+    exactCommit?: string;
+    /** Mark the manifest entry as explicitly locked to `exactCommit`. */
+    locked?: boolean;
     io: OpsIO;
 }
 export interface GitInstallResult {

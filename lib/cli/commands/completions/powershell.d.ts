@@ -22,7 +22,7 @@
  * The first positional argument is counted as "words before the cursor that do
  * not start with `-`", not as a fixed slot: `remove --yes <TAB>` must still
  * offer names, because `--yes` is accepted before the names. Only update/pull/
- * remove/rm/enable/disable reach that branch and none of them has a
+ * rollback/diff/remove/rm/enable/disable reach that branch and none has a
  * value-taking flag, so a flag value can never be miscounted as a positional.
  * `export` and `adopt` also take a positional (a name), but each has
  * value-taking flags (`--out`, `--url`), so both are deliberately outside it.

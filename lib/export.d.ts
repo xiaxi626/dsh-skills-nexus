@@ -48,7 +48,7 @@ export interface PackageEntry {
     /** Resolved remote; empty for entries nexus never cloned from git. */
     gitUrl: string;
     ref: string;
-    /** Informational only — the importer re-resolves `ref` instead of trusting it. */
+    /** Exact revision used by `import --locked`; informational for normal import. */
     commit: string;
     subdir?: string;
     /** Whether the entry had at least one link when it was exported. */
