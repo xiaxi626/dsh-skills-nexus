@@ -12,7 +12,7 @@
 |---|---|---|---|---|
 | A | `add <spec>` | 克隆所得的 `url + ref + commit` | 是 | 公开或私有 git 仓库 |
 | B | `import <dir>` | 从 `.git` remote 或元数据探测；无则空 | 探测到 → 是；否则冻结 | 磁盘上已有的技能、遗留目录 |
-| C | `export` / `import <pkg>` | 包内的 `nexus-package.json` 标签 | 标签含 url 且可达 → 是；否则冻结 | 跨机器迁移、离线交付 |
+| C | `export` / `import <pkg>` | 包内的 `nexus-package.json` 标签 | 来源可达 → 是；`--locked` 恢复精确 commit；否则冻结 | 跨机器迁移、可复现恢复、离线交付 |
 | D | `adopt <name> --url` | 用户显式给出 | 操作完成后 → 是 | 冻结条目后来找到了它的仓库 |
 
 ## 通道 A：git 源（`add`）
@@ -69,6 +69,7 @@ skills/<name>/...           # 每个技能一条完整文件树
 ```bash
 dsh-skills-nexus import <file|dir>
 dsh-skills-nexus import <file> --dry-run                 # 仅预览
+dsh-skills-nexus import <file> --locked                  # 恢复记录的精确 commit
 dsh-skills-nexus import <file> --no-remote               # 强制落快照
 ```
 
@@ -77,6 +78,7 @@ dsh-skills-nexus import <file> --no-remote               # 强制落快照
 | 参数 | 作用 |
 |---|---|
 | `--dry-run` | 预览将要发生什么，不触碰 nexus 状态 |
+| `--locked` | 把 labelled entry 恢复到记录的精确 commit；要求安全且非空的 `gitUrl`/`ref` 与 40–64 位完整 SHA |
 | `--no-net-check` | 跳过远端可达性检测（零等待，离线安全） |
 | `--no-remote` | 即使标签记录了可达 url，也强制落快照 |
 | `--name <名称>` | 覆盖条目名（仅适用于单条目包） |
@@ -108,12 +110,13 @@ root = 解压根; peel = 0
 
 | 条件 | 结果 |
 |---|---|
+| `--locked` + 完整的 labelled source metadata | 跳过可达性探测；浅获取记录的 commit 并 detached checkout，安装后的 manifest 写入 `locked: true` |
 | 标签含 url，url 可达 | 从 git 重新克隆——可更新条目 |
 | 标签含 url，url 不可达 | 快照（冻结），附 `(url unreachable)` 说明 |
 | 标签含 url，检测超时（默认 5s） | 快照，附 `(url check timed out)` 说明 |
 | 无标签（裸包） | 快照，附 `(source unknown)` 说明 |
 
-`--no-net-check` 完全跳过可达性检测；所有条目显示 `(not checked)` 而非 `unreachable`。
+`--locked` 与 `--no-net-check`、`--no-remote` 互斥，裸包也不能使用。只有远端明确报告记录的 commit 不可获取时，精确恢复才回退包内快照；网络、认证、本地对象和含糊的 Git 错误仍会失败。`--no-net-check` 完全跳过可达性检测；普通导入的所有条目显示 `(not checked)` 而非 `unreachable`。
 
 **状态还原。** 标签记录导出时的 `enabled` 和链接名。导入时原样还原——源机器上禁用的技能在目标机器上保持禁用。
 
@@ -137,10 +140,11 @@ package: claude-skills.zip (zip) · manifest: none (source unknown)
   skills/beta       name=beta-skill    will import as snapshot (source unknown)
 ```
 
-判定只有一条分叉线：**包里有没有标签、标签里的 url 此刻是否可达**。四态：
+普通导入按「包里有没有标签、标签里的 url 此刻是否可达」判定。`--locked` 则不探测远端，而是校验标签并规划记录的精确 commit：
 
 | 条件 | 输出 |
 |---|---|
+| `--locked` + 合法 labelled entry | `will clone locked commit <commit> from <url> (source ref: <ref>; snapshot fallback only if that commit is unavailable)` |
 | 标签 + url 可达 | `will clone from <url> (<ref>)` |
 | 标签 + url 不可达 | `will import as snapshot (<url> unreachable)` |
 | 标签 + 检测超时 | `will import as snapshot (<url> check timed out)` |
@@ -195,7 +199,7 @@ dsh-skills-nexus adopt <name> --url <git-url> [--ref <r>] [--subdir <p>] [--forc
       "url": "github:trae-community/trae-skills",
       "gitUrl": "https://github.com/trae-community/trae-skills.git",
       "ref": "main",
-      "commit": "abc1234",
+      "commit": "0123456789abcdef0123456789abcdef01234567",
       "subdir": "skills/daily-trend-writer",
       "enabled": true,
       "skills": [
@@ -216,7 +220,7 @@ dsh-skills-nexus adopt <name> --url <git-url> [--ref <r>] [--subdir <p>] [--forc
 | `schema` / `version` | 是 | `version` 更大 → 拒绝并提示升级；更小 → 尽力而为 |
 | `entries[].name` | 是 | 建议条目名；`--name` 或冲突策略可覆盖 |
 | `entries[].gitUrl` / `ref` / `subdir` | 否 | 有则优先走 git 通道；无则落快照 |
-| `entries[].commit` | 否 | 仅作参考，不用于校验 |
+| `entries[].commit` | 普通导入不要求 | 精确版本；`--locked` 要求 40–64 位完整 SHA 并据此恢复 |
 | `entries[].enabled` | 否 | 导出时的启用状态；导入时**还原**（缺省视为启用） |
 | `entries[].skills[]` | 否 | 候选技能与链接名；供 `--dry-run` / 面板预览使用 |
 | `skipped[]` | 否 | 导出时跳过的条目及原因；导入侧据此提示用户手工处理 |
@@ -224,7 +228,7 @@ dsh-skills-nexus adopt <name> --url <git-url> [--ref <r>] [--subdir <p>] [--forc
 
 **安全（导出侧）。** 包内一律不含 `.git`（遍历时跳过）。条目路径中的绝对路径、`..`、`:` 段、NUL 字节和空名被拒绝（zip-slip 防御）。符号链接被跳过。带凭据的 URL（`https://user:token@host`）被拒绝。
 
-**安全（导入侧）。** 解包时沿用同一套限制。外部包一律不得携带 `.git`（发现即拒绝该条目）。
+**安全（导入侧）。** 解包时沿用同一套限制。外部包一律不得携带 `.git`（发现即拒绝该条目）。`--locked` 调用 Git 前，会用普通参数安全边界校验记录的 URL 与 ref，并只接受完整十六进制 commit SHA。
 
 ## 条目的三种存储形态
 
@@ -235,6 +239,8 @@ manifest 中每个条目取三种形态之一，决定 `remove` 如何处置它�
 | git 克隆 | nexus（`repos/<path>`） | 是 | 删链接 + 删克隆 + 反注册 | `gitUrl` 非空 |
 | 快照副本 | nexus（`repos/<path>`） | 否 | 同 git 克隆 | `gitUrl` 为空 |
 | 外部目录 | **用户自己的** | 否 | **只删链接与注册，绝不删目录** | `ownership: 'external'` |
+
+显式 package lock 仍是 git clone，但 `update` 只校验记录的 commit，不推进 source ref。`list` 以 `LOCK=yes` 展示，`doctor --updates` 将这个 manifest 标记与普通 detached tag/commit pin 区分。成功执行 `switch-version` 后显式锁被清除。
 
 可更新性判据是 `src/manifest.ts` 中的 `hasGitSource(entry)`——当 `gitUrl.length > 0` 时为真。外部条目的 `gitUrl`、`ref`、`commit` 均为空，因此 `hasGitSource` 对它恒为假，`update` / `switch-version` 总是以 `400 not-a-git-clone` 拒绝。
 

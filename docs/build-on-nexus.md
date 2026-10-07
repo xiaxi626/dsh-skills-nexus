@@ -88,15 +88,17 @@ This is the **authoritative** way to enumerate installed skills. Do not parse
 - **Check ids**, in order: `manifest`, `roots`, `symlinks`, `orphan-repo`,
   `orphan-link`, `git-sanity`, and `updates` (present only with `--updates`).
 - **`status`** is one of `ok`, `warn`, `error`, `update-available`.
-- Each issue is `{ severity, code, name, fix?, detail? }` where `severity` is
+- Each issue is `{ severity, code, name, fix?, detail?, locked? }` where `severity` is
   `error` / `warn` / `info`. The `code` values are stable identifiers:
   `corrupt-manifest`, `orphan-check-skipped`, `root-unreadable`,
   `missing-target`, `orphan-repo`, `orphan-link`, `dangling-link`,
   `unreadable-link`, `corrupt-backup`, `missing-git`, plus `behind-remote` and
   `locked` (the latter two only under `--updates`).
 - Exit codes: `0` no error, `1` at least one error, `2` usage error.
-- `--updates` adds a network check comparing branch pins to their remote;
-  `--quiet` prints nothing unless there is at least one error.
+- `--updates` adds a network check comparing branch pins to their remote.
+  A `locked` issue carries optional `locked: true` only for an explicit package
+  lock; an ordinary detached tag/commit pin omits it. `--quiet` prints nothing
+  unless there is at least one error.
 - `doctor` is **read-only** — it never writes the manifest, clones, or symlinks.
 
 The full meaning of every check and code, with fix hints, lives in
@@ -156,7 +158,8 @@ or `status: "not-found"` / exit `2` for a multi-match glob) rather than silent.
       "url": "github:owner/repo",
       "ref": "main",
       "subdir": null,
-      "commit": "abc1234",
+      "commit": "0123456789abcdef0123456789abcdef01234567",
+      "locked": true,
       "hasGitSource": true,
       "ownership": "managed",
       "enabled": true,
@@ -175,6 +178,8 @@ or `status: "not-found"` / exit `2` for a multi-match glob) rather than silent.
   deletes such a directory).
 - `commit` is the recorded lockfile-lite value, `null` when none was recorded,
   not a fresh `git rev-parse`.
+- `locked` is present and `true` only for an explicit package lock created by
+  `import --locked`; ordinary entries omit it.
 - `update` is `null` (never checked in this process) or
   `{ "hasUpdate": bool, "latestCommit": string|null, "checkedAt": ISO }`.
 

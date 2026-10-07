@@ -43,7 +43,7 @@ npm run test:build  # 可选：把 src+test 编译到 test-dist/，无 loader �
 
 | 测试文件 | 验证内容 |
 |---|---|
-| `test/doctor.test.ts` | 全新安装全 ok（exit 0）；健康安装；断链 → `missing-target`（exit 1）且 orphan-link 不重复上报；orphan-repo / orphan-link / dangling-link；损坏 manifest；**损坏 manifest 时抑制 orphan 检查（不产生批量误删的误报）**；**畸形条目被结构化上报、绝不抛穿**；`.corrupt-` 备份；缺 `.git`；`--json` version-1 契约；`--quiet`；用法错误（exit 2）；`parseDoctorArgs`；`formatHuman` |
+| `test/doctor.test.ts` | 全新安装全 ok（exit 0）；健康安装；断链 → `missing-target`（exit 1）且 orphan-link 不重复上报；orphan-repo / orphan-link / dangling-link；损坏 manifest；**损坏 manifest 时抑制 orphan 检查（不产生批量误删的误报）**；**畸形条目被结构化上报、绝不抛穿**；`.corrupt-` 备份；缺 `.git`；显式 package lock 与普通 detached pin 的区分；`--json` version-1 契约；`--quiet`；用法错误（exit 2）；`parseDoctorArgs`；`formatHuman` |
 | `test/health.test.ts` | `diagnoseEntry`（`ok` / `disabled` / `missing-target`）；`findOrphanRepos` / `findOrphanLinks` 三分类（`orphan-link` / `dangling-link` / `unreadable-link`）；`checkHealth`；`formatWarning` |
 
 上表加粗的两条 `doctor.test.ts` 用例是边界保护规则的回归锚点：当 manifest
@@ -182,8 +182,9 @@ unset DSH_HOME
 
 `--updates` 是唯一的联网检查。它把每个**分支 pin** 条目记录的 `commit` 与远程
 tip（`git ls-remote`）比对。**tag/commit pin**（detached HEAD）是刻意的固定点：
-会被报为 `locked`（info），绝不报「落后」。`--updates` 的结果都是 `info` 级
-——既不计入 errors/warnings，也不改变退出码。
+会被报为 `locked`（info），绝不报「落后」。`import --locked` 创建的显式 package
+lock 使用相同 issue code，但 detail 会标明 `exact package commit`，JSON 还带可选的
+`locked: true`；普通 detached pin 不带该字段。`--updates` 的结果都是 `info` 级——既不计入 errors/warnings，也不改变退出码。
 
 配合第二部分的本地 `file://` 远程，这一段完全离线可复现：
 
@@ -225,7 +226,7 @@ nexus doctor --updates                     # updates：demo → locked（info）
 | `orphan-repo` | `repos/` 下无条目引用的克隆目录 |
 | `orphan-link` | 指向 `repos/` 但无条目认领的 symlink |
 | `git-sanity` | 每个克隆是否仍有 `.git` |
-| `updates` | （仅 `--updates`）分支 pin 与其远程的比对 |
+| `updates` | （仅 `--updates`）分支 pin 与其远程的比对；显式 package lock 与 detached pin 只报告、不推进 |
 
 ### 状态 → 标签 → 计数
 
@@ -254,7 +255,7 @@ nexus doctor --updates                     # updates：demo → locked（info）
 | `orphan-check-skipped` | warn | manifest 不可读，孤立对象扫描被跳过 | 先修复 manifest（见 `corrupt-manifest`） |
 | `missing-git` | warn | 某克隆缺少 `.git` | `remove <name>` 后重新 `add` |
 | `behind-remote` | info | 分支 pin 落后于远程（仅 `--updates`） | `update <name>` |
-| `locked` | info | tag/commit pin，刻意不跟踪远程（仅 `--updates`） | 无——这是预期行为 |
+| `locked` | info | 显式 package commit lock（`locked: true`）或普通 detached tag/commit pin（仅 `--updates`） | 无——这是预期行为；需改 ref 时使用 `switch-version` |
 
 ### `--json` 结构（稳定契约，`version: 1`）
 
@@ -274,7 +275,7 @@ nexus doctor --updates                     # updates：demo → locked（info）
 
 问题**内联**在各自的 check 下（没有顶层 `issues` 数组）。`severity` 为
 `error` / `warn` / `info`；`status` 为 `ok` / `warn` / `error` /
-`update-available`。消费者应以 `version` 为准，并把未知 code 视为向前兼容。
+`update-available`。`locked` issue 仅对显式 package lock 附带可选的 `locked: true`。消费者应以 `version` 为准，并把未知 code 视为向前兼容。
 
 ---
 

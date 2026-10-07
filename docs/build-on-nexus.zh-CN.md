@@ -77,14 +77,13 @@ nexus 暴露四条机器可读路径。四条都是稳定契约；CLI 的其余�
 - **检查项 id**，按顺序：`manifest`、`roots`、`symlinks`、`orphan-repo`、
   `orphan-link`、`git-sanity`，以及 `updates`（仅在带 `--updates` 时出现）。
 - **`status`** 取值为 `ok`、`warn`、`error`、`update-available` 之一。
-- 每条 issue 为 `{ severity, code, name, fix?, detail? }`，其中 `severity` 是
+- 每条 issue 为 `{ severity, code, name, fix?, detail?, locked? }`，其中 `severity` 是
   `error` / `warn` / `info`。`code` 是稳定标识符：`corrupt-manifest`、
   `orphan-check-skipped`、`root-unreadable`、`missing-target`、`orphan-repo`、
   `orphan-link`、`dangling-link`、`unreadable-link`、`corrupt-backup`、
   `missing-git`，以及 `behind-remote` 和 `locked`（后两者仅在 `--updates` 下出现）。
 - 退出码：`0` 无 error、`1` 至少一个 error、`2` 用法错误。
-- `--updates` 追加一项联网检查，把分支 pin 与其远程比对；`--quiet` 在无 error 时
-  不打印任何内容。
+- `--updates` 追加一项联网检查，把分支 pin 与其远程比对。`locked` issue 仅在显式 package lock 时携带可选的 `locked: true`；普通 detached tag/commit pin 不带该字段。`--quiet` 在无 error 时不打印任何内容。
 - `doctor` 是**只读**的——绝不写 manifest、克隆或 symlink。
 
 每个检查项与 code 的完整含义、以及修复建议，见
@@ -135,7 +134,8 @@ nexus 暴露四条机器可读路径。四条都是稳定契约；CLI 的其余�
       "url": "github:owner/repo",
       "ref": "main",
       "subdir": null,
-      "commit": "abc1234",
+      "commit": "0123456789abcdef0123456789abcdef01234567",
+      "locked": true,
       "hasGitSource": true,
       "ownership": "managed",
       "enabled": true,
@@ -151,6 +151,7 @@ nexus 暴露四条机器可读路径。四条都是稳定契约；CLI 的其余�
 - `ownership` 为 `managed`（`repos/<path>` 由 nexus 创建）或 `external`（`--link-only`
   收编、只链接用户自己的目录；`remove` 绝不删该目录）。
 - `commit` 是登记的 lockfile-lite 值，未登记过则为 `null`，不是现场 `git rev-parse`。
+- `locked` 仅对 `import --locked` 创建的显式 package lock 出现且为 `true`；普通条目省略该字段。
 - `update` 为 `null`（本进程从未检查）或
   `{ "hasUpdate": bool, "latestCommit": string|null, "checkedAt": ISO }`。
 

@@ -144,7 +144,7 @@ dsh-skills-nexus add github:owner/repo --subdir skills/foo   # install one subdi
 dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills   # custom entry name (fallback chain: --name > subdir leaf > repo name)
 
 # inspect / maintain
-dsh-skills-nexus list                               # all registered skills (+ source repo, commit, subdir, status)
+dsh-skills-nexus list                               # all entries (+ source, commit, subdir, explicit lock, status)
 dsh-skills-nexus list --json                        # ...or the same inventory as a versioned JSON report
 dsh-skills-nexus update [name]                      # refresh (branch pin: pull; tag/commit pin: verify)
 dsh-skills-nexus switch-version <name> <ref> [--type <branch|tag|commit>]  # move a clone to another ref (fetch, checkout, re-normalize, rebuild links)
@@ -159,7 +159,8 @@ dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>  # print a compl
 dsh-skills-nexus export --all -o migrate.zip        # package every entry (disabled ones included)
 dsh-skills-nexus export <name>... -o one.zip        # ...or just some of them
 dsh-skills-nexus import migrate.zip --dry-run       # per-entry preview: clone or snapshot; touches nothing
-dsh-skills-nexus import migrate.zip                 # rebuild the entries on this machine
+dsh-skills-nexus import migrate.zip                 # rebuild entries from their recorded refs
+dsh-skills-nexus import migrate.zip --locked        # restore each exact recorded commit
 dsh-skills-nexus adopt <name> --url github:owner/repo   # give a source-less entry its git identity back
 ```
 
@@ -216,6 +217,14 @@ somebody handed you.
   (or it cannot be reached) does the payload land as a **snapshot** — and even
   then the exporting machine's state is restored: a skill disabled over there
   stays disabled here, under the same link names.
+- **`--locked` restores the exported revision exactly.** It requires a labelled
+  package whose selected entries contain a safe `gitUrl`, non-empty `ref`, and
+  full 40–64 digit commit SHA. Nexus skips the reachability probe, performs a
+  depth-1 fetch of that commit, checks it out detached, and marks the manifest
+  entry as explicitly locked. Only an explicit remote "commit unavailable"
+  response falls back to the packaged snapshot; network, authentication, and
+  ambiguous Git failures remain errors. Bare packages are rejected, and
+  `--locked` cannot be combined with `--no-remote` or `--no-net-check`.
 - **`--dry-run` decides without touching anything**, printing one verdict per
   entry: `will clone from <url> (<ref>)`, `will import as snapshot (<url>
   unreachable)`, `will import as snapshot (<url> check timed out)` — a 5s probe,
@@ -227,8 +236,11 @@ somebody handed you.
   access `add` is the direct route; `export` / `import` move a whole nexus (or
   take delivery of skills someone sent you). `--no-net-check` skips the probe
   entirely (offline, zero waiting), `--no-remote` always lands a snapshot,
-  `--each` makes one entry per skill, and `--force` replaces an entry that is
-  already registered.
+  `--each` makes one entry per skill (and, with `--locked`, one independent
+  clone per skill at the recorded commit), and `--force` replaces an entry that
+  is already registered. `list` shows explicit package locks in its `LOCK`
+  column; `doctor --updates` distinguishes them from ordinary detached
+  tag/commit pins. A successful `switch-version` clears the explicit lock.
 
 ### Giving a frozen entry its identity back: `adopt`
 
