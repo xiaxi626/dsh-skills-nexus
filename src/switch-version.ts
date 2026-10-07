@@ -11,6 +11,7 @@ import {
 } from './git.js'
 import { captureVersionState, normalizeCheckout, rebuildVersionLinks, recoverVersionFailure } from './version-state.js'
 import type { OpsIO } from './ops-io.js'
+import { saveRollbackPoint, versionChanged } from './rollback.js'
 
 /**
  * `switch-version` — move an entry's clone to another branch / tag / commit
@@ -148,7 +149,11 @@ export async function switchVersion(
     links = await rebuildVersionLinks(state, skills)
 
     // 7 — record the new version; `refType` is a transient hint, never stored.
-    await markUpdated(entry.name, after, ref)
+    await markUpdated(entry.name, after, ref, false)
+    const updated = findEntry(await readManifest(), entry.name)
+    if (!updated) throw new Error('Switched entry disappeared')
+    const next = await captureVersionState(updated)
+    if (versionChanged(state, next)) await saveRollbackPoint(state, next)
   } catch (err) {
     return recoverVersionFailure(state, err)
   }

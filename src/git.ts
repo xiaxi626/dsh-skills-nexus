@@ -771,3 +771,27 @@ export async function restoreCheckout(dest: string, commit: string, branch?: str
   await git(['config', `branch.${branch}.remote`, 'origin'], dest)
   await git(['config', `branch.${branch}.merge`, `refs/heads/${branch}`], dest)
 }
+
+export const ROLLBACK_REF_PREFIX = 'refs/nexus/rollback/'
+
+export function assertRollbackRef(ref: string): void {
+  if (!/^refs\/nexus\/rollback\/[a-f0-9]{32}$/.test(ref)) {
+    throw new Error('Invalid rollback anchor ref')
+  }
+}
+
+export async function createRollbackAnchor(dest: string, ref: string, commit: string): Promise<void> {
+  assertRollbackRef(ref)
+  if (!/^[a-f0-9]{40,64}$/.test(commit)) throw new Error('Invalid anchor commit')
+  await git(['update-ref', ref, commit, '0'.repeat(commit.length)], dest)
+}
+
+export async function deleteRollbackAnchor(dest: string, ref: string): Promise<void> {
+  assertRollbackRef(ref)
+  await git(['update-ref', '-d', ref], dest)
+}
+
+export async function rollbackAnchors(dest: string): Promise<string[]> {
+  const text = await git(['for-each-ref', '--format=%(refname)', ROLLBACK_REF_PREFIX], dest)
+  return text.trim().split(/\r?\n/).filter((ref) => /^refs\/nexus\/rollback\/[a-f0-9]{32}$/.test(ref))
+}

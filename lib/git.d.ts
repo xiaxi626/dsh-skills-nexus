@@ -237,5 +237,10 @@ export declare function checkoutBranch(dest: string, branch: string): Promise<vo
 export declare function getCurrentBranch(dest: string): Promise<string | undefined>;
 /** 按精确 commit 恢复 HEAD；branch 恢复不得取当前 remote tip。 */
 export declare function restoreCheckout(dest: string, commit: string, branch?: string): Promise<void>;
+export declare const ROLLBACK_REF_PREFIX = "refs/nexus/rollback/";
+export declare function assertRollbackRef(ref: string): void;
+export declare function createRollbackAnchor(dest: string, ref: string, commit: string): Promise<void>;
+export declare function deleteRollbackAnchor(dest: string, ref: string): Promise<void>;
+export declare function rollbackAnchors(dest: string): Promise<string[]>;
 export {};
 //# sourceMappingURL=git.d.ts.map

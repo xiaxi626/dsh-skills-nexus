@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+**Git 单次版本回滚**
+
+- 新增 `rollback <name> [--json]`，在 per-entry 锁内恢复最近一次 branch 更新或 switch-version；校验当前 HEAD、branch/detached、manifest 版本与完整链接集合，拒绝漂移或旧链接名被他人占用的情况。dirty worktree 警告后丢弃；成功消费恢复点并提示再次前进需使用 update/switch-version，不提供 redo。
+- 每个 entry 的恢复记录存于 `<NEXUS_HOME>/rollback/<entry>.json`，用唯一 `refs/nexus/rollback/<token>` 锚定旧 commit，再通过临时 JSON 的原子 rename 发布；读取时验证 anchor 与旧 commit 一致。发布失败保留原恢复点，孤立 ref 可由后续成功操作清理；Git GC 后旧 detached 对象仍可恢复。
+- 恢复点记录实际 HEAD、精确 commit、ref、显式 locked、updatedAt、启用状态与全部链接。branch no-op、detached/locked 校验及 pin 纠偏不覆盖已有恢复点；switch-version 清除显式 locked，rollback 可恢复它。恢复失败会还原执行前 checkout、重新归一化 frontmatter、恢复链接与 manifest，并保留原始错误和恢复诊断。
+- CLI 与 HTTP update 共用恢复点逻辑；未新增 HTTP 路由或面板控件。JSON 使用实际回滚方向并隔离人类 stdout；CLI 帮助及 bash/zsh/fish/PowerShell 补全同步。
+- 验证：`typecheck`、`lint`、`test:build`、`build`、`build:client`、`npm test` 六步门禁全部通过；全量 621 项，618 通过、0 失败、3 跳过，较此前 585 项增加 36 项（35 项 rollback 测试及 1 项 PowerShell 实际补全测试）。本机缺少可用 bash/zsh/fish，三项运行时补全测试跳过，其模板契约测试通过；保留既有 2 条 lint warning。生成物由构建命令生成。
+
 **Git 版本变更恢复安全**
 
 - CLI 与 HTTP update 使用同一单 entry 核心，统一 dirty 处理、版本判断、frontmatter 归一化、链接重建和 manifest 写回；CLI 批量与 JSON、HTTP job 形态不变。

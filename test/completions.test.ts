@@ -238,8 +238,8 @@ test('templates never offer --yes where the command rejects it', () => {
   // (only `--json`), so an advertised `--yes` would be a usage error rather
   // than the silent no-op it used to be — still a lie, and now a loud one.
   // The same goes for the batched enable/disable, which take `--json` only.
-  assert.doesNotMatch(bashTemplate, /update\|pull\)\s+flags="[^"]*--yes/)
-  assert.doesNotMatch(zshTemplate, /update\|pull\)\s+compadd -- [^\n]*--yes/)
+  assert.doesNotMatch(bashTemplate, /update\|pull\|rollback\)\s+flags="[^"]*--yes/)
+  assert.doesNotMatch(zshTemplate, /update\|pull\|rollback\)\s+compadd -- [^\n]*--yes/)
   assert.doesNotMatch(fishTemplate, /__fish_seen_subcommand_from [^']*\b(?:update|pull)\b[^']*' -l yes/)
   assert.doesNotMatch(powershellTemplate, /'update'\s*\{[^}]*--yes/)
   assert.doesNotMatch(bashTemplate, /enable\|disable\)\s+flags="[^"]*--yes/)
@@ -373,6 +373,8 @@ function hasShell(shell: string, args: string[]): boolean {
 const HAS_BASH = hasShell('bash', ['-c', 'exit 0'])
 const HAS_ZSH = hasShell('zsh', ['-f', '-c', 'exit 0'])
 const HAS_FISH = hasShell('fish', ['-c', 'exit 0'])
+const PS_SHELL = process.platform === 'win32' ? 'powershell' : 'pwsh'
+const HAS_POWERSHELL = hasShell(PS_SHELL, ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'])
 
 /**
  * A temp directory holding an executable stub `dsh-skills-nexus` that answers
@@ -387,6 +389,33 @@ async function makeStubDir(): Promise<string> {
   await chmod(stub, 0o755)
   return dir
 }
+
+test('PowerShell 实际补全 rollback 的名字、JSON，且不补第二个名字', { skip: !HAS_POWERSHELL }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'nexus-ps-completion-'))
+  try {
+    await writeFile(join(dir, 'dsh-skills-nexus.ps1'), "param([string]$action, [string]$option)\n'alpha'\n'beta'\n")
+    const program = [
+      'Invoke-Expression $env:DSH_TPL',
+      "$cases = @('dsh-skills-nexus roll', 'dsh-skills-nexus rollback --j', 'dsh-skills-nexus rollback --json ', 'dsh-skills-nexus rollback alpha ')",
+      '$result = @($cases | ForEach-Object {',
+      '  $line = $_',
+      '  $matches = [System.Management.Automation.CommandCompletion]::CompleteInput($line, $line.Length, $null).CompletionMatches',
+      "  @($matches | ForEach-Object { $_.CompletionText }) -join '|'",
+      '})',
+      'ConvertTo-Json -Compress -InputObject $result',
+    ].join('\n')
+    const result = spawnSync(PS_SHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(program, 'utf16le').toString('base64')], {
+      encoding: 'utf8', cwd: dir,
+      env: { ...process.env, PATH: [dir, process.env.PATH ?? ''].join(delimiter), DSH_TPL: powershellTemplate },
+    })
+    assert.equal(result.status, 0, result.error?.message ?? result.stderr)
+    const values = JSON.parse(result.stdout.trim()) as string[]
+    assert.deepEqual(values.slice(0, 3), ['rollback', '--json', 'alpha|beta'])
+    assert.ok(!values[3]?.split('|').some((s) => s === 'alpha' || s === 'beta'))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
 
 /**
  * Run `cases` through the emitted bash template and return one
@@ -433,6 +462,9 @@ test('the emitted bash template completes correctly in a real bash', { skip: !HA
         ['shell-bare', 'dsh-skills-nexus', 'completions', '--shell', ''],
         ['shell-b', 'dsh-skills-nexus', 'completions', '--shell', 'b'],
         ['update-skill', 'dsh-skills-nexus', 'update', ''],
+        ['rollback-skill', 'dsh-skills-nexus', 'rollback', '--json', ''],
+        ['rollback-flag', 'dsh-skills-nexus', 'rollback', '--'],
+        ['rollback-second', 'dsh-skills-nexus', 'rollback', 'alpha', ''],
         ['remove-yes', 'dsh-skills-nexus', 'remove', '--yes', ''],
         ['remove-second', 'dsh-skills-nexus', 'remove', 'alpha', ''],
         ['update-flag', 'dsh-skills-nexus', 'update', '--x'],
@@ -457,6 +489,9 @@ test('the emitted bash template completes correctly in a real bash', { skip: !HA
       'shell-bare|bash zsh fish powershell',
       'shell-b|bash',
       'update-skill|alpha beta',
+      'rollback-skill|alpha beta',
+      'rollback-flag|--json',
+      'rollback-second|',
       // `--yes` is accepted before the names, so it must not consume the slot.
       'remove-yes|alpha beta',
       'remove-second|',
@@ -527,6 +562,9 @@ test('the emitted zsh template completes correctly in a real zsh', { skip: !HAS_
         ['doctor-bare-dashes', 'dsh-skills-nexus', 'doctor', '--'],
         ['shell-values', 'dsh-skills-nexus', 'completions', '--shell', ''],
         ['update-names', 'dsh-skills-nexus', 'update', ''],
+        ['rollback-names', 'dsh-skills-nexus', 'rollback', '--json', ''],
+        ['rollback-flag', 'dsh-skills-nexus', 'rollback', '--'],
+        ['rollback-second', 'dsh-skills-nexus', 'rollback', 'alpha', ''],
         ['remove-yes', 'dsh-skills-nexus', 'remove', '--yes', ''],
         ['remove-second', 'dsh-skills-nexus', 'remove', 'alpha', ''],
         ['update-flag', 'dsh-skills-nexus', 'update', '--x'],
@@ -549,6 +587,9 @@ test('the emitted zsh template completes correctly in a real zsh', { skip: !HAS_
       'doctor-bare-dashes|-- --json --updates --quiet',
       'shell-values|-- bash zsh fish powershell',
       'update-names|alpha beta',
+      'rollback-names|alpha beta',
+      'rollback-flag|-- --json',
+      'rollback-second|',
       // `--yes` is accepted before the names, so it must not consume the slot.
       'remove-yes|alpha beta',
       'remove-second|',
@@ -608,6 +649,8 @@ test('the emitted fish template completes correctly in a real fish', { skip: !HA
       ['doctor-bare-dashes', 'dsh-skills-nexus doctor --', ['--json', '--quiet', '--updates']],
       ['shell-prefix', 'dsh-skills-nexus completions --shell b', ['bash']],
       ['update-skill', 'dsh-skills-nexus update ', ['alpha', 'beta']],
+      ['rollback-skill', 'dsh-skills-nexus rollback ', ['alpha', 'beta']],
+      ['rollback-flag', 'dsh-skills-nexus rollback --', ['--json']],
       ['update-flag', 'dsh-skills-nexus update --x', []],
       ['unknown-cmd', 'dsh-skills-nexus nope ', []],
     ]
@@ -620,6 +663,7 @@ test('the emitted fish template completes correctly in a real fish', { skip: !HA
     for (const [label, cmdline, expected] of [
       ['shell-bare', 'dsh-skills-nexus completions --shell ', [...SUPPORTED_SHELLS]],
       ['remove-yes', 'dsh-skills-nexus remove --yes ', ['alpha', 'beta']],
+      ['rollback-json', 'dsh-skills-nexus rollback --json ', ['alpha', 'beta']],
     ] as [string, string, string[]][]) {
       const got = runInFish(cmdline, stubDir, emptyDir, templatePath)
       for (const want of expected)
@@ -629,6 +673,7 @@ test('the emitted fish template completes correctly in a real fish', { skip: !HA
     // Names belong to the first positional only, flags or not.
     for (const [label, cmdline] of [
       ['remove-second', 'dsh-skills-nexus remove alpha '],
+      ['rollback-second', 'dsh-skills-nexus rollback alpha '],
       ['remove-yes-second', 'dsh-skills-nexus remove --yes alpha '],
     ] as [string, string][]) {
       const got = runInFish(cmdline, stubDir, emptyDir, templatePath)

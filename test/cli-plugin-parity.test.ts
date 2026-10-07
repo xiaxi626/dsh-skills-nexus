@@ -270,6 +270,21 @@ test('update renames upstream: CLI and the HTTP route derive identical link sets
   assert.equal(await link.isLinked('beta-api'), false)
   assert.equal(await link.isLinked('beta-cli2'), true)
   assert.equal(await link.isLinked('beta-api2'), true)
+
+  const recovery = await import('../src/rollback.js')
+  for (const tag of ['cli', 'api']) {
+    const entry = manifest.findEntry(await manifest.readManifest(), `parity-${tag}`)!
+    const point = await recovery.readRollbackPoint(entry)
+    assert.ok(point)
+    assert.notEqual(point.from.commit, point.to.commit)
+    assert.equal(point.to.commit, await gitMod.getHeadCommit(paths.repoDir(entry.path)))
+    assert.equal(point.from.headType, 'branch')
+    assert.equal(point.to.branch, 'main')
+    assert.deepEqual(point.from.links.map((l) => l.name), [`alpha-${tag}`, `beta-${tag}`])
+    assert.deepEqual(point.to.links.map((l) => l.name), [`alpha-${tag}`, `beta-${tag}2`])
+    await recovery.rollbackEntry(entry.name, { emit() {}, error() {}, progress() {}, confirm: async () => false, interactive: false })
+    assert.deepEqual(await linkNames(entry.name), [`alpha-${tag}`, `beta-${tag}`])
+  }
 })
 
 test('update shrinks upstream to one skill: both faces relink under the entry name', async () => {
@@ -300,6 +315,12 @@ test('update shrinks upstream to one skill: both faces relink under the entry na
   assert.equal(await link.isLinked('alpha-sa'), false)
   assert.equal(await link.isLinked('beta-sc'), false)
   assert.equal(await link.isLinked('beta-sa'), false)
+
+  const recovery = await import('../src/rollback.js')
+  for (const [name, expected] of [['shrink-cli', ['alpha-sc', 'beta-sc']], ['shrink-api', ['alpha-sa', 'beta-sa']]] as const) {
+    await recovery.rollbackEntry(name, { emit() {}, error() {}, progress() {}, confirm: async () => false, interactive: false })
+    assert.deepEqual(await linkNames(name), expected)
+  }
 })
 
 test('remove: both faces delete the same derived links and keep a hand-made alias', async () => {

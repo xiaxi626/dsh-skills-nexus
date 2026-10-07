@@ -4,6 +4,7 @@ import { repoDir } from './paths.js'
 import { NotAGitCloneError, SkillNotFoundError } from './switch-version.js'
 import { captureVersionState, normalizeCheckout, rebuildVersionLinks, recoverVersionFailure } from './version-state.js'
 import type { OpsIO } from './ops-io.js'
+import { saveRollbackPoint } from './rollback.js'
 
 export interface UpdateResult {
   name: string
@@ -31,9 +32,20 @@ export async function updateEntry(name: string, io: OpsIO): Promise<UpdateResult
     }
     let status: UpdateResult['status']
     let summary: string
-    if (state.branch === undefined) {
-      const want = await resolveRefCommit(dest, entry.ref)
-      if (before !== want) {
+    let pin: string | undefined
+    if (entry.locked) {
+      if (!entry.commit) throw new Error('Locked entry has no commit')
+      pin = await resolveRefCommit(dest, entry.commit)
+    } else if (state.branch === undefined || entry.ref !== state.branch) {
+      if (state.branch === undefined || /^[a-f0-9]{7,64}$/i.test(entry.ref)) {
+        pin = await resolveRefCommit(dest, entry.ref)
+      } else {
+        try { pin = await resolveRefCommit(dest, `refs/tags/${entry.ref}`) } catch { /* 普通 branch。 */ }
+      }
+    }
+    if (pin !== undefined) {
+      const want = pin
+      if (before !== want || state.branch !== undefined) {
         await restoreCheckout(dest, want)
         status = 'updated'
         summary = `  ✓ restored to pinned ${want.slice(0, 7)}\n`
@@ -55,7 +67,13 @@ export async function updateEntry(name: string, io: OpsIO): Promise<UpdateResult
     const skills = await normalizeCheckout(entry, io)
     const links = await rebuildVersionLinks(state, skills, io)
     await markUpdated(entry.name, after)
-    io.emit(summary)
+    if (pin === undefined && before !== after) {
+      const updated = findEntry(await readManifest(), entry.name)
+      if (!updated) throw new Error('Updated entry disappeared')
+      await saveRollbackPoint(state, await captureVersionState(updated), undefined, () => io.emit(summary))
+    } else {
+      io.emit(summary)
+    }
     return { name: entry.name, ref: entry.ref, before, after, status, wasDirty, links }
   } catch (err) {
     return recoverVersionFailure(state, err)

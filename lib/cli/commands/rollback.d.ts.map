@@ -1,0 +1,1 @@
+{"version":3,"file":"rollback.d.ts","sourceRoot":"","sources":["../../../src/cli/commands/rollback.ts"],"names":[],"mappings":"AACA,OAAO,KAAK,EAAE,KAAK,EAAE,MAAM,iBAAiB,CAAA;AAO5C,wBAAgB,iBAAiB,CAAC,IAAI,EAAE,MAAM,EAAE,GAAG;IAAE,IAAI,EAAE,MAAM,CAAC;IAAC,IAAI,EAAE,OAAO,CAAA;CAAE,CAUjF;AAED,wBAAsB,QAAQ,CAAC,IAAI,EAAE,MAAM,EAAE,EAAE,EAAE,GAAE,KAAa,GAAG,OAAO,CAAC,MAAM,CAAC,CA6BjF"}

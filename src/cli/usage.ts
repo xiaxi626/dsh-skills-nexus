@@ -46,6 +46,7 @@ export const ROUTED_SUBCOMMANDS = [
   'pull',
   'remove',
   'rm',
+  'rollback',
   'switch-version',
   'update',
 ] as const
@@ -56,6 +57,7 @@ Usage:
   dsh-skills-nexus add    <repo-spec>...              [--name <name>] [--subdir <path>] [--yes] [--json]
   dsh-skills-nexus list [--names | --json]
   dsh-skills-nexus update [name] [--json]   # refresh clones (default: all enabled)
+  dsh-skills-nexus rollback <name> [--json] # 恢复最近一次成功的版本变更
   dsh-skills-nexus export <name>... | --all [--out <file>]
                                             # package skills for another machine
   dsh-skills-nexus import <package> [--dry-run] [--force]
@@ -80,7 +82,7 @@ Options:
                     always reports the mode used and warns when the clone was complete.
   --yes             skip confirmation prompts (large collections; multi-match removal)
   --json            emit a stable machine-readable report (version 1) on stdout.
-                    Supported by add, list, update, remove, enable and disable; stdout
+                    Supported by add, list, update, rollback, remove, enable and disable; stdout
                     then carries the JSON document alone and every diagnostic goes to
                     stderr. Prompts cannot be answered in this mode, so pass --yes for
                     the operations that would otherwise ask. Exit codes: 0 ok, 1 error
@@ -132,6 +134,11 @@ Options:
 
   completions options:
   --shell <name>    target shell: bash, zsh, fish or powershell
+
+  rollback:
+    仅支持单 entry，恢复最近一次 branch update 或 switch-version，不提供 redo。
+    当前 HEAD、manifest 和链接必须匹配恢复记录；dirty worktree 警告后丢弃。
+    成功后恢复点已消费；如需再次前进请使用 update/switch-version。
 
   switch-version options:
   --type <t>        hint how <ref> should be treated: branch, tag or commit. The

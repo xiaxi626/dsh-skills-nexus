@@ -40,7 +40,7 @@ export declare function removeEntry(name: string): Promise<SkillEntry | undefine
  * ("lockfile-lite": the manifest always knows the exact installed version)
  * and, for `switch-version`, the newly checked-out ref (§8.2 step 7).
  */
-export declare function markUpdated(name: string, commit?: string, ref?: string): Promise<void>;
+export declare function markUpdated(name: string, commit?: string, ref?: string, locked?: boolean): Promise<void>;
 /** Best-effort recursive delete of a skill's cloned directory. */
 export declare function removeSkillDir(path: string): Promise<void>;
 /**
