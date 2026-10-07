@@ -45,6 +45,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Cross-platform local-source integration
+        run: npm run test:local-source
+
       - name: Verify committed lib/ is up to date
         # lib/ is committed and shipped to npm — a stale build means the
         # published package would drift from src/. tsc is deterministic and

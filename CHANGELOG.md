@@ -4,14 +4,17 @@
 
 ## [Unreleased]
 
-**Git 精确版本导入与锁定展示**
+**2026-10-07 · Added · Git 精确版本导入与锁定展示**
+
+本次更新实现了 Nexus Git 恢复与预览的闭环：`import --locked` 按 package label 记录的 commit 做 depth-1 fetch + detached checkout，仅在远端明确报告 commit 不可获取时回退 snapshot；manifest 写入 `locked: true`，`list` 增加 `LOCK` 列，`doctor --updates` 区分显式 package lock 与普通 detached pin；`diff` 提供只读远端差异预览；文档双语同步；CI 在 Ubuntu/Windows/macOS × Node 20/22/24 矩阵中显式运行 compiled CLI 本地 `file://` 端到端测试。
 
 - 新增 `import <package> --locked`：仅接受记录完整安全 `gitUrl`、`ref` 与 40–64 位 commit SHA 的 labelled package，以 depth-1 fetch 和 detached checkout 恢复导出时的精确提交；`--each` 为每个 skill 建立独立 clone，并保留原 source ref。
 - 精确提交仅在远端明确表示该 commit 不可获取时回退 package payload snapshot；网络、认证、本地对象及模糊 Git 错误继续失败，不静默降级。`--locked` 与 `--no-remote`、`--no-net-check` 互斥，bare package 不支持锁定恢复。
 - manifest 以 `locked: true` 标记显式 package lock；`list` 增加 `LOCK` 列，list JSON、既有 HTTP list 与 client 类型仅为显式锁追加可选字段；`doctor --updates` 区分 package lock 与普通 detached tag/commit pin。成功 `switch-version` 后清除显式锁。
 - CLI usage 与 bash、zsh、fish、PowerShell 补全同步；未新增 JSON 命令、HTTP 路由或面板操作入口。
 - 文档同步：README、架构、来源与包、版本锁、doctor 及 import/export 验证指南均补充精确恢复、严格回退边界、显式锁展示与 JSON 可选字段说明。
-- 验证：`typecheck`、`lint`、`test:build`、`build`、`build:client`、`npm test` 六步门禁全部通过；全量 636 项中 633 通过、0 失败、3 项因本机缺少 bash/zsh/fish 跳过（较上一阶段新增 8 项），保留既有 2 条 lint warning；生成物由构建命令重建。
+- CI 在 Ubuntu、Windows、macOS 与 Node 20/22/24 矩阵中显式运行 compiled CLI 本地 `file://` 端到端测试，覆盖无差异预览退出 0、远端推进后的只读 diff，以及精确 commit 锁定恢复与 list/doctor 展示；全程不依赖外网。
+- 验证：`typecheck`、`lint`、`test:build`、`build`、`build:client`、`npm test` 六步门禁全部通过；全量 636 项中 633 通过、0 失败、3 项因本机缺少 bash/zsh/fish 跳过（较上一阶段新增 8 项），另有 1 项 compiled CLI 本地源集成测试通过；保留既有 2 条 lint warning，构建生成物零漂移。
 
 **Git 远端差异预览**
 
