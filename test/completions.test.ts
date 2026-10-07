@@ -227,7 +227,7 @@ test('every template offers exactly the subcommands the CLI routes', async () =>
 
 test('templates carry the flags each command accepts', () => {
   for (const t of TEMPLATES) {
-    for (const flag of ['--name', '--ref', '--subdir', '--yes', '--names', '--json', '--updates', '--quiet', '--shell']) {
+    for (const flag of ['--name', '--ref', '--subdir', '--yes', '--names', '--json', '--stat', '--updates', '--quiet', '--shell']) {
       assert.ok(t.text.includes(t.flag(flag)), `${t.shell} template should offer ${flag}`)
     }
   }
@@ -390,13 +390,13 @@ async function makeStubDir(): Promise<string> {
   return dir
 }
 
-test('PowerShell 实际补全 rollback 的名字、JSON，且不补第二个名字', { skip: !HAS_POWERSHELL }, async () => {
+test('PowerShell 实际补全 rollback/diff 的名字与 flags，且不补第二个名字', { skip: !HAS_POWERSHELL }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'nexus-ps-completion-'))
   try {
     await writeFile(join(dir, 'dsh-skills-nexus.ps1'), "param([string]$action, [string]$option)\n'alpha'\n'beta'\n")
     const program = [
       'Invoke-Expression $env:DSH_TPL',
-      "$cases = @('dsh-skills-nexus roll', 'dsh-skills-nexus rollback --j', 'dsh-skills-nexus rollback --json ', 'dsh-skills-nexus rollback alpha ')",
+      "$cases = @('dsh-skills-nexus roll', 'dsh-skills-nexus rollback --j', 'dsh-skills-nexus rollback --json ', 'dsh-skills-nexus rollback alpha ', 'dsh-skills-nexus diff --s', 'dsh-skills-nexus diff ', 'dsh-skills-nexus diff alpha ')",
       '$result = @($cases | ForEach-Object {',
       '  $line = $_',
       '  $matches = [System.Management.Automation.CommandCompletion]::CompleteInput($line, $line.Length, $null).CompletionMatches',
@@ -412,6 +412,8 @@ test('PowerShell 实际补全 rollback 的名字、JSON，且不补第二个名�
     const values = JSON.parse(result.stdout.trim()) as string[]
     assert.deepEqual(values.slice(0, 3), ['rollback', '--json', 'alpha|beta'])
     assert.ok(!values[3]?.split('|').some((s) => s === 'alpha' || s === 'beta'))
+    assert.deepEqual(values.slice(4, 6), ['--stat', 'alpha|beta'])
+    assert.ok(!values[6]?.split('|').some((s) => s === 'alpha' || s === 'beta'))
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -465,6 +467,9 @@ test('the emitted bash template completes correctly in a real bash', { skip: !HA
         ['rollback-skill', 'dsh-skills-nexus', 'rollback', '--json', ''],
         ['rollback-flag', 'dsh-skills-nexus', 'rollback', '--'],
         ['rollback-second', 'dsh-skills-nexus', 'rollback', 'alpha', ''],
+        ['diff-skill', 'dsh-skills-nexus', 'diff', '--stat', ''],
+        ['diff-flag', 'dsh-skills-nexus', 'diff', '--'],
+        ['diff-second', 'dsh-skills-nexus', 'diff', 'alpha', ''],
         ['remove-yes', 'dsh-skills-nexus', 'remove', '--yes', ''],
         ['remove-second', 'dsh-skills-nexus', 'remove', 'alpha', ''],
         ['update-flag', 'dsh-skills-nexus', 'update', '--x'],
@@ -492,6 +497,9 @@ test('the emitted bash template completes correctly in a real bash', { skip: !HA
       'rollback-skill|alpha beta',
       'rollback-flag|--json',
       'rollback-second|',
+      'diff-skill|alpha beta',
+      'diff-flag|--stat',
+      'diff-second|',
       // `--yes` is accepted before the names, so it must not consume the slot.
       'remove-yes|alpha beta',
       'remove-second|',
@@ -565,6 +573,9 @@ test('the emitted zsh template completes correctly in a real zsh', { skip: !HAS_
         ['rollback-names', 'dsh-skills-nexus', 'rollback', '--json', ''],
         ['rollback-flag', 'dsh-skills-nexus', 'rollback', '--'],
         ['rollback-second', 'dsh-skills-nexus', 'rollback', 'alpha', ''],
+        ['diff-skill', 'dsh-skills-nexus', 'diff', '--stat', ''],
+        ['diff-flag', 'dsh-skills-nexus', 'diff', '--'],
+        ['diff-second', 'dsh-skills-nexus', 'diff', 'alpha', ''],
         ['remove-yes', 'dsh-skills-nexus', 'remove', '--yes', ''],
         ['remove-second', 'dsh-skills-nexus', 'remove', 'alpha', ''],
         ['update-flag', 'dsh-skills-nexus', 'update', '--x'],
@@ -590,6 +601,9 @@ test('the emitted zsh template completes correctly in a real zsh', { skip: !HAS_
       'rollback-names|alpha beta',
       'rollback-flag|-- --json',
       'rollback-second|',
+      'diff-skill|alpha beta',
+      'diff-flag|-- --stat',
+      'diff-second|',
       // `--yes` is accepted before the names, so it must not consume the slot.
       'remove-yes|alpha beta',
       'remove-second|',
@@ -651,6 +665,8 @@ test('the emitted fish template completes correctly in a real fish', { skip: !HA
       ['update-skill', 'dsh-skills-nexus update ', ['alpha', 'beta']],
       ['rollback-skill', 'dsh-skills-nexus rollback ', ['alpha', 'beta']],
       ['rollback-flag', 'dsh-skills-nexus rollback --', ['--json']],
+      ['diff-skill', 'dsh-skills-nexus diff ', ['alpha', 'beta']],
+      ['diff-flag', 'dsh-skills-nexus diff --', ['--stat']],
       ['update-flag', 'dsh-skills-nexus update --x', []],
       ['unknown-cmd', 'dsh-skills-nexus nope ', []],
     ]
@@ -664,6 +680,7 @@ test('the emitted fish template completes correctly in a real fish', { skip: !HA
       ['shell-bare', 'dsh-skills-nexus completions --shell ', [...SUPPORTED_SHELLS]],
       ['remove-yes', 'dsh-skills-nexus remove --yes ', ['alpha', 'beta']],
       ['rollback-json', 'dsh-skills-nexus rollback --json ', ['alpha', 'beta']],
+      ['diff-stat', 'dsh-skills-nexus diff --stat ', ['alpha', 'beta']],
     ] as [string, string, string[]][]) {
       const got = runInFish(cmdline, stubDir, emptyDir, templatePath)
       for (const want of expected)
@@ -674,6 +691,7 @@ test('the emitted fish template completes correctly in a real fish', { skip: !HA
     for (const [label, cmdline] of [
       ['remove-second', 'dsh-skills-nexus remove alpha '],
       ['rollback-second', 'dsh-skills-nexus rollback alpha '],
+      ['diff-second', 'dsh-skills-nexus diff alpha '],
       ['remove-yes-second', 'dsh-skills-nexus remove --yes alpha '],
     ] as [string, string][]) {
       const got = runInFish(cmdline, stubDir, emptyDir, templatePath)

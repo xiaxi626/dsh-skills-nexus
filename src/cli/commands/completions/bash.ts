@@ -19,7 +19,7 @@
  * "First positional" counts the words before the cursor that do not start with
  * `-`, instead of comparing the word index: `remove --yes <TAB>` must still
  * offer names, because `--yes` is accepted before the names. Only update/pull/
- * remove/rm/enable/disable reach that branch and none of them has a
+ * rollback/diff/remove/rm/enable/disable reach that branch and none has a
  * value-taking flag, so a flag value can never be miscounted as a positional —
  * giving one of them a value flag would break that invariant. `export` and
  * `adopt` also take a positional (a name), but each has value-taking flags
@@ -48,7 +48,7 @@ export const bashTemplate = [
   '  cur="${COMP_WORDS[COMP_CWORD]}"',
   '  prev="${COMP_WORDS[COMP_CWORD-1]}"',
   '',
-  '  local cmds="add list ls update pull rollback export import adopt switch-version remove rm enable disable doctor help completions"',
+  '  local cmds="add list ls update pull rollback diff export import adopt switch-version remove rm enable disable doctor help completions"',
   '  if [ "$COMP_CWORD" -eq 1 ]; then',
   '    COMPREPLY=( $(compgen -W "$cmds" -- "$cur") )',
   '    return 0',
@@ -59,6 +59,7 @@ export const bashTemplate = [
   '    add)         flags="--name --ref --subdir --yes --json" ;;',
   '    list|ls)     flags="--names --json" ;;',
   '    update|pull|rollback) flags="--json" ;;',
+  '    diff)        flags="--stat" ;;',
   '    remove|rm)   flags="--yes --json" ;;',
   '    enable|disable) flags="--json" ;;',
   '    export)      flags="--all --out" ;;',
@@ -81,7 +82,7 @@ export const bashTemplate = [
   '  fi',
   '',
   '  case "$cmd" in',
-  '    update|pull|rollback|remove|rm|enable|disable)',
+  '    update|pull|rollback|diff|remove|rm|enable|disable)',
   '      # export and adopt take names too, but they are the commands with',
   '      # value-taking flags (--out, --url), so they stay out of this branch',
   '      # instead of making the positional count flag-value aware.',

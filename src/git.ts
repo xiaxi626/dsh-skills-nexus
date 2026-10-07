@@ -230,11 +230,12 @@ interface GitRun {
  * installs, and `execFile` (argument arrays, no shell) is used so refs, URLs
  * and paths are never re-interpreted by a shell.
  */
-async function runGit(args: string[], cwd?: string): Promise<GitRun> {
+async function runGit(args: string[], cwd?: string, maxBuffer?: number): Promise<GitRun> {
   try {
     const { stdout, stderr } = await execFileAsync('git', args, {
       cwd,
       env: { ...process.env, LC_ALL: 'C', LANG: 'C' },
+      ...(maxBuffer === undefined ? {} : { maxBuffer }),
     })
     return { ok: true, text: stdout + stderr }
   } catch (err) {
@@ -247,8 +248,8 @@ async function runGit(args: string[], cwd?: string): Promise<GitRun> {
 }
 
 /** Run Git for a real work step; a non-zero exit throws Git's own message. */
-async function git(args: string[], cwd?: string): Promise<string> {
-  const { ok, text } = await runGit(args, cwd)
+async function git(args: string[], cwd?: string, maxBuffer?: number): Promise<string> {
+  const { ok, text } = await runGit(args, cwd, maxBuffer)
   if (!ok) throw new Error(text.trim() || `git ${args[0] ?? 'command'} failed`)
   return text
 }
@@ -647,6 +648,68 @@ export async function fetchRepo(dest: string, ref: string): Promise<FetchOutcome
   // Raw commit SHA (writes FETCH_HEAD only; a mapping cannot apply).
   const sha = await runGit(['fetch', '--depth', '1', 'origin', ref], dest)
   return sha.ok ? 'sha' : 'none'
+}
+
+/**
+ * Fetch one remote comparison target into FETCH_HEAD without updating a local
+ * branch or tag. Partial clones retain their blob:none filter; the subsequent
+ * diff may therefore lazy-fetch only the blobs it actually compares.
+ */
+export async function fetchDiffTarget(
+  dest: string,
+  ref: string,
+  options: { exactBranch?: boolean } = {},
+): Promise<string> {
+  assertSafeRef(ref)
+  const valid = await runGit(['check-ref-format', '--allow-onelevel', ref])
+  if (!valid.ok) {
+    throw new Error(`Invalid diff ref ${JSON.stringify(ref)}: expected a branch, tag or commit.`)
+  }
+
+  const partial = await runGit(['config', '--bool', 'remote.origin.promisor'], dest)
+  const args = ['fetch', '--depth', '1', '--no-tags', '--refmap=']
+  if (partial.ok && partial.text.trim() === 'true') args.push('--filter=blob:none')
+  const remoteRef = options.exactBranch ? `refs/heads/${ref}` : ref
+  // An explicit empty destination suppresses the clone's configured fetch
+  // mapping: only FETCH_HEAD, shallow boundaries and fetched objects may move.
+  args.push('origin', `${remoteRef}:`)
+
+  const fetched = await runGit(args, dest)
+  if (!fetched.ok) {
+    throw new Error(
+      fetched.text.trim() || `Remote ref ${JSON.stringify(ref)} could not be fetched.`,
+    )
+  }
+  return resolveRefCommit(dest, 'FETCH_HEAD')
+}
+
+/**
+ * Render a deterministic, non-interactive commit diff. External diff drivers
+ * and textconv filters are disabled because repository-controlled config or
+ * attributes must not execute helpers while previewing untrusted content.
+ */
+export async function diffRepo(
+  dest: string,
+  fromCommit: string,
+  toCommit: string,
+  options: { stat?: boolean; pathspec?: string } = {},
+): Promise<string> {
+  for (const commit of [fromCommit, toCommit]) {
+    if (!/^[0-9a-f]{40,64}$/i.test(commit)) throw new Error('Invalid diff commit')
+  }
+  const args = [
+    '--no-pager',
+    'diff',
+    '--no-color',
+    '--no-ext-diff',
+    '--no-textconv',
+    ...(options.stat ? ['--stat'] : []),
+    fromCommit,
+    toCommit,
+  ]
+  if (options.pathspec !== undefined) args.push('--', normalizeSubdir(options.pathspec))
+  // Node's execFile default is 1 MiB, far below a realistic unified diff.
+  return git(args, dest, 64 * 1024 * 1024)
 }
 
 /** What {@link fetchRepo} managed to land locally — the input to

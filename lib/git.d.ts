@@ -181,6 +181,23 @@ export declare function discardLocalChanges(dest: string): Promise<void>;
  * present locally: all three fetches fail, resolution still succeeds.
  */
 export declare function fetchRepo(dest: string, ref: string): Promise<FetchOutcome>;
+/**
+ * Fetch one remote comparison target into FETCH_HEAD without updating a local
+ * branch or tag. Partial clones retain their blob:none filter; the subsequent
+ * diff may therefore lazy-fetch only the blobs it actually compares.
+ */
+export declare function fetchDiffTarget(dest: string, ref: string, options?: {
+    exactBranch?: boolean;
+}): Promise<string>;
+/**
+ * Render a deterministic, non-interactive commit diff. External diff drivers
+ * and textconv filters are disabled because repository-controlled config or
+ * attributes must not execute helpers while previewing untrusted content.
+ */
+export declare function diffRepo(dest: string, fromCommit: string, toCommit: string, options?: {
+    stat?: boolean;
+    pathspec?: string;
+}): Promise<string>;
 /** What {@link fetchRepo} managed to land locally — the input to
  *  {@link resolveSwitchTarget}. */
 export type FetchOutcome = 'branch' | 'tag' | 'sha' | 'none';

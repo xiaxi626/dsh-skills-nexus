@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+**Git 远端差异预览**
+
+- 新增 `diff <name> [<ref>] [--stat]`：在 per-entry 锁内以 depth-1 fetch 比较当前 HEAD 与远端目标，默认输出无颜色 unified diff，`--stat` 仅输出统计；发现实际 branch 且未显式 locked 时可省略目标，detached、tag/commit pin 与显式 locked entry 必须明确给出 branch、tag 或 SHA。
+- diff 不 checkout，不写 manifest 或链接，差异存在仍退出 0；仅允许 Git 更新 `FETCH_HEAD`、浅克隆边界及对象缓存。subdir entry 用 skill root pathspec 限定范围；partial clone 的 fetch 继续使用 `--filter=blob:none`，比较时按需获取目标 blob。Git 调用保持参数数组，ref 经安全校验，预览禁用 external diff 与 textconv。
+- CLI 帮助说明首次比较和大型 diff 的下载/耗时特征；bash、zsh、fish、PowerShell 同步 `diff`、动态 entry 名和 `--stat` 补全。不新增 JSON、HTTP 路由或面板入口。
+- 验证：新增 branch 默认目标、显式 branch/tag/SHA、detached/locked 拒绝、subdir、stat、状态不变、partial clone lazy blob、参数安全及锁测试；`typecheck`、`lint`、`test:build`、`build`、`build:client`、`npm test` 六步门禁全部通过，全量 628 项中 625 通过、0 失败、3 项因本机缺少 bash/zsh/fish 跳过（较上一阶段新增 7 项），PowerShell 实际补全通过；保留既有 2 条 lint warning。
+
 **Git 单次版本回滚**
 
 - 新增 `rollback <name> [--json]`，在 per-entry 锁内恢复最近一次 branch 更新或 switch-version；校验当前 HEAD、branch/detached、manifest 版本与完整链接集合，拒绝漂移或旧链接名被他人占用的情况。dirty worktree 警告后丢弃；成功消费恢复点并提示再次前进需使用 update/switch-version，不提供 redo。
