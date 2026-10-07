@@ -235,5 +235,7 @@ export declare function checkoutBranch(dest: string, branch: string): Promise<vo
  * argument (see `isSafeRef`).
  */
 export declare function getCurrentBranch(dest: string): Promise<string | undefined>;
+/** 按精确 commit 恢复 HEAD；branch 恢复不得取当前 remote tip。 */
+export declare function restoreCheckout(dest: string, commit: string, branch?: string): Promise<void>;
 export {};
 //# sourceMappingURL=git.d.ts.map

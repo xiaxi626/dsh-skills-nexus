@@ -567,6 +567,7 @@ export async function isDetachedHead(dest: string): Promise<boolean> {
 
 /** Resolve a local ref (branch / tag / commit) to its commit SHA. */
 export async function resolveRefCommit(dest: string, ref: string): Promise<string> {
+  assertSafeRef(ref)
   const { stdout } = await execFileAsync(
     'git', ['rev-parse', '--verify', `${ref}^{commit}`], { cwd: dest },
   )
@@ -575,6 +576,7 @@ export async function resolveRefCommit(dest: string, ref: string): Promise<strin
 
 /** Check out a local ref, leaving the clone detached (restores a pinned tag/commit). */
 export async function checkoutRef(dest: string, ref: string): Promise<void> {
+  assertSafeRef(ref)
   await execFileAsync('git', ['checkout', ref], { cwd: dest })
 }
 
@@ -749,8 +751,23 @@ export async function checkoutBranch(dest: string, branch: string): Promise<void
  * argument (see `isSafeRef`).
  */
 export async function getCurrentBranch(dest: string): Promise<string | undefined> {
-  const { ok, text } = await runGit(['symbolic-ref', '--short', '-q', 'HEAD'], dest)
+  const { ok, text } = await runGit(['symbolic-ref', '-q', 'HEAD'], dest)
   if (!ok) return undefined
-  const name = text.trim()
+  const name = text.trim().replace(/^refs\/heads\//, '')
   return name.length > 0 && isSafeRef(name) ? name : undefined
+}
+
+/** 按精确 commit 恢复 HEAD；branch 恢复不得取当前 remote tip。 */
+export async function restoreCheckout(dest: string, commit: string, branch?: string): Promise<void> {
+  if (!/^[0-9a-f]{40,64}$/i.test(commit)) throw new Error('Invalid checkout commit')
+  if (branch === undefined) {
+    await git(['checkout', '--detach', commit], dest)
+    return
+  }
+  assertSafeRef(branch)
+  await git(['check-ref-format', `refs/heads/${branch}`], dest)
+  await git(['checkout', '-B', branch, commit], dest)
+  await git(['config', '--replace-all', 'remote.origin.fetch', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], dest)
+  await git(['config', `branch.${branch}.remote`, 'origin'], dest)
+  await git(['config', `branch.${branch}.merge`, `refs/heads/${branch}`], dest)
 }

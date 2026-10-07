@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+**Git 版本变更恢复安全**
+
+- CLI 与 HTTP update 使用同一单 entry 核心，统一 dirty 处理、版本判断、frontmatter 归一化、链接重建和 manifest 写回；CLI 批量与 JSON、HTTP job 形态不变。
+- update / switch-version 晚期失败后，按原 branch 名及精确 commit（或 detached commit）恢复 checkout，重新归一化旧版本并恢复原链接、别名及 manifest 字段；恢复失败附加诊断并保留原始异常。
+- 更新前捕获完整链接集合，避免 checkout 删除目录后 Windows junction 无法归属；新链接冲突不覆盖其他 entry 或用户文件。
+- 验证：六步门禁全部通过；全量测试 585 项，582 通过、0 失败、3 跳过（基线 579 项，新增 6 项恢复测试）。lint 保留基线的 2 条 warning；生成物由 build / build:client 重建。
+
 **2026-10-06 · Fixed · `test/toggle.test.ts` 幽灵登记修复：list 用例改走 OpsIO seam，第二条用例恢复 TAP 登记与失败归因**
 
 - **背景（对 2026-09-28「过程记录」的更正）**：该记录称第二条用例（bare update 默认目标）的「幽灵登记」*与声明位置相关、移至文件末尾即恢复、断言失败不会报红*。本轮实测三点全部不成立：① 把该用例移到文件末尾后计数仍是 5，幽灵**转移给新的执行前驱**（首条用例消失）；② 真因与名字、与「第二条」这个位置都无关，而是 **list 用例（文件第 3 个执行）在测试体内替换 `process.stdout.write` 并在 `finally` 恢复**——node:test 子进程模式下，这会让紧邻其前的用例失去 TAP 登记（最小复现：6 个平凡用例中任何一个做「替换→恢复 stdout.write」，其前驱必消失，Node 20.19 / 22.20 / 24.19 行为一致；`node file.ts` 直跑与 `--test-isolation=none` 进程内模式则不丢）；③ 失败**不会静默**：幽灵用例的回调每次真实执行、断言真实在跑，其失败使退出码为 1（全量 `npm test` 实测 578 · 574 pass · **1 fail**），但失败被挂在文件级（`test at test\toggle.test.ts:1:1` → 泛化消息 `'test failed'`），**用例名与断言消息在整个输出中消失**——缺陷是「零归因」而非「永不报红」。

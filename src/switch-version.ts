@@ -1,4 +1,3 @@
-import { join } from 'node:path'
 import { findEntry, hasGitSource, markUpdated, readManifest } from './manifest.js'
 import { repoDir } from './paths.js'
 import {
@@ -6,18 +5,12 @@ import {
   checkoutRef,
   discardLocalChanges,
   fetchRepo,
-  getCurrentBranch,
   getHeadCommit,
   isDirtyWorktree,
   resolveSwitchTarget,
-  sanitizeName,
 } from './git.js'
-import { entryLinks, linkSkill, unlinkSkill } from './link.js'
-import { previewSkills } from './resolve.js'
-import { normalizeSkillName, ensureDescription } from './frontmatter.js'
-import type { EntryLink } from './link.js'
+import { captureVersionState, normalizeCheckout, rebuildVersionLinks, recoverVersionFailure } from './version-state.js'
 import type { OpsIO } from './ops-io.js'
-import type { SkillEntry } from './types.js'
 
 /**
  * `switch-version` — move an entry's clone to another branch / tag / commit
@@ -110,13 +103,11 @@ export async function switchVersion(
   if (!hasGitSource(entry)) throw new NotAGitCloneError(name)
 
   const dest = repoDir(entry.path)
-  const skillRoot = entry.subdir ? join(dest, entry.subdir) : dest
 
   // 1 — record the old link set and the old checkout before any mutation:
   //     together they are what a failed switch rolls back to.
-  const oldLinks = await entryLinks(entry)
-  const before = await getHeadCommit(dest)
-  const wasBranch = await getCurrentBranch(dest)
+  const state = await captureVersionState(entry)
+  const before = state.commit
 
   // 2 — fetch. Mandatory for shallow clones: `--depth 1` holds no other
   //     refs/tags locally, so `git checkout <tag>` without this fails.
@@ -131,7 +122,7 @@ export async function switchVersion(
   const wasDirty = await isDirtyWorktree(dest)
 
   let after: string
-  const links: string[] = []
+  let links: string[]
   try {
     // 4 — discard drift (install-time normalization rewrites SKILL.md, so a
     //     managed clone is typically dirty), then check out the target.
@@ -148,64 +139,19 @@ export async function switchVersion(
 
     // 5 — re-normalize frontmatter: the checkout restored raw upstream files
     //     (same install-time convention as `add` / `update`).
-    const skills = await previewSkills(skillRoot)
-    for (const ps of skills) {
-      const validName = ps.invalidName ? sanitizeName(ps.invalidName) : (ps.name || entry.name)
-      if (ps.invalidName) {
-        await normalizeSkillName(ps.skillFile, validName)
-      }
-      if (!ps.description || ps.description.trim().length === 0) {
-        await ensureDescription(ps.skillFile, validName)
-      }
-    }
+    const skills = await normalizeCheckout(entry)
 
     // 6 — rebuild links. Drop the old set first: names may repeat across the
     //     switch, and a new link created before the old one were removed
     //     would be deleted by the cleanup. Only rebuild when the entry was
     //     linked — a disabled entry must not be silently re-enabled.
-    const wasLinked = oldLinks.length > 0
-    for (const l of oldLinks) await unlinkSkill(l.name)
-    if (wasLinked) {
-      for (const ps of skills) {
-        const fmName = ps.invalidName ? sanitizeName(ps.invalidName) : ps.name
-        const linkName = skills.length === 1 ? entry.name : (fmName || entry.name)
-        await linkSkill(linkName, ps.resourceBase)
-        links.push(linkName)
-      }
-    }
+    links = await rebuildVersionLinks(state, skills)
 
     // 7 — record the new version; `refType` is a transient hint, never stored.
     await markUpdated(entry.name, after, ref)
   } catch (err) {
-    await rollbackSwitch(dest, entry, oldLinks, before, wasBranch)
-    throw err
+    return recoverVersionFailure(state, err)
   }
 
   return { name: entry.name, ref, before, after, kind: target.kind, wasDirty, links }
-}
-
-/**
- * Best-effort rollback of steps 4–6 (§8.2): restore the previous checkout,
- * then the previous link set. The original error is what the caller must
- * see, so a rollback failure is swallowed.
- *
- * `git checkout <wasBranch>` — not `checkout -B` — re-attaches HEAD without
- * touching the branch ref: the failed switch only ever reset the *target*
- * branch, so the old branch still points at `before`. When the clone was
- * detached, the rollback pins the exact old commit.
- */
-async function rollbackSwitch(
-  dest: string,
-  entry: SkillEntry,
-  oldLinks: EntryLink[],
-  before: string,
-  wasBranch: string | undefined,
-): Promise<void> {
-  try {
-    await checkoutRef(dest, wasBranch ?? before)
-    for (const l of await entryLinks(entry)) await unlinkSkill(l.name)
-    for (const l of oldLinks) await linkSkill(l.name, l.target)
-  } catch {
-    // Best-effort — the switch error reaches the caller regardless.
-  }
 }
