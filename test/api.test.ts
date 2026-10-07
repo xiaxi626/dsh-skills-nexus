@@ -249,7 +249,7 @@ test('list answers an empty manifest with an empty entry array', async () => {
 
 test('list reports derived link state and runtime nulls per entry', async () => {
   await clearEntries()
-  const alphaDir = await seedClone('list-alpha')
+  const alphaDir = await seedClone('list-alpha', { locked: true })
   await link.linkSkill('list-alpha', alphaDir)
   // The second entry records no remote (a snapshot): the payload has to say so,
   // because that is what the panel gates update/switch-version on.
@@ -271,6 +271,7 @@ test('list reports derived link state and runtime nulls per entry', async () => 
     ref: 'main',
     subdir: null,
     commit: null,
+    locked: true,
     hasGitSource: true,
     ownership: 'managed',
     enabled: true,

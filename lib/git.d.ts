@@ -90,6 +90,11 @@ export interface CloneResult {
     /** Non-fatal caveats to show the user (degraded or ignored optimizations). */
     warnings: string[];
 }
+/** An exact package commit is no longer fetchable from its recorded remote. */
+export declare class CommitUnavailableError extends Error {
+    readonly commit: string;
+    constructor(commit: string, message: string);
+}
 /** This Git cannot run the sparse step, so the clone is simply complete. */
 export declare const SPARSE_UNSUPPORTED_WARNING = "sparse checkout is unavailable in this Git \u2014 the whole repository was materialized";
 /**
@@ -117,6 +122,7 @@ export declare const FILTER_IGNORED_WARNING = "the remote ignored the blob filte
  */
 export declare function cloneRepo(spec: GitSpec, dest: string, options?: {
     subdir?: string;
+    exactCommit?: string;
 }): Promise<CloneResult>;
 /**
  * Resolve the commit SHA a remote currently advertises for `ref`, via

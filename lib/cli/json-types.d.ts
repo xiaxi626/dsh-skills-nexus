@@ -58,6 +58,8 @@ export interface ListJsonEntry {
     ref: string;
     subdir: string | null;
     commit: string | null;
+    /** Present and true only for an explicit package commit lock. */
+    locked?: boolean;
     hasGitSource: boolean;
     ownership: 'managed' | 'external';
     enabled: boolean;

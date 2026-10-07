@@ -256,6 +256,7 @@ async function listRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
       ref: l.entry.ref,
       subdir: l.entry.subdir ?? null,
       commit: l.entry.commit ?? null,
+      ...(l.entry.locked === true ? { locked: true } : {}),
       // The update/switch buttons are gated on the same predicate the routes
       // themselves use (`400 not-a-git-clone`), so the panel cannot disagree
       // with the server about what is updatable.

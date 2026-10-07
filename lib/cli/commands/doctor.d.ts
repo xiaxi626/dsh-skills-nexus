@@ -18,6 +18,8 @@ export interface DoctorIssue {
     name: string;
     fix?: string;
     detail?: string;
+    /** True only for an explicit package commit lock. */
+    locked?: boolean;
 }
 export interface DoctorCheck {
     id: string;

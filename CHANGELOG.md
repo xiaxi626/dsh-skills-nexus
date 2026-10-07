@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+**Git 精确版本导入与锁定展示**
+
+- 新增 `import <package> --locked`：仅接受记录完整安全 `gitUrl`、`ref` 与 40–64 位 commit SHA 的 labelled package，以 depth-1 fetch 和 detached checkout 恢复导出时的精确提交；`--each` 为每个 skill 建立独立 clone，并保留原 source ref。
+- 精确提交仅在远端明确表示该 commit 不可获取时回退 package payload snapshot；网络、认证、本地对象及模糊 Git 错误继续失败，不静默降级。`--locked` 与 `--no-remote`、`--no-net-check` 互斥，bare package 不支持锁定恢复。
+- manifest 以 `locked: true` 标记显式 package lock；`list` 增加 `LOCK` 列，list JSON、既有 HTTP list 与 client 类型仅为显式锁追加可选字段；`doctor --updates` 区分 package lock 与普通 detached tag/commit pin。成功 `switch-version` 后清除显式锁。
+- CLI usage 与 bash、zsh、fish、PowerShell 补全同步；未新增 JSON 命令、HTTP 路由或面板操作入口。
+- 验证：`typecheck`、`lint`、`test:build`、`build`、`build:client`、`npm test` 六步门禁全部通过；全量 636 项中 633 通过、0 失败、3 项因本机缺少 bash/zsh/fish 跳过（较上一阶段新增 8 项），保留既有 2 条 lint warning；生成物由构建命令重建。
+
 **Git 远端差异预览**
 
 - 新增 `diff <name> [<ref>] [--stat]`：在 per-entry 锁内以 depth-1 fetch 比较当前 HEAD 与远端目标，默认输出无颜色 unified diff，`--stat` 仅输出统计；发现实际 branch 且未显式 locked 时可省略目标，detached、tag/commit pin 与显式 locked entry 必须明确给出 branch、tag 或 SHA。

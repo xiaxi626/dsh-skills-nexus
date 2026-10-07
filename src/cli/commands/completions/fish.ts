@@ -63,6 +63,7 @@ export const fishTemplate = [
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from import' -l subdir -r",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from import' -l each",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from import' -l force",
+  "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from import' -l locked",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from import' -l no-remote",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from import' -l no-net-check",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from import' -l name -r",

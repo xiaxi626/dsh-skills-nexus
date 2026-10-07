@@ -83,6 +83,8 @@ export interface ListEntry {
   ref: string
   subdir: string | null
   commit: string | null
+  /** Present and true only for an explicit package commit lock. */
+  locked?: boolean
   /**
    * True when the entry records a git source — the server's own
    * `hasGitSource` predicate, which decides whether `update` /

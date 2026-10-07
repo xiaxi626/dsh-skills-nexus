@@ -65,7 +65,7 @@ export const zshTemplate = [
   '      remove|rm)   compadd -- --yes --json ;;',
   '      enable|disable) compadd -- --json ;;',
   '      export)      compadd -- --all --out ;;',
-  '      import)      compadd -- --dry-run --subdir --each --force --no-remote --no-net-check --name --yes ;;',
+  '      import)      compadd -- --dry-run --subdir --each --force --locked --no-remote --no-net-check --name --yes ;;',
   '      adopt)       compadd -- --url --ref --subdir --force --prune ;;',
   '      doctor)      compadd -- --json --updates --quiet ;;',
   '      switch-version) compadd -- --type ;;',

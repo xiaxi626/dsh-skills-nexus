@@ -39,6 +39,8 @@ export interface DoctorIssue {
   name: string
   fix?: string
   detail?: string
+  /** True only for an explicit package commit lock. */
+  locked?: boolean
 }
 
 export interface DoctorCheck {
@@ -422,7 +424,10 @@ async function checkUpdates(entries: SkillEntry[], io: OpsIO): Promise<DoctorChe
         severity: 'info',
         code: 'locked',
         name: e.name,
-        detail: `pinned at ${e.ref} — intentionally not tracking remote`,
+        detail: r.locked === true
+          ? `locked at ${short(e.commit ?? '')} (source ref: ${e.ref}) — exact package commit`
+          : `pinned at ${e.ref} — intentionally not tracking remote`,
+        ...(r.locked === true ? { locked: true } : {}),
       })
     } else if (r?.status === 'behind-remote') {
       issues.push({

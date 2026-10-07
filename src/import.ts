@@ -10,11 +10,17 @@ import { previewSkills } from './resolve.js'
 import { removeSkill } from './remove.js'
 import { readZip } from './zip.js'
 import { PACKAGE_MANIFEST, PACKAGE_SCHEMA, PACKAGE_VERSION } from './export.js'
-import { normalizeSubdir, parseGitSpec, repoSlug, sanitizeName } from './git.js'
+import {
+  CommitUnavailableError,
+  normalizeSubdir,
+  parseGitSpec,
+  repoSlug,
+  sanitizeName,
+} from './git.js'
 import { ensureDescription, normalizeSkillName } from './frontmatter.js'
 import { installFromGit } from './install.js'
 import type { OpsIO } from './ops-io.js'
-import type { ImportDecision } from './import-decision.js'
+import type { ImportDecision, SnapshotReason } from './import-decision.js'
 import type { NexusPackage, PackageEntry, PackageSkipped } from './export.js'
 import type { ParsedSkill } from './resolve.js'
 
@@ -137,6 +143,8 @@ export interface ImportOptions {
   noRemote?: boolean
   /** Skip the remote probe entirely (offline: no waiting, no verdict). */
   noNetCheck?: boolean
+  /** Restore labelled entries at their exact recorded commits. */
+  locked?: boolean
   /** Override the entry name (single-entry packages only). */
   name?: string
   /** Restrict a labelled package to one entry name. */
@@ -155,8 +163,10 @@ export interface ImportedEntry {
   kind: 'git' | 'snapshot'
   links: string[]
   enabled: boolean
-  /** Where a snapshot's files came from, for the summary line. */
+  /** Where the installed files landed, for the summary line. */
   path: string
+  /** Why a snapshot was selected, including an exact-commit fallback. */
+  reason?: SnapshotReason
 }
 
 export interface ImportResult {
@@ -379,21 +389,53 @@ async function probeRemote(url: string): Promise<'reachable' | 'unreachable' | '
  * probe must not run for them — `decide` would ignore its verdict anyway.
  */
 function needsProbe(gitUrl: string, options: ImportOptions): boolean {
-  return gitUrl.length > 0 && options.noRemote !== true && options.noNetCheck !== true
+  return (
+    gitUrl.length > 0 &&
+    options.locked !== true &&
+    options.noRemote !== true &&
+    options.noNetCheck !== true
+  )
 }
 
 function decide(
   gitUrl: string,
   ref: string,
+  commit: string,
   options: ImportOptions,
   probe: 'reachable' | 'unreachable' | 'timeout',
 ): ImportDecision {
+  if (options.locked === true) return { kind: 'git-locked', url: gitUrl, ref, commit }
   if (gitUrl.length === 0) return { kind: 'snapshot', reason: 'no-source' }
   if (options.noRemote === true) return { kind: 'snapshot', reason: 'no-remote' }
   if (options.noNetCheck === true) return { kind: 'snapshot', reason: 'not-checked' }
   if (probe === 'timeout') return { kind: 'snapshot', reason: 'timeout' }
   if (probe === 'unreachable') return { kind: 'snapshot', reason: 'unreachable' }
-  return { kind: 'git', url: gitUrl, ref: ref || 'main' }
+  return { kind: 'git-ref', url: gitUrl, ref: ref || 'main' }
+}
+
+function validateLockedEntry(entry: PackageEntry): void {
+  if (
+    typeof entry.gitUrl !== 'string' || entry.gitUrl.trim().length === 0 ||
+    typeof entry.ref !== 'string' || entry.ref.trim().length === 0 ||
+    typeof entry.commit !== 'string' || !/^[0-9a-f]{40,64}$/i.test(entry.commit)
+  ) {
+    throw new ImportError(
+      'invalid-package',
+      `--locked requires "${String(entry.name)}" to record non-empty gitUrl/ref and a full commit SHA`,
+    )
+  }
+  // Reuse the normal parser's URL/ref safety boundary before any value can
+  // reach a Git argument array, but keep malformed package data in the import
+  // error dialect rather than leaking a generic parser error.
+  try {
+    parseGitSpec(entry.gitUrl, entry.ref)
+  } catch (err) {
+    throw new ImportError(
+      'invalid-package',
+      `--locked source metadata for "${entry.name}" is unsafe: ` +
+        (err instanceof Error ? err.message : String(err)),
+    )
+  }
 }
 
 /** Restrict a labelled package to the entries the caller asked for. */
@@ -454,6 +496,7 @@ export async function planStaged(
     enabled: boolean
     gitUrl: string
     ref: string
+    commit: string
   }): Promise<void> => {
     const name = sanitizeName(entry.name)
     // The verdict below is only ever read when `needsProbe` was true; passing
@@ -465,25 +508,35 @@ export async function planStaged(
       ...(entry.subdir === undefined ? {} : { subdir: entry.subdir }),
       skills: entry.skills.map((s) => ({ ...s, name: sanitizeName(s.name) || name })),
       enabled: entry.enabled,
-      decision: decide(entry.gitUrl, entry.ref, options, probe),
+      decision: decide(entry.gitUrl, entry.ref, entry.commit, options, probe),
       conflict: takenNames.has(name) || takenPaths.has(name),
       files: (await listFiles(atRoot(staged.root, entry.root))).length,
     })
   }
 
   if (label !== undefined) {
-    for (const entry of selectEntries(label, options)) {
+    const selected = selectEntries(label, options)
+    if (options.locked === true) selected.forEach(validateLockedEntry)
+    for (const entry of selected) {
       const entryRoot = `skills/${entry.name}`
       if (options.each === true && entry.skills.length > 1) {
         for (const skill of entry.skills) {
+          const payloadSubdir = skill.root.startsWith(`${entryRoot}/`)
+            ? skill.root.slice(entryRoot.length + 1)
+            : ''
+          const sourceSubdir = entry.subdir === undefined ? '' : normalizeSubdir(entry.subdir)
+          const eachSubdir = [sourceSubdir === '.' ? '' : sourceSubdir, payloadSubdir]
+            .filter(Boolean)
+            .join('/')
           await push({
             name: skill.name || `${entry.name}-${basename(skill.root)}`,
             root: skill.root,
-            subdir: entry.subdir,
+            ...(eachSubdir.length === 0 ? {} : { subdir: eachSubdir }),
             skills: [{ name: skill.name, root: skill.root, links: skill.links }],
             enabled: entry.enabled !== false,
             gitUrl: entry.gitUrl,
             ref: entry.ref,
+            commit: entry.commit,
           })
         }
         continue
@@ -496,9 +549,13 @@ export async function planStaged(
         enabled: entry.enabled !== false,
         gitUrl: entry.gitUrl,
         ref: entry.ref,
+        commit: entry.commit,
       })
     }
   } else {
+    if (options.locked === true) {
+      throw new ImportError('invalid-package', '--locked requires a labelled package with nexus-package.json')
+    }
     const requested = options.subdir === undefined ? undefined : normalizeSubdir(options.subdir)
     let scan: { root: string; skills: ParsedSkill[]; peel: number } | undefined
     if (requested !== undefined) {
@@ -545,6 +602,7 @@ export async function planStaged(
           enabled: true,
           gitUrl: '',
           ref: '',
+          commit: '',
         })
       }
     } else {
@@ -559,6 +617,7 @@ export async function planStaged(
         enabled: true,
         gitUrl: '',
         ref: '',
+        commit: '',
       })
     }
   }
@@ -588,6 +647,12 @@ export async function planStaged(
 export async function importPackage(
   options: ImportOptions,
 ): Promise<{ plan: ImportPlan; result?: ImportResult }> {
+  if (options.locked === true && (options.noRemote === true || options.noNetCheck === true)) {
+    throw new ImportError(
+      'invalid-package',
+      '--locked is mutually exclusive with --no-remote and --no-net-check',
+    )
+  }
   const staged = await stagePackage(options.source)
   try {
     const plan = await planStaged(staged, options)
@@ -635,11 +700,18 @@ async function applyPlan(
         )
       }
 
-      installed.push(
-        entry.decision.kind === 'git'
-          ? await installViaGit(entry, entry.decision, options)
-          : await installAsSnapshot(entry, staged),
-      )
+      if (entry.decision.kind === 'snapshot') {
+        installed.push(await installAsSnapshot(entry, staged, entry.decision.reason))
+      } else {
+        try {
+          installed.push(await installViaGit(entry, entry.decision, options))
+        } catch (err) {
+          if (!(err instanceof CommitUnavailableError) || entry.decision.kind !== 'git-locked') {
+            throw err
+          }
+          installed.push(await installAsSnapshot(entry, staged, 'commit-unavailable'))
+        }
+      }
     } catch (err) {
       failed.push({ name: entry.name, reason: err instanceof Error ? err.message : String(err) })
     }
@@ -651,7 +723,7 @@ async function applyPlan(
 /** Channel A: the label recorded a reachable remote, so rebuild a real clone. */
 async function installViaGit(
   entry: ImportPlanEntry,
-  decision: { kind: 'git'; url: string; ref: string },
+  decision: Extract<ImportDecision, { kind: 'git-ref' | 'git-locked' }>,
   options: ImportOptions,
 ): Promise<ImportedEntry> {
   const gitSpec = parseGitSpec(decision.url, decision.ref)
@@ -673,6 +745,9 @@ async function installViaGit(
     name: undefined,
     subdirLeaf: leaf,
     yes: options.yes,
+    ...(decision.kind === 'git-locked'
+      ? { exactCommit: decision.commit, locked: true }
+      : {}),
     io: options.io,
   })
   // The install reports three outcomes: only `installed` registered anything.
@@ -703,6 +778,7 @@ async function installViaGit(
 async function installAsSnapshot(
   entry: ImportPlanEntry,
   staged: StagedPackage,
+  reason: SnapshotReason,
 ): Promise<ImportedEntry> {
   const path = sanitizeName(entry.name)
   const dest = repoDir(path)
@@ -744,7 +820,7 @@ async function installAsSnapshot(
   })
 
   const links = entry.enabled ? await restoreLinks(entry, dest, parsed) : []
-  return { name: entry.name, kind: 'snapshot', links, enabled: entry.enabled, path }
+  return { name: entry.name, kind: 'snapshot', links, enabled: entry.enabled, path, reason }
 }
 
 /**

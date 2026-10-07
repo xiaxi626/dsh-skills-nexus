@@ -152,13 +152,20 @@ async function cloneEntry(name: string, src: string, ref: string): Promise<strin
 }
 
 /** Register a git-sourced entry mirroring `add`'s manifest shape. */
-async function register(name: string, src: string, ref: string, commit: string): Promise<void> {
+async function register(
+  name: string,
+  src: string,
+  ref: string,
+  commit: string,
+  locked = false,
+): Promise<void> {
   await manifest.addEntry({
     name,
     url: fileUrl(src),
     gitUrl: fileUrl(src),
     ref,
     commit,
+    ...(locked ? { locked: true } : {}),
     path: name,
     addedAt: new Date().toISOString(),
   })
@@ -186,7 +193,7 @@ test('switching branch → tag pins the clone; switching back re-attaches the br
 
   const name = 'tagged'
   const dest = await cloneEntry(name, src, 'main')
-  await register(name, src, 'main', branchSha)
+  await register(name, src, 'main', branchSha, true)
   await link.linkSkill(name, dest)
 
   // A --depth 1 clone holds no other refs — the tag is absent before the
@@ -209,6 +216,7 @@ test('switching branch → tag pins the clone; switching back re-attaches the br
   let entry = await entryOf(name)
   assert.equal(entry.ref, 'v1.0.0')
   assert.equal(entry.commit, pinnedSha)
+  assert.equal(entry.locked, false, 'a successful explicit switch clears the import lock')
   assert.equal(await link.isLinked(name), true)
 
   // Back to the branch: HEAD re-attaches and tracks origin/main again.

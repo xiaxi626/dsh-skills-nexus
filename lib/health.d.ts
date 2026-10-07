@@ -106,6 +106,8 @@ export type UpdateCheckStatus = 'behind-remote' | 'current' | 'locked' | 'absent
 export interface UpdateCheck {
     name: string;
     status: UpdateCheckStatus;
+    /** True only for an explicit package commit lock, not every detached HEAD. */
+    locked?: boolean;
     /** Commit recorded in the manifest (when present and a remote was resolved). */
     local?: string;
     /** Commit resolved from the remote (only for `behind-remote` / `current`). */

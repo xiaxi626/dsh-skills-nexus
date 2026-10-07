@@ -108,7 +108,7 @@ async function captureList(argv: string[]): Promise<{ code: number; out: string;
 
 /** Reset the manifest to exactly the given entries (seeded, no clone needed). */
 async function reset(
-  ...entries: Array<{ name: string; gitUrl: string; subdir?: string }>
+  ...entries: Array<{ name: string; gitUrl: string; subdir?: string; locked?: boolean }>
 ): Promise<void> {
   for (const s of (await manifest.readManifest()).skills) await manifest.removeEntry(s.name)
   for (const e of entries) {
@@ -118,6 +118,7 @@ async function reset(
       gitUrl: e.gitUrl,
       ref: 'main',
       subdir: e.subdir,
+      ...(e.locked === true ? { locked: true } : {}),
       path: e.name,
       addedAt: new Date().toISOString(),
     })
@@ -130,6 +131,19 @@ test('list prints a SOURCE header and the derived owner/repo for each row', asyn
   assert.equal(code, 0)
   assert.match(out, /SOURCE/)
   assert.match(out, /owner\/repo/)
+})
+
+test('list shows LOCK yes only for an explicit package lock', async () => {
+  await reset(
+    { name: 'locked-one', gitUrl: 'https://github.com/owner/locked.git', locked: true },
+    { name: 'ordinary', gitUrl: 'https://github.com/owner/ordinary.git' },
+  )
+  const { out } = await captureList([])
+  assert.match(out, /LOCK/)
+  const lockedLine = out.split('\n').find((line) => line.includes('locked-one')) ?? ''
+  const ordinaryLine = out.split('\n').find((line) => line.includes('ordinary')) ?? ''
+  assert.match(lockedLine, /main\s+—\s+yes\s+missing/)
+  assert.match(ordinaryLine, /main\s+—\s+—\s+missing/)
 })
 
 test('two subdir entries from one repo show the same SOURCE (origin is groupable)', async () => {
@@ -215,6 +229,16 @@ test('--json emits one version-1 report and nothing else on stdout', async () =>
   assert.equal(report.entries[0]!.name, 'solo')
   assert.equal(report.entries[0]!.url, 'https://github.com/owner/repo.git')
   assert.equal(report.entries[0]!.ref, 'main')
+})
+
+test('--json appends locked only for an explicit package lock', async () => {
+  await reset(
+    { name: 'locked-json', gitUrl: 'https://github.com/owner/locked.git', locked: true },
+    { name: 'ordinary-json', gitUrl: 'https://github.com/owner/ordinary.git' },
+  )
+  const entries = parseReport((await captureList(['--json'])).out).entries
+  assert.equal(entries[0]!.locked, true)
+  assert.equal('locked' in entries[1]!, false)
 })
 
 test('--json carries the derived fields the human table derives', async () => {

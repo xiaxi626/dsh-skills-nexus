@@ -227,7 +227,7 @@ test('every template offers exactly the subcommands the CLI routes', async () =>
 
 test('templates carry the flags each command accepts', () => {
   for (const t of TEMPLATES) {
-    for (const flag of ['--name', '--ref', '--subdir', '--yes', '--names', '--json', '--stat', '--updates', '--quiet', '--shell']) {
+    for (const flag of ['--name', '--ref', '--subdir', '--yes', '--names', '--json', '--stat', '--updates', '--quiet', '--shell', '--locked']) {
       assert.ok(t.text.includes(t.flag(flag)), `${t.shell} template should offer ${flag}`)
     }
   }

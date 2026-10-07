@@ -356,6 +356,14 @@ export interface CloneResult {
   warnings: string[]
 }
 
+/** An exact package commit is no longer fetchable from its recorded remote. */
+export class CommitUnavailableError extends Error {
+  constructor(readonly commit: string, message: string) {
+    super(message)
+    this.name = 'CommitUnavailableError'
+  }
+}
+
 /** This Git cannot run the sparse step, so the clone is simply complete. */
 export const SPARSE_UNSUPPORTED_WARNING =
   'sparse checkout is unavailable in this Git — the whole repository was materialized'
@@ -436,9 +444,12 @@ async function cloneFullRepo(spec: GitSpec, dest: string): Promise<void> {
 export async function cloneRepo(
   spec: GitSpec,
   dest: string,
-  options: { subdir?: string } = {},
+  options: { subdir?: string; exactCommit?: string } = {},
 ): Promise<CloneResult> {
   const subdir = options.subdir === undefined ? undefined : normalizeSubdir(options.subdir)
+  if (options.exactCommit !== undefined) {
+    return cloneExactCommit(spec.url, dest, options.exactCommit, subdir)
+  }
   if (subdir === undefined || subdir === '.') {
     await cloneFullRepo(spec, dest)
     return { mode: 'full', warnings: [] }
@@ -506,6 +517,87 @@ export async function cloneRepo(
     await discardClone(dest)
     throw err
   }
+}
+
+/**
+ * Clone and detach at one exact commit recorded by a package. The initial clone
+ * establishes origin without trusting the package's moving ref; the explicit
+ * depth-1 fetch is the only operation whose narrowly recognised "object is no
+ * longer available" failures may become a snapshot fallback in `import`.
+ */
+async function cloneExactCommit(
+  url: string,
+  dest: string,
+  commit: string,
+  subdir?: string,
+): Promise<CloneResult> {
+  if (!/^[0-9a-f]{40,64}$/i.test(commit)) throw new Error('Invalid exact commit')
+  await assertCloneTargetAbsent(dest)
+
+  const sparseRequested = subdir !== undefined && subdir !== '.'
+  const sparse = sparseRequested && await hasSparseCheckoutCommand()
+  const warnings: string[] = sparseRequested && !sparse ? [SPARSE_UNSUPPORTED_WARNING] : []
+  try {
+    const cloneArgs = ['clone', '--depth', '1', '--no-checkout']
+    if (sparse) cloneArgs.push('--filter=blob:none')
+    const cloneOnce = async (): Promise<void> => {
+      try {
+        const output = await git([...cloneArgs, url, dest])
+        if (sparse && /filtering not recognized by server/i.test(output)) {
+          warnings.push(FILTER_IGNORED_WARNING)
+        }
+      } catch (err) {
+        await discardClone(dest)
+        throw err
+      }
+    }
+    await retry(cloneOnce, { retries: 1, minDelay: 500 })
+
+    const fetched = await runGit(
+      ['fetch', '--depth', '1', ...(sparse ? ['--filter=blob:none'] : []), 'origin', commit],
+      dest,
+    )
+    if (!fetched.ok) {
+      const message = fetched.text.trim() || `git fetch failed for ${commit}`
+      if (isUnavailableCommitMessage(message, commit)) {
+        throw new CommitUnavailableError(commit, message)
+      }
+      throw new Error(message)
+    }
+
+    if (!sparse) {
+      await git(['checkout', '--detach', commit], dest)
+      return { mode: 'full', warnings }
+    }
+
+    const capabilities = await sparseSetCapabilities(dest)
+    if (!capabilities.cone) {
+      warnings.push(SPARSE_UNSUPPORTED_WARNING)
+      await git(['checkout', '--detach', commit], dest)
+      return { mode: 'full', warnings }
+    }
+
+    const setArgs = ['sparse-checkout', 'set', '--cone']
+    if (capabilities.skipChecks) setArgs.push('--skip-checks')
+    setArgs.push('--', subdir!)
+    await git(setArgs, dest)
+    await git(['checkout', '--detach', commit], dest)
+    return { mode: 'sparse', warnings }
+  } catch (err) {
+    await discardClone(dest)
+    throw err
+  }
+}
+
+/** Only explicit remote-object refusal messages qualify for snapshot fallback. */
+function isUnavailableCommitMessage(message: string, commit: string): boolean {
+  const escaped = commit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return (
+    new RegExp(`couldn't find remote ref ${escaped}`, 'i').test(message) ||
+    new RegExp(`not our ref ${escaped}`, 'i').test(message) ||
+    /server does not allow request for unadvertised object/i.test(message) ||
+    /no such ref was fetched/i.test(message)
+  )
 }
 
 /**
