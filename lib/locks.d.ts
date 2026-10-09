@@ -65,4 +65,12 @@ export declare const LOCK_STALE_MS: number;
 export declare function acquireSkillFileLock(skill: string): Promise<SkillFileLock>;
 /** Convenience: run `fn` while holding the skill's cross-process lock. */
 export declare function withSkillFileLock<T>(skill: string, fn: () => Promise<T>): Promise<T>;
+/**
+ * Run `fn` while holding the cross-process manifest lock.
+ *
+ * Every manifest read-modify-write MUST go through this wrapper so that
+ * concurrent CLI and HTTP processes cannot clobber each other's entries.
+ * The lock is released whether `fn` succeeds or throws.
+ */
+export declare function withManifestLock<T>(fn: () => Promise<T>): Promise<T>;
 //# sourceMappingURL=locks.d.ts.map

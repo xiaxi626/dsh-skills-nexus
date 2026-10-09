@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+**2026-10-09 · Added · Manifest 全局互斥锁**
+
+- **背景**：`addEntry`、`removeEntry`、`markUpdated`（`src/manifest.ts`）和 `restoreEntry`（`src/version-state.ts`）均为 read → modify → write 模式，没有跨进程互斥。CLI 与 Web 面板在不同进程中同时操作不同 skill 时，后写的 manifest 会覆盖先写的，导致条目静默丢失。Per-skill 锁（§7.3 Layer 3）只保护 git 操作和链接创建/删除，不保护 manifest JSON 本身的写入。
+- **变更**：`src/locks.ts` 新增 `withManifestLock<T>(fn): Promise<T>`，复用 Layer 3 的 O_EXCL + PID + 时间戳 + 10 分钟 stale 回收机制，以固定名 `__manifest__` 写入 `<NEXUS_HOME>/.locks/__manifest__.lock`。`src/manifest.ts` 的 `addEntry`、`removeEntry`、`markUpdated` 及 `src/version-state.ts` 的 `restoreEntry` 的 read-modify-write 周期全部包裹在 `withManifestLock` 内。两层锁互补：per-skill 锁保护长时间的 git/link 操作（不同 skill 可并发），manifest 锁保护短暂的 JSON 读写（所有写者串行化）。
+- **验证**：`typecheck`、`lint`、`npm test` 全部通过，640 项中 637 通过、0 失败、3 跳过（较上一阶段新增 4 项 manifest 锁测试）。
+- **不做**：不将 manifest 锁暴露为 HTTP 路由或 CLI 命令（内部并发控制，用户无感）；不替换现有 per-skill 锁（两者职责不同）。
+
 **2026-10-07 · Fixed · 补全测试期望未随 `diff` 子命令同步更新导致 CI 失败**
 
 - **根因**：`diff` 子命令添加到 bash/fish 补全模板时（命令列表新增 `diff`），`test/completions.test.ts` 中 `sub-prefix-d` 测试用例的期望值仍为 `disable doctor`，未包含同样以 `d` 开头的 `diff`，导致 bash 和 fish 补全测试在全部平台失败。

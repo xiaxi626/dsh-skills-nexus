@@ -201,6 +201,51 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Manifest-level cross-process lock                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Sentinel name used for the manifest-wide lock file.
+ *
+ * Per-skill locks (§7.3 layer 3) fence git operations and link create/delete
+ * for *one* entry — two skills can be updated concurrently because they touch
+ * different clones. The manifest, however, is a single shared file: every
+ * `addEntry` / `removeEntry` / `markUpdated` / `restoreEntry` does a
+ * read → modify → write cycle over `manifest.json`, and two such cycles
+ * running in different processes (CLI + Web panel, or two CLI invocations)
+ * will silently lose the earlier writer's entries. The manifest lock is
+ * therefore *global* — one lock file for every manifest mutation — while
+ * per-skill locks remain fine-grained for the git/link work that surrounds
+ * each manifest write. The two layers are complementary:
+ *
+ *   - per-skill lock: held during the long git clone/fetch + link dance;
+ *     different skills do not block each other.
+ *   - manifest lock: held only during the short read-modify-write of the
+ *     manifest JSON itself; serialises every writer regardless of skill.
+ *
+ * The manifest lock reuses the Layer-3 `acquireSkillFileLock` mechanism
+ * (O_EXCL + PID + timestamp + 10-minute stale reclaim) with a fixed name,
+ * so the lock file lives at `<NEXUS_HOME>/.locks/__manifest__.lock`.
+ */
+const MANIFEST_LOCK_NAME = '__manifest__'
+
+/**
+ * Run `fn` while holding the cross-process manifest lock.
+ *
+ * Every manifest read-modify-write MUST go through this wrapper so that
+ * concurrent CLI and HTTP processes cannot clobber each other's entries.
+ * The lock is released whether `fn` succeeds or throws.
+ */
+export async function withManifestLock<T>(fn: () => Promise<T>): Promise<T> {
+  const lock = await acquireSkillFileLock(MANIFEST_LOCK_NAME)
+  try {
+    return await fn()
+  } finally {
+    await lock.release()
+  }
+}
+
 function makeLock(skill: string, path: string): SkillFileLock {
   let released = false
   return {

@@ -5,6 +5,7 @@ import { entryLinks, isLinked, linkSkill, unlinkSkill } from './link.js'
 import { readManifest, writeManifest } from './manifest.js'
 import { repoDir } from './paths.js'
 import { previewSkills } from './resolve.js'
+import { withManifestLock } from './locks.js'
 import type { EntryLink } from './link.js'
 import type { OpsIO } from './ops-io.js'
 import type { ParsedSkill } from './resolve.js'
@@ -28,13 +29,24 @@ export async function captureVersionState(entry: SkillEntry): Promise<VersionSta
   }
 }
 
-/** 只替换本 entry，保留其他 entry 在此期间写入的字段。 */
+/**
+ * Only replace this entry, keeping other entries' concurrent writes intact.
+ *
+ * Wrapped in `withManifestLock`: the read → find → replace → write cycle
+ * would otherwise race against a concurrent `addEntry` / `removeEntry` /
+ * `markUpdated` from another process, silently losing the other writer's
+ * changes. The per-skill lock is already held by the caller (update or
+ * switch-version), but that lock fences git + link work — the manifest
+ * lock is the inner fence around the JSON read-modify-write itself.
+ */
 export async function restoreEntry(entry: SkillEntry): Promise<void> {
-  const manifest = await readManifest()
-  const index = manifest.skills.findIndex((s) => s.name === entry.name)
-  if (index < 0) throw new Error(`Entry "${entry.name}" disappeared during version change`)
-  manifest.skills[index] = { ...entry }
-  await writeManifest(manifest)
+  return withManifestLock(async () => {
+    const manifest = await readManifest()
+    const index = manifest.skills.findIndex((s) => s.name === entry.name)
+    if (index < 0) throw new Error(`Entry "${entry.name}" disappeared during version change`)
+    manifest.skills[index] = { ...entry }
+    await writeManifest(manifest)
+  })
 }
 
 export async function normalizeCheckout(entry: SkillEntry, io?: OpsIO): Promise<ParsedSkill[]> {

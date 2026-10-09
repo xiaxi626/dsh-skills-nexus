@@ -181,3 +181,55 @@ test('withCacheLock keeps serializing after a failure', async () => {
   })
   assert.deepEqual(order, ['still-works'])
 })
+
+/* ------------------------------------------------------------------ */
+/* Manifest-level cross-process lock                                   */
+/* ------------------------------------------------------------------ */
+
+test('withManifestLock acquires and releases the manifest lock file', async () => {
+  await locks.withManifestLock(async () => {
+    // While the body runs, the lock file must exist.
+    const path = join(paths.LOCKS_DIR, '__manifest__.lock')
+    const body = JSON.parse(await readFile(path, 'utf8')) as { pid: number; startedAt: string }
+    assert.equal(body.pid, process.pid)
+    assert.ok(!Number.isNaN(Date.parse(body.startedAt)))
+  })
+  // After the body settles, the lock file is gone.
+  const path = join(paths.LOCKS_DIR, '__manifest__.lock')
+  await assert.rejects(() => readFile(path, 'utf8'))
+})
+
+test('withManifestLock returns the body value', async () => {
+  const result = await locks.withManifestLock(async () => 42)
+  assert.equal(result, 42)
+})
+
+test('withManifestLock releases the lock when fn throws', async () => {
+  await assert.rejects(() =>
+    locks.withManifestLock(async () => {
+      throw new Error('manifest-boom')
+    }),
+  )
+  // The lock must be released after a failure — acquiring again must succeed.
+  const result = await locks.withManifestLock(async () => 'recovered')
+  assert.equal(result, 'recovered')
+})
+
+test('withManifestLock rejects a concurrent second call with SkillLockedError', async () => {
+  let release!: () => void
+  const gate = new Promise<void>((r) => {
+    release = r
+  })
+  const first = locks.withManifestLock(async () => {
+    await gate
+  })
+  // The second call finds the lock held by the first.
+  await assert.rejects(
+    () => locks.withManifestLock(async () => undefined),
+    locks.SkillLockedError,
+  )
+  release()
+  await first
+  // After the first settles, the slot is free again.
+  await locks.withManifestLock(async () => undefined)
+})
