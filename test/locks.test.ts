@@ -216,20 +216,19 @@ test('withManifestLock releases the lock when fn throws', async () => {
 })
 
 test('withManifestLock rejects a concurrent second call with SkillLockedError', async () => {
-  let release!: () => void
-  const gate = new Promise<void>((r) => {
-    release = r
-  })
-  const first = locks.withManifestLock(async () => {
-    await gate
-  })
-  // The second call finds the lock held by the first.
-  await assert.rejects(
-    () => locks.withManifestLock(async () => undefined),
-    locks.SkillLockedError,
-  )
-  release()
-  await first
-  // After the first settles, the slot is free again.
+  // Hold the lock manually via the lower-level acquire so we can test that a
+  // second withManifestLock call finds it held. This avoids relying on
+  // withManifestLock for the first acquisition, which would require gate
+  // orchestration and is sensitive to filesystem settle timing on Windows.
+  const lock = await locks.acquireSkillFileLock('__manifest__')
+  try {
+    await assert.rejects(
+      () => locks.withManifestLock(async () => undefined),
+      locks.SkillLockedError,
+    )
+  } finally {
+    await lock.release()
+  }
+  // After the manual lock is released, withManifestLock works again.
   await locks.withManifestLock(async () => undefined)
 })

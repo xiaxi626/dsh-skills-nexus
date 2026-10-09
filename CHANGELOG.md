@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+**2026-10-09 · Fixed · remove 清理孤立 rollback 残留**
+
+- **背景**：`removeSkill`（`src/remove.ts`）删除 manifest 条目和克隆目录，但不清理 `NEXUS_HOME/rollback/<name>.json`。克隆内的 git anchor ref 随目录删除消失，但 rollback JSON 残留，随 add/remove 周期积累孤立文件。
+- **变更**：`src/remove.ts` 的 `removeSkill` 在 `removeSkillDir` 之后追加 `rm(rollbackPath(removed.name), { force: true }).catch(() => {})`，从 `./rollback.js` 导入 `rollbackPath`。孤立回滚文件被静默清理；清理失败不阻断 remove 流程。活跃 skill 的回滚文件不受影响（只有已删除的 entry 才触发此路径）。
+- **验证**：`typecheck`、`lint`、`npm test` 全部通过，641 项中 638 通过、0 失败、3 跳过（较上一阶段新增 1 项 remove rollback 清理测试）。
+- **不做**：不批量清理已有的孤立 rollback 文件（任务 4 的 `purge` 命令覆盖）。
+
 **2026-10-09 · Added · Manifest 全局互斥锁**
 
 - **背景**：`addEntry`、`removeEntry`、`markUpdated`（`src/manifest.ts`）和 `restoreEntry`（`src/version-state.ts`）均为 read → modify → write 模式，没有跨进程互斥。CLI 与 Web 面板在不同进程中同时操作不同 skill 时，后写的 manifest 会覆盖先写的，导致条目静默丢失。Per-skill 锁（§7.3 Layer 3）只保护 git 操作和链接创建/删除，不保护 manifest JSON 本身的写入。

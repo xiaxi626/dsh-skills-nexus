@@ -1,9 +1,11 @@
 import { join } from 'node:path'
+import { rm } from 'node:fs/promises'
 import { isExternalEntry, removeEntry, removeSkillDir } from './manifest.js'
 import { repoDir } from './paths.js'
 import { isLinked, unlinkSkill } from './link.js'
 import { previewSkills } from './resolve.js'
 import { sanitizeName } from './git.js'
+import { rollbackPath } from './rollback.js'
 
 /**
  * Delete one skill by exact name — the single implementation behind both the
@@ -69,5 +71,10 @@ export async function removeSkill(name: string): Promise<RemoveResult> {
   if (isExternalEntry(removed)) return { removed: true, links }
 
   await removeSkillDir(removed.path)
+  // The rollback JSON is keyed by entry name, not by clone path, so it
+  // survives the clone deletion above. Clean it up here — a removed entry
+  // has no use for its recovery point, and leaving it behind would leak
+  // orphan files that accumulate over repeated add/remove cycles.
+  await rm(rollbackPath(removed.name), { force: true }).catch(() => {})
   return { removed: true, links }
 }

@@ -23,6 +23,7 @@
 
 import { mkdir, open, readFile, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { LOCKS_DIR } from './paths.js'
 
 /** Layer-1 conflict: the same skill already has a write in flight in this process. */
@@ -141,6 +142,14 @@ export async function acquireSkillFileLock(skill: string): Promise<SkillFileLock
   if (stale) {
     // Reclaim and retry exactly once.
     await unlink(path).catch(() => undefined)
+    if (await tryCreateLock(path, body)) return makeLock(skill, path)
+    // On Windows the just-unlinked file can briefly linger in the directory
+    // index (NTFS tombstone): `unlink` resolves, yet the next `open(wx)` still
+    // sees EEXIST. The stale check already proved the lock is reclaimable
+    // (dead PID / expired / unreadable), so a second attempt after a short
+    // settle delay is safe — no live process could have acquired it in the
+    // meantime because we just deleted it.
+    await delay(50)
     if (await tryCreateLock(path, body)) return makeLock(skill, path)
   }
   throw new SkillLockedError(skill, info ?? { pid: 0, startedAt: 'unknown' })
