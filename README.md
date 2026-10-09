@@ -154,6 +154,7 @@ dsh-skills-nexus disable <name>...                  # remove symlink without del
 dsh-skills-nexus remove <name>...                   # delete clone + symlink + unregister (one or more)
 dsh-skills-nexus remove 'theme-*'                   # ...or a * / ? glob matched against skill names
 dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # read-only full checkup of nexus state (exit 0/1/2)
+dsh-skills-nexus purge  [--yes] [--json]                # clean up accumulated artifacts (dry-run by default)
 dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>  # print a completion script for that shell
 
 # move skills to another machine — a package carries provenance, never .git
@@ -681,7 +682,7 @@ frontmatter normalization, collection `--subdir`, Windows-junction symlinks)
 and exposes stable machine interfaces you can depend on:
 `dsh-skills-nexus list --names` (enumerate installed skills),
 `dsh-skills-nexus doctor --json` (a versioned health report), and `--json` on
-`add` / `list` / `update` / `remove` / `enable` / `disable` (versioned reports
+`add` / `list` / `update` / `remove` / `enable` / `disable` / `purge` (versioned reports
 describing what an operation just did). Shell out to the
 CLI — never `import` package internals or read `manifest.json`. See
 **[Building on nexus — machine interfaces for tool authors](docs/build-on-nexus.md)**
