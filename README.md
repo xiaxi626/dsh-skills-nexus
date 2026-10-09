@@ -145,6 +145,7 @@ dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills   # c
 
 # inspect / maintain
 dsh-skills-nexus list                               # all entries (+ source, commit, subdir, explicit lock, status)
+dsh-skills-nexus list --filter <query>              # narrow to entries whose name, URL or subdir contain the query
 dsh-skills-nexus list --json                        # ...or the same inventory as a versioned JSON report
 dsh-skills-nexus update [name]                      # refresh (branch pin: pull; tag/commit pin: verify)
 dsh-skills-nexus switch-version <name> <ref> [--type <branch|tag|commit>]  # move a clone to another ref (fetch, checkout, re-normalize, rebuild links)

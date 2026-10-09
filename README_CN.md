@@ -99,6 +99,7 @@ dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills   # �
 
 # 查看 / 维护
 dsh-skills-nexus list                               # 列出所有条目（含来源、commit、subdir、显式锁、状态）
+dsh-skills-nexus list --filter <query>              # 按名称、URL 或 subdir 模糊匹配缩小范围
 dsh-skills-nexus list --json                        # …或输出同内容的带版本号 JSON 报告
 dsh-skills-nexus update [name]                      # 刷新（分支 pin 拉取；tag/commit pin 校验）
 dsh-skills-nexus switch-version <name> <ref> [--type <branch|tag|commit>]  # 把克隆切到另一个 ref（fetch、checkout、重归一化、重建链接）
