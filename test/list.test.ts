@@ -288,3 +288,54 @@ test('--names with --json is refused rather than silently resolved', async () =>
   assert.equal(out, '')
   assert.match(err, /mutually exclusive/)
 })
+
+/* ------------------------------------------------------------------ */
+/* list --filter — case-insensitive substring over name / url / subdir */
+/* ------------------------------------------------------------------ */
+
+test('--filter narrows the default table to matching entries', async () => {
+  await reset(
+    { name: 'foo', gitUrl: 'https://github.com/trae-community/trae-skills.git', subdir: 'skills/foo' },
+    { name: 'bar', gitUrl: 'https://github.com/other/repo.git' },
+  )
+  const { code, out } = await captureList(['--filter', 'trae'])
+  assert.equal(code, 0)
+  assert.match(out, /foo/)
+  assert.doesNotMatch(out, /\bbar\b/)
+})
+
+test('--filter narrows --names to matching entries', async () => {
+  await reset(
+    { name: 'alpha', gitUrl: 'https://github.com/owner/a.git' },
+    { name: 'beta', gitUrl: 'https://github.com/owner/b.git' },
+  )
+  const { code, out } = await captureList(['--names', '--filter', 'alpha'])
+  assert.equal(code, 0)
+  assert.equal(out, 'alpha\n')
+})
+
+test('--filter narrows --json to matching entries', async () => {
+  await reset(
+    { name: 'match', gitUrl: 'https://github.com/trae-community/skills.git' },
+    { name: 'skip', gitUrl: 'https://github.com/other/repo.git' },
+  )
+  const { code, out } = await captureList(['--json', '--filter', 'trae'])
+  assert.equal(code, 0)
+  const report = parseReport(out)
+  assert.equal(report.entries.length, 1)
+  assert.equal(report.entries[0]!.name, 'match')
+})
+
+test('--filter with no matches shows the empty hint on the default table', async () => {
+  await reset({ name: 'foo', gitUrl: 'https://github.com/owner/repo.git' })
+  const { code, out } = await captureList(['--filter', 'zzzzz'])
+  assert.equal(code, 0)
+  assert.match(out, /No skills registered/)
+})
+
+test('--filter is case-insensitive', async () => {
+  await reset({ name: 'Theme-Dark', gitUrl: 'https://github.com/owner/repo.git' })
+  const { code, out } = await captureList(['--filter', 'theme'])
+  assert.equal(code, 0)
+  assert.match(out, /Theme-Dark/)
+})

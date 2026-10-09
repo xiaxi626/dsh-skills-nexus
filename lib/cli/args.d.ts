@@ -43,19 +43,22 @@ export interface ListOptions {
     names: boolean;
     /** Emit the version-1 machine report on stdout instead of the human table. */
     json: boolean;
+    /** Case-insensitive substring filter over name / url / subdir. */
+    filter?: string;
 }
 /**
- * Parse `list` args. `list` has no positional form and exactly two boolean
- * flags, which are mutually exclusive: `--names` is the newline stream shell
+ * Parse `list` args. `list` has no positional form and two boolean flags,
+ * which are mutually exclusive: `--names` is the newline stream shell
  * completion splits on and `--json` is the structured document — asking for
  * both has no single sensible answer, so it is a usage error rather than a
- * silent precedence rule.
+ * silent precedence rule. `--filter <query>` is an optional value-taking
+ * flag that narrows the output to entries whose name, URL or subdir contain
+ * the query (case-insensitive).
  *
- * Both flags reject an inline value for the same reason as `--yes` above:
- * `--names=false` silently becoming `names=true` would hand a scripted caller
- * the names-only stream when it asked for the human table. Unlike `add` — which
- * ignores unknown flags because it has extra options to be tolerant about —
- * unknown arguments here are usage errors: a typo like `--name` would otherwise
+ * Both boolean flags reject an inline value for the same reason as `--yes`
+ * above: `--names=false` silently becoming `names=true` would hand a scripted
+ * caller the names-only stream when it asked for the human table. Unknown
+ * arguments here are usage errors: a typo like `--name` would otherwise
  * silently print the table to a script that expects one name per line.
  */
 export declare function parseListArgs(argv: string[]): ListOptions;

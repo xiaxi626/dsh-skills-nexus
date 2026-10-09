@@ -73,6 +73,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState, TagTone } from '@deepseek-ai/dsh-client-ui-primitives'
 import { describeDecision } from '../import-decision.js'
+import { matchesQuery } from '../filter.js'
 import {
   ApiError,
   PollTimeoutError,
@@ -212,16 +213,8 @@ function stillListed(name: string): (entries: ListEntry[]) => boolean {
   return (entries) => entries.some((e) => e.name === name)
 }
 
-/** Does the entry match the search box? Case-insensitive name / url / subdir. */
-export function matchesQuery(entry: ListEntry, query: string): boolean {
-  const q = query.trim().toLowerCase()
-  if (q.length === 0) return true
-  return (
-    entry.name.toLowerCase().includes(q) ||
-    entry.url.toLowerCase().includes(q) ||
-    (entry.subdir ?? '').toLowerCase().includes(q)
-  )
-}
+/** Does the entry match the search box? Delegated to the shared `filter.ts`. */
+export { matchesQuery }
 
 /**
  * The panel. `api` is injectable for tests; production builds bind the global

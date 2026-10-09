@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+**2026-10-09 · Added · CLI `list --filter <query>` 搜索过滤**
+
+- **背景**：CLI `list` 命令没有搜索/过滤能力。Web 面板有客户端搜索（`matchesQuery` 函数，匹配 name/url/subdir），但 CLI 侧缺失。用户注册多个 skill 后无法快速定位特定来源或子目录的条目。
+- **变更**：新建 `src/filter.ts`，导出共享的 `matchesQuery(entry, query): boolean`（大小写不敏感子串匹配 name、gitUrl/url、subdir）。`src/client/panel.tsx` 改为从 `filter.ts` 导入，删除本地定义，行为不变。`src/cli/args.ts` 的 `parseListArgs` 新增 `--filter <query>` 解析（值取 flag，不接受 `=` 内联值）。`src/cli/commands/list.ts` 在 `--names`、默认表格、`--json` 三种模式下均先过滤再渲染。
+- **验证**：`typecheck`、`lint`、`npm test` 全部通过，652 项中 649 通过、0 失败、3 跳过（较上一阶段新增 11 项：6 项 filter 单元测试 + 5 项 list --filter 集成测试）。
+- **不做**：不支持正则或通配符（子串匹配已覆盖面板搜索的相同场景）。
+
 **2026-10-09 · Fixed · remove 清理孤立 rollback 残留**
 
 - **背景**：`removeSkill`（`src/remove.ts`）删除 manifest 条目和克隆目录，但不清理 `NEXUS_HOME/rollback/<name>.json`。克隆内的 git anchor ref 随目录删除消失，但 rollback JSON 残留，随 add/remove 周期积累孤立文件。
