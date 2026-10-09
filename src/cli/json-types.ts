@@ -31,6 +31,7 @@ export type JsonReport =
   | RollbackJsonReport
   | RemoveJsonReport
   | ToggleJsonReport
+  | PurgeJsonReport
 
 /**
  * The unexpected-fatal payload (P0 §4.6): written to **stderr** with exit 1
@@ -204,4 +205,27 @@ export interface ToggleJsonReport {
   version: 1
   results: ToggleJsonResult[]
   summary: { toggled: number; already: number; failed: number }
+}
+
+/* ------------------------------------------------------------------ */
+/* purge --json                                                        */
+/* ------------------------------------------------------------------ */
+
+/** One file or directory the purge scan found or removed. */
+export interface PurgeJsonFile {
+  path: string
+  size: number
+  category: 'exports' | 'corrupt-manifest' | 'upload-temp' | 'orphan-rollback'
+}
+
+/**
+ * The `purge --json` report. `files` lists what the scan found (dry-run) or
+ * what was actually removed (`--yes`); `removed` is the count of items
+ * successfully deleted (0 in dry-run mode).
+ */
+export interface PurgeJsonReport {
+  version: 1
+  files: PurgeJsonFile[]
+  totalSize: number
+  removed: number
 }

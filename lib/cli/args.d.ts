@@ -148,6 +148,26 @@ export interface ImportOptions {
  * path with a stray word after it is a mistake, not a batch.
  */
 export declare function parseImportArgs(argv: string[]): ImportOptions;
+export interface PurgeOptions {
+    /** Actually delete — without this the command is a dry-run preview. */
+    yes: boolean;
+    /** Emit the version-1 machine report on stdout instead of human text. */
+    json: boolean;
+}
+/**
+ * Parse `purge` args: two boolean flags, nothing else.
+ *
+ * `purge` has no positional arguments and no value-taking options — it scans a
+ * fixed set of artifact categories and either reports or deletes them. Unknown
+ * arguments are usage errors: a typo like `--yess` would otherwise silently
+ * turn an actual purge into a dry-run, and the user would wonder why nothing
+ * was cleaned up.
+ *
+ * Both boolean flags reject an inline value for the same reason as `--yes` in
+ * `parseAddArgs`: `--yes=false` silently becoming yes=true would bypass the
+ * dry-run safety net.
+ */
+export declare function parsePurgeArgs(argv: string[]): PurgeOptions;
 export interface AdoptOptions {
     /** Registered entry to adopt. */
     name: string;
