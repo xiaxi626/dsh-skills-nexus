@@ -10,7 +10,16 @@ export interface VersionState {
     links: EntryLink[];
 }
 export declare function captureVersionState(entry: SkillEntry): Promise<VersionState>;
-/** 只替换本 entry，保留其他 entry 在此期间写入的字段。 */
+/**
+ * Only replace this entry, keeping other entries' concurrent writes intact.
+ *
+ * Wrapped in `withManifestLock`: the read → find → replace → write cycle
+ * would otherwise race against a concurrent `addEntry` / `removeEntry` /
+ * `markUpdated` from another process, silently losing the other writer's
+ * changes. The per-skill lock is already held by the caller (update or
+ * switch-version), but that lock fences git + link work — the manifest
+ * lock is the inner fence around the JSON read-modify-write itself.
+ */
 export declare function restoreEntry(entry: SkillEntry): Promise<void>;
 export declare function normalizeCheckout(entry: SkillEntry, io?: OpsIO): Promise<ParsedSkill[]>;
 export declare function rebuildVersionLinks(state: VersionState, skills: ParsedSkill[], io?: OpsIO): Promise<string[]>;

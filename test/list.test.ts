@@ -288,3 +288,79 @@ test('--names with --json is refused rather than silently resolved', async () =>
   assert.equal(out, '')
   assert.match(err, /mutually exclusive/)
 })
+
+/* ------------------------------------------------------------------ */
+/* list --filter — case-insensitive substring over name / url / subdir */
+/* ------------------------------------------------------------------ */
+
+test('--filter narrows the default table to matching entries', async () => {
+  await reset(
+    { name: 'foo', gitUrl: 'https://github.com/trae-community/trae-skills.git', subdir: 'skills/foo' },
+    { name: 'bar', gitUrl: 'https://github.com/other/repo.git' },
+  )
+  const { code, out } = await captureList(['--filter', 'trae'])
+  assert.equal(code, 0)
+  assert.match(out, /foo/)
+  assert.doesNotMatch(out, /\bbar\b/)
+})
+
+test('--filter narrows --names to matching entries', async () => {
+  await reset(
+    { name: 'alpha', gitUrl: 'https://github.com/owner/a.git' },
+    { name: 'beta', gitUrl: 'https://github.com/owner/b.git' },
+  )
+  const { code, out } = await captureList(['--names', '--filter', 'alpha'])
+  assert.equal(code, 0)
+  assert.equal(out, 'alpha\n')
+})
+
+test('--filter narrows --json to matching entries', async () => {
+  await reset(
+    { name: 'match', gitUrl: 'https://github.com/trae-community/skills.git' },
+    { name: 'skip', gitUrl: 'https://github.com/other/repo.git' },
+  )
+  const { code, out } = await captureList(['--json', '--filter', 'trae'])
+  assert.equal(code, 0)
+  const report = parseReport(out)
+  assert.equal(report.entries.length, 1)
+  assert.equal(report.entries[0]!.name, 'match')
+})
+
+test('--filter with no matches tells the user which query was empty on the default table', async () => {
+  await reset({ name: 'foo', gitUrl: 'https://github.com/owner/repo.git' })
+  const { code, out } = await captureList(['--filter', 'zzzzz'])
+  assert.equal(code, 0)
+  // The filter-specific hint must name the query so the user can tell a typo
+  // from an overly narrow search — "No skills registered" would be misleading
+  // when entries exist but none match.
+  assert.match(out, /No entries match "zzzzz"/)
+  assert.doesNotMatch(out, /No skills registered/)
+})
+
+test('--filter with no matches tells the user on the --names path', async () => {
+  await reset({ name: 'foo', gitUrl: 'https://github.com/owner/repo.git' })
+  const { code, out } = await captureList(['--names', '--filter', 'nomatch'])
+  assert.equal(code, 0)
+  // --names normally prints bare names; a zero-match filter must surface a
+  // hint rather than an empty stream, and the hint must carry the query.
+  assert.match(out, /No entries match "nomatch"/)
+})
+
+test('--filter with no matches leaves --json empty, no hint text', async () => {
+  await reset({ name: 'foo', gitUrl: 'https://github.com/owner/repo.git' })
+  const { code, out } = await captureList(['--json', '--filter', 'absent'])
+  assert.equal(code, 0)
+  // --json is self-describing with entries:[] — no human hint may leak into
+  // the machine stream.
+  const report = parseReport(out)
+  assert.deepEqual(report.entries, [])
+  assert.doesNotMatch(out, /No entries match/)
+  assert.doesNotMatch(out, /No skills registered/)
+})
+
+test('--filter is case-insensitive', async () => {
+  await reset({ name: 'Theme-Dark', gitUrl: 'https://github.com/owner/repo.git' })
+  const { code, out } = await captureList(['--filter', 'theme'])
+  assert.equal(code, 0)
+  assert.match(out, /Theme-Dark/)
+})

@@ -181,3 +181,55 @@ test('withCacheLock keeps serializing after a failure', async () => {
   })
   assert.deepEqual(order, ['still-works'])
 })
+
+/* ------------------------------------------------------------------ */
+/* Manifest-level cross-process lock                                   */
+/* ------------------------------------------------------------------ */
+
+test('withManifestLock acquires and releases the manifest lock file', async () => {
+  await locks.withManifestLock(async () => {
+    // While the body runs, the lock file must exist.
+    const path = join(paths.LOCKS_DIR, '__manifest__.lock')
+    const body = JSON.parse(await readFile(path, 'utf8')) as { pid: number; startedAt: string }
+    assert.equal(body.pid, process.pid)
+    assert.ok(!Number.isNaN(Date.parse(body.startedAt)))
+  })
+  // After the body settles, the lock file is gone.
+  const path = join(paths.LOCKS_DIR, '__manifest__.lock')
+  await assert.rejects(() => readFile(path, 'utf8'))
+})
+
+test('withManifestLock returns the body value', async () => {
+  const result = await locks.withManifestLock(async () => 42)
+  assert.equal(result, 42)
+})
+
+test('withManifestLock releases the lock when fn throws', async () => {
+  await assert.rejects(() =>
+    locks.withManifestLock(async () => {
+      throw new Error('manifest-boom')
+    }),
+  )
+  // The lock must be released after a failure — acquiring again must succeed.
+  const result = await locks.withManifestLock(async () => 'recovered')
+  assert.equal(result, 'recovered')
+})
+
+test('withManifestLock retries with backoff then rejects a held lock (bounded retry)', async () => {
+  // Hold the lock manually via the lower-level acquire so we can test that a
+  // second withManifestLock call finds it held and retries until the budget
+  // expires. This avoids relying on withManifestLock for the first acquisition,
+  // which would require gate orchestration and is sensitive to filesystem
+  // settle timing on Windows. Expect ~3 s runtime (MANIFEST_LOCK_BUDGET_MS).
+  const lock = await locks.acquireSkillFileLock('__manifest__')
+  try {
+    await assert.rejects(
+      () => locks.withManifestLock(async () => undefined),
+      locks.SkillLockedError,
+    )
+  } finally {
+    await lock.release()
+  }
+  // After the manual lock is released, withManifestLock works again.
+  await locks.withManifestLock(async () => undefined)
+})

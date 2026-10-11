@@ -19,7 +19,7 @@
  * operation just did (P0 §2.3).
  */
 /** Any shape `emitJson` may write: all of them carry the version. */
-export type JsonReport = ListJsonReport | AddJsonReport | UpdateJsonReport | RollbackJsonReport | RemoveJsonReport | ToggleJsonReport;
+export type JsonReport = ListJsonReport | AddJsonReport | UpdateJsonReport | RollbackJsonReport | RemoveJsonReport | ToggleJsonReport | PurgeJsonReport;
 /**
  * The unexpected-fatal payload (P0 §4.6): written to **stderr** with exit 1
  * (or exit 2 when it is really a usage error), so a consumer that captured only
@@ -171,5 +171,30 @@ export interface ToggleJsonReport {
         already: number;
         failed: number;
     };
+}
+/** One file or directory the purge scan found or removed. */
+export interface PurgeJsonFile {
+    path: string;
+    size: number;
+    category: 'exports' | 'corrupt-manifest' | 'upload-temp' | 'orphan-rollback';
+}
+/** One item the purge tried but failed to delete. */
+export interface PurgeJsonFailed {
+    path: string;
+    /** Human-readable error; wording is not contract (P0 §2.2). */
+    error: string;
+}
+/**
+ * The `purge --json` report. `files` lists what the scan found (dry-run) or
+ * what was actually removed (`--yes`); `removed` is the count of items
+ * successfully deleted (0 in dry-run mode). `failed` lists items that the
+ * purge attempted to delete but could not — empty on success or dry-run.
+ */
+export interface PurgeJsonReport {
+    version: 1;
+    files: PurgeJsonFile[];
+    totalSize: number;
+    removed: number;
+    failed: PurgeJsonFailed[];
 }
 //# sourceMappingURL=json-types.d.ts.map

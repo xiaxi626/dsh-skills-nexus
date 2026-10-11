@@ -250,6 +250,6 @@ test('source-less entries fail and a held per-entry lock blocks the command', as
   } finally {
     await held.release()
   }
-  assert.match(io.err.join(''), /locked by another process/)
+  assert.match(io.err.join(''), /is locked by PID/)
   assert.deepEqual(io.out, [])
 })

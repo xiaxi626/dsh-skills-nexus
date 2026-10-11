@@ -99,6 +99,7 @@ dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills   # �
 
 # 查看 / 维护
 dsh-skills-nexus list                               # 列出所有条目（含来源、commit、subdir、显式锁、状态）
+dsh-skills-nexus list --filter <query>              # 按名称、URL 或 subdir 模糊匹配缩小范围
 dsh-skills-nexus list --json                        # …或输出同内容的带版本号 JSON 报告
 dsh-skills-nexus update [name]                      # 刷新（分支 pin 拉取；tag/commit pin 校验）
 dsh-skills-nexus switch-version <name> <ref> [--type <branch|tag|commit>]  # 把克隆切到另一个 ref（fetch、checkout、重归一化、重建链接）
@@ -107,6 +108,7 @@ dsh-skills-nexus disable <name>...                  # 删除 symlink 但不删�
 dsh-skills-nexus remove <name>...                   # 删除克隆 + symlink + 注销（可一次给多个名字）
 dsh-skills-nexus remove 'theme-*'                   # …或用 * / ? 通配符匹配 skill 名
 dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # 只读体检 nexus 全量状态（退出码 0/1/2）
+dsh-skills-nexus purge  [--yes] [--json]                # 清理积累产物（默认 dry-run）
 dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>  # 输出对应 shell 的补全脚本
 
 # 跨机器搬运 skill——包携带来路，绝不携带 .git
@@ -120,7 +122,7 @@ dsh-skills-nexus adopt <name> --url github:owner/repo   # 给无 git 源的条�
 
 取值型选项（`--name`、`--ref`、`--subdir`）也支持 `--flag=value` 写法（如 `--subdir=skills/foo`、`--name=owner-skills`）；布尔选项 `--yes` 不接受值。
 
-给脚本用时，`--json` 可把 `add`、`list`、`update`、`remove`、`enable`、`disable`
+给脚本用时，`--json` 可把 `add`、`list`、`update`、`remove`、`enable`、`disable`、`purge`
 变成机器接口：stdout 只输出一份 version 1 报告、诊断走 stderr，退出码语义不变
 （`0` 成功 / `1` 有错误或部分失败 / `2` 用法错误）。报告描述的是「刚才做了什么」
 ——安装落在哪个 commit、更新的 before→after、批量里哪个名字没找到：

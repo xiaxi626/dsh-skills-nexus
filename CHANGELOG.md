@@ -4,6 +4,41 @@
 
 ## [Unreleased]
 
+**2026-10-11 · Fixed · `purge` 失败可见性——删除失败不再静默吞掉**
+
+- **背景**：`executePurge` 对每个 item 的 `rm` 失败静默 `catch {}`，用户无法知道哪些 artifact 删除失败。CLI 人类模式和 JSON 报告均只展示成功删除的项，失败项无声消失。
+- **变更**：`src/purge.ts` 新增 `PurgeFailedItem` 接口（`{ item: PurgeableItem; error: string }`），`PurgeResult` 新增 `failed: PurgeFailedItem[]` 字段。`executePurge` 的 per-item catch 不再空转，改为将错误信息记录到 `failed`。`src/cli/commands/purge.ts` 人类模式在 `--yes` 后若有失败项，追加输出失败列表（路径 + 错误信息）。`src/cli/json-types.ts` 新增 `PurgeJsonFailed` 接口，`PurgeJsonReport` 新增 `failed: PurgeJsonFailed[]`（dry-run 模式始终为空数组）。
+- **验证**：`typecheck`、`lint`、`npm test` 全部通过，665 项中 662 通过、0 失败、3 跳过（新增 2 项失败路径测试：核心层 `executePurge` 记录失败 + CLI JSON 报告包含 `failed` 数组；使用文件锁在 Windows 上触发 `rm` 失败，POSIX 因 unlink 语义自动降级为跳过）。
+- **不做**：不改变 dry-run 模式的行为（dry-run 不执行删除，无失败可言）；不将 `failed` 加入非 `--yes` 的 JSON 报告以外的路径（`failed` 在 dry-run JSON 中始终为空数组，保持向后兼容）。
+
+**2026-10-09 · Added · `purge` 清理命令**
+
+- **背景**：`exports/`、`.corrupt-` 备份、崩溃残留的 `upload-*` 目录、已删除 skill 的孤立 `rollback/*.json` 会随使用积累，无清理机制。
+- **变更**：新增 `src/purge.ts`（扫描 + 删除 + 统计）和 `src/cli/commands/purge.ts`（CLI 入口）。默认 dry-run 展示待清理项，`--yes` 执行，`--json` 输出机器可读报告（`PurgeJsonReport` 加入 `json-types.ts` 的 `JsonReport` 联合类型）。`src/cli/args.ts` 新增 `parsePurgeArgs`（布尔 flag 拒绝内联值）。`src/cli/index.ts` 注册 `purge` 命令，`src/cli/usage.ts` 补充用法和 `ROUTED_SUBCOMMANDS`。四类补全脚本（bash/zsh/fish/powershell）同步追加 `purge` 及其 flags。孤立回滚文件的判定基于 name 不在当前 manifest 的 skills 列表中——活跃 skill 的回滚文件不碰。purge 对 upload-* 和 exports/*.zip 增加 1 小时 mtime 保护，刚创建的产物不会被清理。
+- **验证**：`typecheck`、`lint`、`npm test` 全部通过，661 项中 658 通过、0 失败、3 跳过（新增 9 项 purge 测试：4 项核心扫描 + 5 项 CLI 行为）。
+- **不做**：不在 Web 面板侧添加入口（低频操作，CLI 足够）；不清理活跃 skill 的回滚文件（它们仍服务于 `rollback <name>`）。
+
+**2026-10-09 · Added · CLI `list --filter <query>` 搜索过滤**
+
+- **背景**：CLI `list` 命令没有搜索/过滤能力。Web 面板有客户端搜索（`matchesQuery` 函数，匹配 name/url/subdir），但 CLI 侧缺失。用户注册多个 skill 后无法快速定位特定来源或子目录的条目。
+- **变更**：新建 `src/filter.ts`，导出共享的 `matchesQuery(entry, query): boolean`（大小写不敏感子串匹配 name、gitUrl/url、subdir）。`src/client/panel.tsx` 改为从 `filter.ts` 导入，删除本地定义，行为不变。`src/cli/args.ts` 的 `parseListArgs` 新增 `--filter <query>` 解析（同时接受 `--filter <query>` 和 `--filter=<query>`）。`src/cli/commands/list.ts` 在 `--names`、默认表格、`--json` 三种模式下均先过滤再渲染。
+- **验证**：`typecheck`、`lint`、`npm test` 全部通过，652 项中 649 通过、0 失败、3 跳过（较上一阶段新增 11 项：6 项 filter 单元测试 + 5 项 list --filter 集成测试）。
+- **不做**：不支持正则或通配符（子串匹配已覆盖面板搜索的相同场景）。
+
+**2026-10-09 · Fixed · remove 清理孤立 rollback 残留**
+
+- **背景**：`removeSkill`（`src/remove.ts`）删除 manifest 条目和克隆目录，但不清理 `NEXUS_HOME/rollback/<name>.json`。克隆内的 git anchor ref 随目录删除消失，但 rollback JSON 残留，随 add/remove 周期积累孤立文件。
+- **变更**：`src/remove.ts` 的 `removeSkill` 在 `removeSkillDir` 之后追加 `rm(rollbackPath(removed.name), { force: true }).catch(() => {})`，从 `./rollback.js` 导入 `rollbackPath`。孤立回滚文件被静默清理；清理失败不阻断 remove 流程。活跃 skill 的回滚文件不受影响（只有已删除的 entry 才触发此路径）。
+- **验证**：`typecheck`、`lint`、`npm test` 全部通过，641 项中 638 通过、0 失败、3 跳过（较上一阶段新增 1 项 remove rollback 清理测试）。
+- **不做**：不批量清理已有的孤立 rollback 文件（任务 4 的 `purge` 命令覆盖）。
+
+**2026-10-09 · Added · Manifest 全局互斥锁**
+
+- **背景**：`addEntry`、`removeEntry`、`markUpdated`（`src/manifest.ts`）和 `restoreEntry`（`src/version-state.ts`）均为 read → modify → write 模式，没有跨进程互斥。CLI 与 Web 面板在不同进程中同时操作不同 skill 时，后写的 manifest 会覆盖先写的，导致条目静默丢失。Per-skill 锁（§7.3 Layer 3）只保护 git 操作和链接创建/删除，不保护 manifest JSON 本身的写入。
+- **变更**：`src/locks.ts` 新增 `withManifestLock<T>(fn): Promise<T>`，复用 Layer 3 的 O_EXCL + PID + 时间戳 + 10 分钟 stale 回收机制，以固定名 `__manifest__` 写入 `<NEXUS_HOME>/.locks/__manifest__.lock`。`src/manifest.ts` 的 `addEntry`、`removeEntry`、`markUpdated` 及 `src/version-state.ts` 的 `restoreEntry` 的 read-modify-write 周期全部包裹在 `withManifestLock` 内。两层锁互补：per-skill 锁保护长时间的 git/link 操作（不同 skill 可并发），manifest 锁保护短暂的 JSON 读写（所有写者串行化）。
+- **验证**：`typecheck`、`lint`、`npm test` 全部通过，640 项中 637 通过、0 失败、3 跳过（较上一阶段新增 4 项 manifest 锁测试）。
+- **不做**：不将 manifest 锁暴露为 HTTP 路由或 CLI 命令（内部并发控制，用户无感）；不替换现有 per-skill 锁（两者职责不同）。
+
 **2026-10-07 · Fixed · 补全测试期望未随 `diff` 子命令同步更新导致 CI 失败**
 
 - **根因**：`diff` 子命令添加到 bash/fish 补全模板时（命令列表新增 `diff`），`test/completions.test.ts` 中 `sub-prefix-d` 测试用例的期望值仍为 `disable doctor`，未包含同样以 `d` 开头的 `diff`，导致 bash 和 fish 补全测试在全部平台失败。

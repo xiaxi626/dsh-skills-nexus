@@ -3,6 +3,7 @@ import { dirname } from 'node:path'
 import { MANIFEST_PATH, repoDir } from './paths.js'
 import { entryLinks } from './link.js'
 import { getUpdateStatus } from './update-cache.js'
+import { withManifestLock } from './locks.js'
 import type { EntryLink } from './link.js'
 import type { UpdateStatus } from './update-cache.js'
 import type { Manifest, SkillEntry } from './types.js'
@@ -83,43 +84,65 @@ export function isExternalEntry(entry: SkillEntry): boolean {
   return entry.ownership === 'external'
 }
 
-/** Append a new entry and persist. Throws on duplicate name/path. */
+/**
+ * Append a new entry and persist. Throws on duplicate name/path.
+ *
+ * The entire read → check → write cycle runs inside `withManifestLock` so
+ * that two concurrent `add` calls (e.g. CLI + HTTP panel) cannot both read
+ * the same pre-add manifest and then overwrite each other's write, silently
+ * dropping one entry.
+ */
 export async function addEntry(entry: SkillEntry): Promise<void> {
-  const manifest = await readManifest()
-  if (hasEntry(manifest, entry.name)) {
-    throw new Error(`a skill named "${entry.name}" is already registered`)
-  }
-  if (manifest.skills.some((s) => s.path === entry.path)) {
-    throw new Error(`directory "${entry.path}" is already used by another skill`)
-  }
-  manifest.skills.push(entry)
-  await writeManifest(manifest)
+  return withManifestLock(async () => {
+    const manifest = await readManifest()
+    if (hasEntry(manifest, entry.name)) {
+      throw new Error(`a skill named "${entry.name}" is already registered`)
+    }
+    if (manifest.skills.some((s) => s.path === entry.path)) {
+      throw new Error(`directory "${entry.path}" is already used by another skill`)
+    }
+    manifest.skills.push(entry)
+    await writeManifest(manifest)
+  })
 }
 
-/** Remove an entry by name and persist. Returns the removed entry, if any. */
+/**
+ * Remove an entry by name and persist. Returns the removed entry, if any.
+ *
+ * Wrapped in `withManifestLock` for the same reason as `addEntry`: the
+ * read → splice → write cycle must be atomic across processes.
+ */
 export async function removeEntry(name: string): Promise<SkillEntry | undefined> {
-  const manifest = await readManifest()
-  const idx = manifest.skills.findIndex((s) => s.name === name)
-  if (idx === -1) return undefined
-  const [removed] = manifest.skills.splice(idx, 1)
-  await writeManifest(manifest)
-  return removed
+  return withManifestLock(async () => {
+    const manifest = await readManifest()
+    const idx = manifest.skills.findIndex((s) => s.name === name)
+    if (idx === -1) return undefined
+    const [removed] = manifest.skills.splice(idx, 1)
+    await writeManifest(manifest)
+    return removed
+  })
 }
 
 /**
  * Stamp `updatedAt` after a successful update — plus the resolved commit
  * ("lockfile-lite": the manifest always knows the exact installed version)
  * and, for `switch-version`, the newly checked-out ref (§8.2 step 7).
+ *
+ * Wrapped in `withManifestLock`: the read → find → mutate → write cycle
+ * would otherwise race against a concurrent `addEntry` or `removeEntry`
+ * from another process, losing whichever writer goes second.
  */
 export async function markUpdated(name: string, commit?: string, ref?: string, locked?: boolean): Promise<void> {
-  const manifest = await readManifest()
-  const entry = findEntry(manifest, name)
-  if (!entry) return
-  entry.updatedAt = new Date().toISOString()
-  if (commit) entry.commit = commit
-  if (ref) entry.ref = ref
-  if (locked !== undefined) entry.locked = locked
-  await writeManifest(manifest)
+  return withManifestLock(async () => {
+    const manifest = await readManifest()
+    const entry = findEntry(manifest, name)
+    if (!entry) return
+    entry.updatedAt = new Date().toISOString()
+    if (commit) entry.commit = commit
+    if (ref) entry.ref = ref
+    if (locked !== undefined) entry.locked = locked
+    await writeManifest(manifest)
+  })
 }
 
 /** Best-effort recursive delete of a skill's cloned directory. */

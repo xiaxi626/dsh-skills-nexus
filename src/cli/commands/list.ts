@@ -7,6 +7,7 @@ import type { OpsIO } from '../../ops-io.js'
 import { parseListArgs } from '../args.js'
 import { emitJson, fatalJsonError } from '../json-io.js'
 import type { ListJsonEntry, ListJsonReport } from '../json-types.js'
+import { matchesQuery } from '../../filter.js'
 
 /**
  * `list [--names | --json]` — show registered skills and their status.
@@ -30,10 +31,12 @@ import type { ListJsonEntry, ListJsonReport } from '../json-types.js'
 export async function list(argv: string[], io: OpsIO = cliIO): Promise<number> {
   let names: boolean
   let json: boolean
+  let filter: string | undefined
   try {
     const opts = parseListArgs(argv)
     names = opts.names
     json = opts.json
+    filter = opts.filter
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (jsonRequested(argv)) {
@@ -44,22 +47,44 @@ export async function list(argv: string[], io: OpsIO = cliIO): Promise<number> {
     return 2
   }
 
-  if (json) return listJson(io)
+  if (json) return listJson(io, filter)
 
   const manifest = await readManifest()
 
+  // Apply --filter before any output mode: the filter narrows the entry set
+  // for --names, the default table and --json alike.
+  const skills = filter
+    ? manifest.skills.filter((s) => matchesQuery(s, filter))
+    : manifest.skills
+
   if (names) {
-    for (const s of manifest.skills) io.emit(`${s.name}\n`)
+    // When a filter yields zero matches, tell the user rather than printing
+    // a blank stream — scripts that split on newlines still get a single line
+    // that does not match any real skill name, so the machine contract stays
+    // safe while the human caller gets a useful diagnostic.
+    if (filter && skills.length === 0) {
+      io.emit(`No entries match "${filter}".\n`)
+    } else {
+      for (const s of skills) io.emit(`${s.name}\n`)
+    }
     return 0
   }
 
-  if (manifest.skills.length === 0) {
-    io.emit('No skills registered. Add one with: dsh-skills-nexus add github:owner/repo\n')
+  if (skills.length === 0) {
+    // A filter that matched nothing is a different situation from an empty
+    // manifest: the user has entries but none match the query. Surfacing the
+    // distinction avoids the misleading "No skills registered" hint when the
+    // real issue is a typo or overly narrow filter.
+    if (filter) {
+      io.emit(`No entries match "${filter}".\n`)
+    } else {
+      io.emit('No skills registered. Add one with: dsh-skills-nexus add github:owner/repo\n')
+    }
     return 0
   }
 
   const rows: string[][] = []
-  for (const s of manifest.skills) {
+  for (const s of skills) {
     const dir = repoDir(s.path)
     let present = 'missing'
     try {
@@ -119,9 +144,12 @@ export async function list(argv: string[], io: OpsIO = cliIO): Promise<number> {
  *   - `links[].target` is an absolute path; its exact form is platform
  *     dependent and explicitly outside the contract (P0 §2.2).
  */
-async function listJson(io: OpsIO): Promise<number> {
+async function listJson(io: OpsIO, filter?: string): Promise<number> {
   const listed = await listEntries()
-  const entries: ListJsonEntry[] = listed.map(({ entry, enabled, links, update }) => ({
+  const filtered = filter
+    ? listed.filter(({ entry }) => matchesQuery(entry, filter))
+    : listed
+  const entries: ListJsonEntry[] = filtered.map(({ entry, enabled, links, update }) => ({
     name: entry.name,
     url: entry.url,
     ref: entry.ref,

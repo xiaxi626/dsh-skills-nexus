@@ -31,14 +31,30 @@ export declare function hasGitSource(entry: SkillEntry): boolean;
  * an export package: nexus must not touch a directory it does not own.
  */
 export declare function isExternalEntry(entry: SkillEntry): boolean;
-/** Append a new entry and persist. Throws on duplicate name/path. */
+/**
+ * Append a new entry and persist. Throws on duplicate name/path.
+ *
+ * The entire read → check → write cycle runs inside `withManifestLock` so
+ * that two concurrent `add` calls (e.g. CLI + HTTP panel) cannot both read
+ * the same pre-add manifest and then overwrite each other's write, silently
+ * dropping one entry.
+ */
 export declare function addEntry(entry: SkillEntry): Promise<void>;
-/** Remove an entry by name and persist. Returns the removed entry, if any. */
+/**
+ * Remove an entry by name and persist. Returns the removed entry, if any.
+ *
+ * Wrapped in `withManifestLock` for the same reason as `addEntry`: the
+ * read → splice → write cycle must be atomic across processes.
+ */
 export declare function removeEntry(name: string): Promise<SkillEntry | undefined>;
 /**
  * Stamp `updatedAt` after a successful update — plus the resolved commit
  * ("lockfile-lite": the manifest always knows the exact installed version)
  * and, for `switch-version`, the newly checked-out ref (§8.2 step 7).
+ *
+ * Wrapped in `withManifestLock`: the read → find → mutate → write cycle
+ * would otherwise race against a concurrent `addEntry` or `removeEntry`
+ * from another process, losing whichever writer goes second.
  */
 export declare function markUpdated(name: string, commit?: string, ref?: string, locked?: boolean): Promise<void>;
 /** Best-effort recursive delete of a skill's cloned directory. */

@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -22,6 +22,8 @@ import { join } from 'node:path'
 let home: string
 let remove: typeof import('../src/cli/commands/remove.js')
 let manifest: typeof import('../src/manifest.js')
+let paths: typeof import('../src/paths.js')
+let rollback: typeof import('../src/rollback.js')
 
 async function names(): Promise<string[]> {
   return (await manifest.readManifest()).skills.map((s) => s.name)
@@ -48,6 +50,8 @@ before(async () => {
   delete process.env.DSH_SKILLS_NEXUS_HOME
   remove = await import('../src/cli/commands/remove.js')
   manifest = await import('../src/manifest.js')
+  paths = await import('../src/paths.js')
+  rollback = await import('../src/rollback.js')
 })
 
 after(async () => {
@@ -125,4 +129,22 @@ test('a glob matching nothing is a per-item failure (exit 1)', async () => {
   await reset('alpha')
   assert.equal(await remove.remove(['zzz*']), 1)
   assert.deepEqual(await names(), ['alpha'])
+})
+
+/* ------------------------------------------------------------------ */
+/* Rollback residue cleanup                                            */
+/* ------------------------------------------------------------------ */
+
+test('remove deletes the orphan rollback JSON left behind by a removed entry', async () => {
+  await reset('alpha')
+  // Seed a rollback file as if a previous update/switch-version recorded one.
+  const rbDir = join(paths.NEXUS_HOME, 'rollback')
+  await mkdir(rbDir, { recursive: true })
+  const rbPath = rollback.rollbackPath('alpha')
+  await writeFile(rbPath, JSON.stringify({ version: 1, name: 'alpha' }), 'utf8')
+  assert.equal(await remove.remove(['alpha']), 0)
+  // After removal the rollback file must be gone.
+  await assert.rejects(
+    () => import('node:fs/promises').then((fs) => fs.readFile(rbPath, 'utf8')),
+  )
 })

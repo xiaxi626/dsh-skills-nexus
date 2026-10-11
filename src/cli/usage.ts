@@ -45,6 +45,7 @@ export const ROUTED_SUBCOMMANDS = [
   'list',
   'ls',
   'pull',
+  'purge',
   'remove',
   'rm',
   'rollback',
@@ -56,7 +57,7 @@ export const ROUTED_SUBCOMMANDS = [
 export const HELP_TEXT = `dsh-skills-nexus — register any git SKILL.md repo as a DSH skill
 Usage:
   dsh-skills-nexus add    <repo-spec>...              [--name <name>] [--subdir <path>] [--yes] [--json]
-  dsh-skills-nexus list [--names | --json]
+  dsh-skills-nexus list [--names | --json] [--filter <query>]
   dsh-skills-nexus update [name] [--json]   # refresh clones (default: all enabled)
   dsh-skills-nexus rollback <name> [--json] # 恢复最近一次成功的版本变更
   dsh-skills-nexus diff <name> [<ref>] [--stat]
@@ -73,6 +74,7 @@ Usage:
   dsh-skills-nexus enable  <name>... [--json]
   dsh-skills-nexus disable <name>... [--json]
   dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # read-only full checkup
+  dsh-skills-nexus purge  [--yes] [--json]                # clean up accumulated artifacts
   dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>  # print a completion script
 
 Options:
@@ -85,7 +87,7 @@ Options:
                     always reports the mode used and warns when the clone was complete.
   --yes             skip confirmation prompts (large collections; multi-match removal)
   --json            emit a stable machine-readable report (version 1) on stdout.
-                    Supported by add, list, update, rollback, remove, enable and disable; stdout
+                    Supported by add, list, update, rollback, remove, enable, disable and purge; stdout
                     then carries the JSON document alone and every diagnostic goes to
                     stderr. Prompts cannot be answered in this mode, so pass --yes for
                     the operations that would otherwise ask. Exit codes: 0 ok, 1 error
@@ -94,11 +96,19 @@ Options:
   list options:
   --names           print only skill names, one per line (machine-readable; used by
                     shell completion). Cannot be combined with --json.
+  --filter <query>  narrow output to entries whose name, URL or subdir contain the
+                    query (case-insensitive substring match). Applies to the default
+                    table, --names and --json alike.
 
   doctor options:
   --json            emit a stable machine-readable report (version 1) on stdout
   --updates         also compare branch-pinned entries against their remote (network)
   --quiet           print nothing unless there is at least one error (CI convenience)
+
+  purge options:
+  --yes             actually delete the artifacts; without this flag the command
+                    is a dry-run that lists what would be removed
+  --json            emit a stable machine-readable report (version 1) on stdout
 
   export options:
   --all             package every entry in the manifest, disabled ones included

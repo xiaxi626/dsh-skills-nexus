@@ -42,6 +42,7 @@
  */
 import type { ReactElement } from 'react';
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives';
+import { matchesQuery } from '../filter.js';
 import type { DoctorReport, Job, ListEntry, NexusApi } from './api.js';
 /** Map route errors to one-line user-readable text (codes are the route contract). */
 export declare function errorText(err: unknown): string;
@@ -59,8 +60,8 @@ export declare function healthSummary(report: DoctorReport): {
     state: StateDotState;
     text: string;
 };
-/** Does the entry match the search box? Case-insensitive name / url / subdir. */
-export declare function matchesQuery(entry: ListEntry, query: string): boolean;
+/** Does the entry match the search box? Delegated to the shared `filter.ts`. */
+export { matchesQuery };
 /**
  * The panel. `api` is injectable for tests; production builds bind the global
  * fetch. The instance MUST be render-stable: a per-render `createApi()` default
@@ -97,5 +98,4 @@ interface EntryCardProps {
  * own panels.
  */
 export declare function EntryCard({ entry, refValue, onRefChange, adoptValue, onAdoptChange, adoptSubdirValue, onAdoptSubdirChange, onToggle, onUpdate, onRemove, onSwitchVersion, onAdopt, }: EntryCardProps): ReactElement;
-export {};
 //# sourceMappingURL=panel.d.ts.map
