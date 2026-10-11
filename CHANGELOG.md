@@ -14,14 +14,14 @@
 **2026-10-09 · Added · `purge` 清理命令**
 
 - **背景**：`exports/`、`.corrupt-` 备份、崩溃残留的 `upload-*` 目录、已删除 skill 的孤立 `rollback/*.json` 会随使用积累，无清理机制。
-- **变更**：新增 `src/purge.ts`（扫描 + 删除 + 统计）和 `src/cli/commands/purge.ts`（CLI 入口）。默认 dry-run 展示待清理项，`--yes` 执行，`--json` 输出机器可读报告（`PurgeJsonReport` 加入 `json-types.ts` 的 `JsonReport` 联合类型）。`src/cli/args.ts` 新增 `parsePurgeArgs`（布尔 flag 拒绝内联值）。`src/cli/index.ts` 注册 `purge` 命令，`src/cli/usage.ts` 补充用法和 `ROUTED_SUBCOMMANDS`。四类补全脚本（bash/zsh/fish/powershell）同步追加 `purge` 及其 flags。孤立回滚文件的判定基于 name 不在当前 manifest 的 skills 列表中——活跃 skill 的回滚文件不碰。
+- **变更**：新增 `src/purge.ts`（扫描 + 删除 + 统计）和 `src/cli/commands/purge.ts`（CLI 入口）。默认 dry-run 展示待清理项，`--yes` 执行，`--json` 输出机器可读报告（`PurgeJsonReport` 加入 `json-types.ts` 的 `JsonReport` 联合类型）。`src/cli/args.ts` 新增 `parsePurgeArgs`（布尔 flag 拒绝内联值）。`src/cli/index.ts` 注册 `purge` 命令，`src/cli/usage.ts` 补充用法和 `ROUTED_SUBCOMMANDS`。四类补全脚本（bash/zsh/fish/powershell）同步追加 `purge` 及其 flags。孤立回滚文件的判定基于 name 不在当前 manifest 的 skills 列表中——活跃 skill 的回滚文件不碰。purge 对 upload-* 和 exports/*.zip 增加 1 小时 mtime 保护，刚创建的产物不会被清理。
 - **验证**：`typecheck`、`lint`、`npm test` 全部通过，661 项中 658 通过、0 失败、3 跳过（新增 9 项 purge 测试：4 项核心扫描 + 5 项 CLI 行为）。
 - **不做**：不在 Web 面板侧添加入口（低频操作，CLI 足够）；不清理活跃 skill 的回滚文件（它们仍服务于 `rollback <name>`）。
 
 **2026-10-09 · Added · CLI `list --filter <query>` 搜索过滤**
 
 - **背景**：CLI `list` 命令没有搜索/过滤能力。Web 面板有客户端搜索（`matchesQuery` 函数，匹配 name/url/subdir），但 CLI 侧缺失。用户注册多个 skill 后无法快速定位特定来源或子目录的条目。
-- **变更**：新建 `src/filter.ts`，导出共享的 `matchesQuery(entry, query): boolean`（大小写不敏感子串匹配 name、gitUrl/url、subdir）。`src/client/panel.tsx` 改为从 `filter.ts` 导入，删除本地定义，行为不变。`src/cli/args.ts` 的 `parseListArgs` 新增 `--filter <query>` 解析（值取 flag，不接受 `=` 内联值）。`src/cli/commands/list.ts` 在 `--names`、默认表格、`--json` 三种模式下均先过滤再渲染。
+- **变更**：新建 `src/filter.ts`，导出共享的 `matchesQuery(entry, query): boolean`（大小写不敏感子串匹配 name、gitUrl/url、subdir）。`src/client/panel.tsx` 改为从 `filter.ts` 导入，删除本地定义，行为不变。`src/cli/args.ts` 的 `parseListArgs` 新增 `--filter <query>` 解析（同时接受 `--filter <query>` 和 `--filter=<query>`）。`src/cli/commands/list.ts` 在 `--names`、默认表格、`--json` 三种模式下均先过滤再渲染。
 - **验证**：`typecheck`、`lint`、`npm test` 全部通过，652 项中 649 通过、0 失败、3 跳过（较上一阶段新增 11 项：6 项 filter 单元测试 + 5 项 list --filter 集成测试）。
 - **不做**：不支持正则或通配符（子串匹配已覆盖面板搜索的相同场景）。
 
