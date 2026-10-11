@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -38,6 +38,26 @@ function mockIO() {
     out: () => out.join(''),
     err: () => err.join(''),
   }
+}
+
+/**
+ * Set an entry's mtime to the Unix epoch — well outside the 24-hour
+ * protection window — so `executePurge` treats it as deletable.
+ */
+async function backdate(p: string): Promise<void> {
+  const epoch = new Date(0)
+  await utimes(p, epoch, epoch)
+}
+
+/** Backdate every artifact seeded by `seedArtifacts`. */
+async function backdateAll(): Promise<void> {
+  const nh = paths.NEXUS_HOME
+  await backdate(join(nh, 'exports', 'old-export.zip'))
+  await backdate(join(nh, 'exports', 'another.zip'))
+  await backdate(join(nh, 'manifest.json.corrupt-1234567890'))
+  await backdate(join(nh, 'manifest.json.corrupt-9876543210'))
+  await backdate(join(nh, 'upload-abc123'))
+  await backdate(join(nh, 'rollback', 'deleted-skill.json'))
 }
 
 before(async () => {
@@ -146,16 +166,43 @@ test('scanPurgeable preserves active skill rollback files', async () => {
 test('executePurge removes all items and reports what was deleted', async () => {
   await seedArtifacts()
   await manifest.readManifest()
+  // Fresh artifacts have current mtime — backdate so the guard allows deletion.
+  await backdateAll()
 
   const items = await purge.scanPurgeable()
   assert.ok(items.length > 0, 'should have items to purge')
 
-  const removed = await purge.executePurge(items)
-  assert.equal(removed.length, items.length, 'all items should be removed')
+  const result = await purge.executePurge(items)
+  assert.equal(result.removed.length, items.length, 'all items should be removed')
+  assert.equal(result.skippedRecent.length, 0, 'no items should be skipped')
 
   // A second scan should find nothing.
   const remaining = await purge.scanPurgeable()
   assert.equal(remaining.length, 0, 'nothing should remain after purge')
+})
+
+test('executePurge spares items with recent mtime', async () => {
+  await seedArtifacts()
+  await manifest.readManifest()
+  // Do NOT backdate — all items have current mtime, inside the guard window.
+
+  const items = await purge.scanPurgeable()
+  assert.ok(items.length > 0, 'should have items to purge')
+
+  const result = await purge.executePurge(items)
+  assert.equal(result.removed.length, 0, 'no fresh items should be removed')
+  assert.equal(result.skippedRecent.length, items.length, 'all fresh items should be skipped')
+
+  // Items should still exist — the mtime guard spared them.
+  const remaining = await purge.scanPurgeable()
+  assert.equal(remaining.length, items.length, 'all items should survive the mtime guard')
+
+  // Clean up.
+  await rm(join(paths.NEXUS_HOME, 'exports'), { recursive: true, force: true })
+  await rm(join(paths.NEXUS_HOME, 'manifest.json.corrupt-1234567890'), { force: true })
+  await rm(join(paths.NEXUS_HOME, 'manifest.json.corrupt-9876543210'), { force: true })
+  await rm(join(paths.NEXUS_HOME, 'upload-abc123'), { recursive: true, force: true })
+  await rm(join(paths.NEXUS_HOME, 'rollback'), { recursive: true, force: true })
 })
 
 test('purge CLI dry-run does not delete files', async () => {
@@ -183,6 +230,8 @@ test('purge CLI dry-run does not delete files', async () => {
 test('purge CLI --yes deletes all artifacts', async () => {
   await seedArtifacts()
   await manifest.readManifest()
+  // Backdate so the mtime guard allows actual deletion.
+  await backdateAll()
 
   const { io, out } = mockIO()
   const code = await purgeCmd.purge(['--yes'], io)
@@ -219,6 +268,8 @@ test('purge CLI --json dry-run emits a JSON report', async () => {
 test('purge CLI --json --yes reports what was removed', async () => {
   await seedArtifacts()
   await manifest.readManifest()
+  // Backdate so the mtime guard allows actual deletion.
+  await backdateAll()
 
   const { io, out } = mockIO()
   const code = await purgeCmd.purge(['--yes', '--json'], io)

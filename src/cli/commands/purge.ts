@@ -36,7 +36,7 @@ export async function purge(argv: string[], io: OpsIO = cliIO): Promise<number> 
 
   if (json) {
     if (yes) {
-      const removed = await executePurge(items)
+      const { removed } = await executePurge(items)
       const report: PurgeJsonReport = {
         version: 1,
         files: removed.map((i) => ({ path: i.path, size: i.size, category: i.category })),
@@ -70,7 +70,7 @@ export async function purge(argv: string[], io: OpsIO = cliIO): Promise<number> 
     return 0
   }
 
-  const removed = await executePurge(items)
+  const { removed } = await executePurge(items)
   const removedSize = removed.reduce((sum, i) => sum + i.size, 0)
   io.emit(`Purged ${removed.length} artifact(s) (${formatBytes(removedSize)}).\n`)
   return 0
