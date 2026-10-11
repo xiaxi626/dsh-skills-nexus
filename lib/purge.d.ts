@@ -70,6 +70,12 @@ export interface PurgeResult {
  * (directory vanished between scan and delete) does NOT trigger the guard —
  * `catch(() => undefined)` falls through to the normal `rm` path, which will
  * also fail and be swallowed by the per-item try/catch.
+ *
+ * **Exception**: `corrupt-manifest` items bypass the mtime guard. These are
+ * atomic-write backups of broken content (see `readManifest` in
+ * `src/manifest.ts`) — the live manifest has already moved on to the empty
+ * fallback, so the backup is unconditionally safe to delete regardless of
+ * how fresh its mtime is.
  */
 export declare function executePurge(items: PurgeableItem[]): Promise<PurgeResult>;
 //# sourceMappingURL=purge.d.ts.map

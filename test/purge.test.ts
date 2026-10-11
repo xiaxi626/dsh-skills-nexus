@@ -181,26 +181,71 @@ test('executePurge removes all items and reports what was deleted', async () => 
   assert.equal(remaining.length, 0, 'nothing should remain after purge')
 })
 
-test('executePurge spares items with recent mtime', async () => {
+test('executePurge spares non-corrupt items with recent mtime', async () => {
+  await seedArtifacts()
+  await manifest.readManifest()
+  // Backdate corrupt-manifest items so they do not interfere with this test's
+  // focus: the mtime guard on the *other* three categories.
+  await backdate(join(paths.NEXUS_HOME, 'manifest.json.corrupt-1234567890'))
+  await backdate(join(paths.NEXUS_HOME, 'manifest.json.corrupt-9876543210'))
+  // Do NOT backdate exports / upload / rollback — they have current mtime.
+
+  const items = await purge.scanPurgeable()
+  const nonCorrupt = items.filter((i) => i.category !== 'corrupt-manifest')
+  assert.ok(nonCorrupt.length > 0, 'should have non-corrupt items')
+
+  const result = await purge.executePurge(items)
+  // Corrupt items were backdated so they pass the guard and get deleted.
+  assert.ok(
+    result.removed.every((i) => i.category === 'corrupt-manifest'),
+    'only backdated corrupt items should be removed',
+  )
+  // Fresh non-corrupt items should all be spared.
+  assert.equal(
+    result.skippedRecent.length,
+    nonCorrupt.length,
+    'all fresh non-corrupt items should be skipped',
+  )
+
+  // Clean up.
+  await rm(join(paths.NEXUS_HOME, 'exports'), { recursive: true, force: true })
+  await rm(join(paths.NEXUS_HOME, 'upload-abc123'), { recursive: true, force: true })
+  await rm(join(paths.NEXUS_HOME, 'rollback'), { recursive: true, force: true })
+})
+
+test('executePurge deletes corrupt-manifest items regardless of fresh mtime', async () => {
   await seedArtifacts()
   await manifest.readManifest()
   // Do NOT backdate — all items have current mtime, inside the guard window.
 
   const items = await purge.scanPurgeable()
-  assert.ok(items.length > 0, 'should have items to purge')
+  const corruptItems = items.filter((i) => i.category === 'corrupt-manifest')
+  const otherItems = items.filter((i) => i.category !== 'corrupt-manifest')
+  assert.ok(corruptItems.length > 0, 'should have corrupt items')
+  assert.ok(otherItems.length > 0, 'should have non-corrupt items')
 
   const result = await purge.executePurge(items)
-  assert.equal(result.removed.length, 0, 'no fresh items should be removed')
-  assert.equal(result.skippedRecent.length, items.length, 'all fresh items should be skipped')
 
-  // Items should still exist — the mtime guard spared them.
-  const remaining = await purge.scanPurgeable()
-  assert.equal(remaining.length, items.length, 'all items should survive the mtime guard')
+  // Corrupt-manifest items should be deleted despite fresh mtime.
+  assert.equal(
+    result.removed.filter((i) => i.category === 'corrupt-manifest').length,
+    corruptItems.length,
+    'corrupt-manifest items should be removed even with fresh mtime',
+  )
+  // Other categories should be spared by the mtime guard.
+  assert.equal(
+    result.skippedRecent.length,
+    otherItems.length,
+    'non-corrupt items with fresh mtime should be skipped',
+  )
+  assert.equal(
+    result.removed.filter((i) => i.category !== 'corrupt-manifest').length,
+    0,
+    'no non-corrupt fresh items should be removed',
+  )
 
-  // Clean up.
+  // Clean up remaining items.
   await rm(join(paths.NEXUS_HOME, 'exports'), { recursive: true, force: true })
-  await rm(join(paths.NEXUS_HOME, 'manifest.json.corrupt-1234567890'), { force: true })
-  await rm(join(paths.NEXUS_HOME, 'manifest.json.corrupt-9876543210'), { force: true })
   await rm(join(paths.NEXUS_HOME, 'upload-abc123'), { recursive: true, force: true })
   await rm(join(paths.NEXUS_HOME, 'rollback'), { recursive: true, force: true })
 })

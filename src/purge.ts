@@ -121,18 +121,32 @@ export interface PurgeResult {
  * (directory vanished between scan and delete) does NOT trigger the guard —
  * `catch(() => undefined)` falls through to the normal `rm` path, which will
  * also fail and be swallowed by the per-item try/catch.
+ *
+ * **Exception**: `corrupt-manifest` items bypass the mtime guard. These are
+ * atomic-write backups of broken content (see `readManifest` in
+ * `src/manifest.ts`) — the live manifest has already moved on to the empty
+ * fallback, so the backup is unconditionally safe to delete regardless of
+ * how fresh its mtime is.
  */
 export async function executePurge(items: PurgeableItem[]): Promise<PurgeResult> {
   const removed: PurgeableItem[] = []
   const skippedRecent: PurgeableItem[] = []
   for (const item of items) {
-    // mtime guard: skip items modified within the protection window.
-    // A `stat` failure means the item already vanished — let `rm` handle it
-    // (it will no-op via `force: true`).
-    const st = await stat(item.path).catch(() => undefined)
-    if (st && Date.now() - st.mtimeMs < PURGE_MTIME_GUARD_MS) {
-      skippedRecent.push(item)
-      continue
+    // Corrupt-manifest backups are atomic-write leftovers (see
+    // `readManifest` in src/manifest.ts): the file is a *copy of broken
+    // content* that was already replaced by the empty fallback.  Its mtime
+    // is always fresh (just created by the corruption event) yet the file
+    // is unconditionally safe to delete — applying the mtime guard would
+    // let these accumulate for 24 hours for no benefit.
+    if (item.category !== 'corrupt-manifest') {
+      // mtime guard: skip items modified within the protection window.
+      // A `stat` failure means the item already vanished — let `rm` handle it
+      // (it will no-op via `force: true`).
+      const st = await stat(item.path).catch(() => undefined)
+      if (st && Date.now() - st.mtimeMs < PURGE_MTIME_GUARD_MS) {
+        skippedRecent.push(item)
+        continue
+      }
     }
     try {
       await rm(item.path, { recursive: true, force: true })
