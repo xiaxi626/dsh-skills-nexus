@@ -57,7 +57,7 @@ export const ROUTED_SUBCOMMANDS = [
 export const HELP_TEXT = `dsh-skills-nexus — register any git SKILL.md repo as a DSH skill
 Usage:
   dsh-skills-nexus add    <repo-spec>...              [--name <name>] [--subdir <path>] [--yes] [--json]
-  dsh-skills-nexus list [--names | --json]
+  dsh-skills-nexus list [--names | --json] [--filter <query>]
   dsh-skills-nexus update [name] [--json]   # refresh clones (default: all enabled)
   dsh-skills-nexus rollback <name> [--json] # 恢复最近一次成功的版本变更
   dsh-skills-nexus diff <name> [<ref>] [--stat]
@@ -96,6 +96,9 @@ Options:
   list options:
   --names           print only skill names, one per line (machine-readable; used by
                     shell completion). Cannot be combined with --json.
+  --filter <query>  narrow output to entries whose name, URL or subdir contain the
+                    query (case-insensitive substring match). Applies to the default
+                    table, --names and --json alike.
 
   doctor options:
   --json            emit a stable machine-readable report (version 1) on stdout

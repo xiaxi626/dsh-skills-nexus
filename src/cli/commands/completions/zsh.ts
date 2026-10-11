@@ -59,7 +59,7 @@ export const zshTemplate = [
   '    # machine-report flag, which is still a flag.',
   '    case $cmd in',
   '      add)         compadd -- --name --ref --subdir --yes --json ;;',
-  '      list|ls)     compadd -- --names --json ;;',
+  '      list|ls)     compadd -- --names --json --filter ;;',
   '      update|pull|rollback) compadd -- --json ;;',
   '      diff)        compadd -- --stat ;;',
   '      remove|rm)   compadd -- --yes --json ;;',

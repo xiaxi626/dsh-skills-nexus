@@ -57,7 +57,7 @@ export const bashTemplate = [
   '  cmd="${COMP_WORDS[1]}"',
   '  case "$cmd" in',
   '    add)         flags="--name --ref --subdir --yes --json" ;;',
-  '    list|ls)     flags="--names --json" ;;',
+  '    list|ls)     flags="--names --json --filter" ;;',
   '    update|pull|rollback) flags="--json" ;;',
   '    diff)        flags="--stat" ;;',
   '    remove|rm)   flags="--yes --json" ;;',
