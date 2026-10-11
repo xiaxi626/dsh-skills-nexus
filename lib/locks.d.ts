@@ -66,11 +66,21 @@ export declare function acquireSkillFileLock(skill: string): Promise<SkillFileLo
 /** Convenience: run `fn` while holding the skill's cross-process lock. */
 export declare function withSkillFileLock<T>(skill: string, fn: () => Promise<T>): Promise<T>;
 /**
- * Run `fn` while holding the cross-process manifest lock.
+ * Run `fn` while holding the cross-process manifest lock, retrying with
+ * exponential backoff when another process holds it.
  *
  * Every manifest read-modify-write MUST go through this wrapper so that
  * concurrent CLI and HTTP processes cannot clobber each other's entries.
  * The lock is released whether `fn` succeeds or throws.
+ *
+ * Retry strategy: delay doubles from `MANIFEST_LOCK_INITIAL_MS` up to
+ * `MANIFEST_LOCK_MAX_WAIT_MS` (50 → 100 → 200 → 400 → 400 → …), total
+ * budget `MANIFEST_LOCK_BUDGET_MS` — about 8 attempts in 3 s. No jitter:
+ * the manifest critical section is millisecond-scale, so collision
+ * probability below 16 concurrent writers is negligible.
+ *
+ * The catch wraps only the acquire, never `fn` — the body runs at most
+ * once and is never retried, so it need not be idempotent.
  */
 export declare function withManifestLock<T>(fn: () => Promise<T>): Promise<T>;
 //# sourceMappingURL=locks.d.ts.map

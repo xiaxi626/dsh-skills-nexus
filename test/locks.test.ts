@@ -215,11 +215,12 @@ test('withManifestLock releases the lock when fn throws', async () => {
   assert.equal(result, 'recovered')
 })
 
-test('withManifestLock rejects a concurrent second call with SkillLockedError', async () => {
+test('withManifestLock retries with backoff then rejects a held lock (bounded retry)', async () => {
   // Hold the lock manually via the lower-level acquire so we can test that a
-  // second withManifestLock call finds it held. This avoids relying on
-  // withManifestLock for the first acquisition, which would require gate
-  // orchestration and is sensitive to filesystem settle timing on Windows.
+  // second withManifestLock call finds it held and retries until the budget
+  // expires. This avoids relying on withManifestLock for the first acquisition,
+  // which would require gate orchestration and is sensitive to filesystem
+  // settle timing on Windows. Expect ~3 s runtime (MANIFEST_LOCK_BUDGET_MS).
   const lock = await locks.acquireSkillFileLock('__manifest__')
   try {
     await assert.rejects(

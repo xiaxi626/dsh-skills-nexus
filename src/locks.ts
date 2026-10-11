@@ -40,9 +40,10 @@ export class SkillLockedError extends Error {
     readonly skill: string,
     readonly lock: { pid: number; startedAt: string },
   ) {
-    super(
-      `skill "${skill}" is locked by another process (pid ${lock.pid}, since ${lock.startedAt})`,
-    )
+    const label = skill === '__manifest__'
+      ? 'nexus manifest (another process is writing)'
+      : `skill "${skill}"`
+    super(`${label} is locked by PID ${lock.pid} since ${lock.startedAt}`)
     this.name = 'SkillLockedError'
   }
 }
@@ -240,18 +241,51 @@ function isPidAlive(pid: number): boolean {
 const MANIFEST_LOCK_NAME = '__manifest__'
 
 /**
- * Run `fn` while holding the cross-process manifest lock.
+ * Total time budget for acquiring the manifest lock before giving up.
+ *
+ * The manifest critical section is millisecond-scale (read-modify-write of a
+ * small JSON file), so contention is brief. Three seconds accommodates the
+ * worst case of 16 concurrent writers all retrying with exponential backoff
+ * (≈8 attempts each) while still failing fast enough for a CLI user to
+ * notice rather than hang indefinitely.
+ */
+const MANIFEST_LOCK_BUDGET_MS = 3000
+/** First retry delay — matches the stale-reclaim settle delay convention. */
+const MANIFEST_LOCK_INITIAL_MS = 50
+/** Cap so individual sleeps stay well below the total budget. */
+const MANIFEST_LOCK_MAX_WAIT_MS = 400
+
+/**
+ * Run `fn` while holding the cross-process manifest lock, retrying with
+ * exponential backoff when another process holds it.
  *
  * Every manifest read-modify-write MUST go through this wrapper so that
  * concurrent CLI and HTTP processes cannot clobber each other's entries.
  * The lock is released whether `fn` succeeds or throws.
+ *
+ * Retry strategy: delay doubles from `MANIFEST_LOCK_INITIAL_MS` up to
+ * `MANIFEST_LOCK_MAX_WAIT_MS` (50 → 100 → 200 → 400 → 400 → …), total
+ * budget `MANIFEST_LOCK_BUDGET_MS` — about 8 attempts in 3 s. No jitter:
+ * the manifest critical section is millisecond-scale, so collision
+ * probability below 16 concurrent writers is negligible.
+ *
+ * The catch wraps only the acquire, never `fn` — the body runs at most
+ * once and is never retried, so it need not be idempotent.
  */
 export async function withManifestLock<T>(fn: () => Promise<T>): Promise<T> {
-  const lock = await acquireSkillFileLock(MANIFEST_LOCK_NAME)
-  try {
-    return await fn()
-  } finally {
-    await lock.release()
+  const deadline = Date.now() + MANIFEST_LOCK_BUDGET_MS
+  let delayMs = MANIFEST_LOCK_INITIAL_MS
+  for (;;) {
+    let lock: SkillFileLock
+    try {
+      lock = await acquireSkillFileLock(MANIFEST_LOCK_NAME)
+    } catch (err) {
+      if (!(err instanceof SkillLockedError) || Date.now() + delayMs > deadline) throw err
+      await delay(delayMs)
+      delayMs = Math.min(delayMs * 2, MANIFEST_LOCK_MAX_WAIT_MS)
+      continue
+    }
+    try { return await fn() } finally { await lock.release() }
   }
 }
 
