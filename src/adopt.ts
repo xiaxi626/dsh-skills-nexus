@@ -18,6 +18,7 @@ import {
   sanitizeName,
 } from './git.js'
 import { entryLinks, hasCollision, linkSkill, unlinkSkill } from './link.js'
+import { withManifestLock } from './locks.js'
 import { previewSkills } from './resolve.js'
 import { ensureDescription, normalizeSkillName } from './frontmatter.js'
 import type { GitSpec } from './git.js'
@@ -471,17 +472,19 @@ async function applyAdopt(
   name: string,
   next: { url: string; gitUrl: string; ref: string; commit: string; subdir?: string },
 ): Promise<void> {
-  const manifest = await readManifest()
-  const entry = findEntry(manifest, name)
-  if (!entry) return
-  entry.url = next.url
-  entry.gitUrl = next.gitUrl
-  entry.ref = next.ref
-  entry.commit = next.commit
-  entry.updatedAt = new Date().toISOString()
-  if (next.subdir === undefined) delete entry.subdir
-  else entry.subdir = next.subdir
-  await writeManifest(manifest)
+  await withManifestLock(async () => {
+    const manifest = await readManifest()
+    const entry = findEntry(manifest, name)
+    if (!entry) return
+    entry.url = next.url
+    entry.gitUrl = next.gitUrl
+    entry.ref = next.ref
+    entry.commit = next.commit
+    entry.updatedAt = new Date().toISOString()
+    if (next.subdir === undefined) delete entry.subdir
+    else entry.subdir = next.subdir
+    await writeManifest(manifest)
+  })
 }
 
 /**
