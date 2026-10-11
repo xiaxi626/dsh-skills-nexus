@@ -36,12 +36,13 @@ export async function purge(argv: string[], io: OpsIO = cliIO): Promise<number> 
 
   if (json) {
     if (yes) {
-      const { removed } = await executePurge(items)
+      const { removed, failed } = await executePurge(items)
       const report: PurgeJsonReport = {
         version: 1,
         files: removed.map((i) => ({ path: i.path, size: i.size, category: i.category })),
         totalSize: removed.reduce((sum, i) => sum + i.size, 0),
         removed: removed.length,
+        failed: failed.map((f) => ({ path: f.item.path, error: f.error })),
       }
       emitJson(io, report)
     } else {
@@ -50,6 +51,7 @@ export async function purge(argv: string[], io: OpsIO = cliIO): Promise<number> 
         files: items.map((i) => ({ path: i.path, size: i.size, category: i.category })),
         totalSize,
         removed: 0,
+        failed: [],
       }
       emitJson(io, report)
     }
@@ -70,9 +72,16 @@ export async function purge(argv: string[], io: OpsIO = cliIO): Promise<number> 
     return 0
   }
 
-  const { removed } = await executePurge(items)
+  const { removed, failed } = await executePurge(items)
   const removedSize = removed.reduce((sum, i) => sum + i.size, 0)
   io.emit(`Purged ${removed.length} artifact(s) (${formatBytes(removedSize)}).\n`)
+  if (failed.length > 0) {
+    io.emit(`\nFailed to remove ${failed.length} artifact(s):\n`)
+    for (const f of failed) {
+      io.emit(`  ${f.item.category}: ${f.item.path}\n`)
+      io.emit(`    ${f.error}\n`)
+    }
+  }
   return 0
 }
 

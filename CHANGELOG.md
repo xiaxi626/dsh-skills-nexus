@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+**2026-10-11 · Fixed · `purge` 失败可见性——删除失败不再静默吞掉**
+
+- **背景**：`executePurge` 对每个 item 的 `rm` 失败静默 `catch {}`，用户无法知道哪些 artifact 删除失败。CLI 人类模式和 JSON 报告均只展示成功删除的项，失败项无声消失。
+- **变更**：`src/purge.ts` 新增 `PurgeFailedItem` 接口（`{ item: PurgeableItem; error: string }`），`PurgeResult` 新增 `failed: PurgeFailedItem[]` 字段。`executePurge` 的 per-item catch 不再空转，改为将错误信息记录到 `failed`。`src/cli/commands/purge.ts` 人类模式在 `--yes` 后若有失败项，追加输出失败列表（路径 + 错误信息）。`src/cli/json-types.ts` 新增 `PurgeJsonFailed` 接口，`PurgeJsonReport` 新增 `failed: PurgeJsonFailed[]`（dry-run 模式始终为空数组）。
+- **验证**：`typecheck`、`lint`、`npm test` 全部通过，665 项中 662 通过、0 失败、3 跳过（新增 2 项失败路径测试：核心层 `executePurge` 记录失败 + CLI JSON 报告包含 `failed` 数组；使用文件锁在 Windows 上触发 `rm` 失败，POSIX 因 unlink 语义自动降级为跳过）。
+- **不做**：不改变 dry-run 模式的行为（dry-run 不执行删除，无失败可言）；不将 `failed` 加入非 `--yes` 的 JSON 报告以外的路径（`failed` 在 dry-run JSON 中始终为空数组，保持向后兼容）。
+
 **2026-10-09 · Added · `purge` 清理命令**
 
 - **背景**：`exports/`、`.corrupt-` 备份、崩溃残留的 `upload-*` 目录、已删除 skill 的孤立 `rollback/*.json` 会随使用积累，无清理机制。

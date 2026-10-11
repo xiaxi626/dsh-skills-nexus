@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, open, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -175,6 +175,7 @@ test('executePurge removes all items and reports what was deleted', async () => 
   const result = await purge.executePurge(items)
   assert.equal(result.removed.length, items.length, 'all items should be removed')
   assert.equal(result.skippedRecent.length, 0, 'no items should be skipped')
+  assert.equal(result.failed.length, 0, 'no items should have failed')
 
   // A second scan should find nothing.
   const remaining = await purge.scanPurgeable()
@@ -206,6 +207,7 @@ test('executePurge spares non-corrupt items with recent mtime', async () => {
     nonCorrupt.length,
     'all fresh non-corrupt items should be skipped',
   )
+  assert.equal(result.failed.length, 0, 'no items should have failed')
 
   // Clean up.
   await rm(join(paths.NEXUS_HOME, 'exports'), { recursive: true, force: true })
@@ -243,6 +245,7 @@ test('executePurge deletes corrupt-manifest items regardless of fresh mtime', as
     0,
     'no non-corrupt fresh items should be removed',
   )
+  assert.equal(result.failed.length, 0, 'no items should have failed')
 
   // Clean up remaining items.
   await rm(join(paths.NEXUS_HOME, 'exports'), { recursive: true, force: true })
@@ -301,6 +304,8 @@ test('purge CLI --json dry-run emits a JSON report', async () => {
   assert.ok(report.files.length > 0, 'JSON report should list files')
   assert.equal(report.removed, 0, 'dry-run JSON should report 0 removed')
   assert.ok(report.totalSize > 0, 'totalSize should be positive')
+  assert.ok(Array.isArray(report.failed))
+  assert.equal(report.failed.length, 0, 'dry-run JSON should report no failures')
 
   // Clean up.
   await rm(join(paths.NEXUS_HOME, 'exports'), { recursive: true, force: true })
@@ -324,6 +329,8 @@ test('purge CLI --json --yes reports what was removed', async () => {
   assert.equal(report.version, 1)
   assert.ok(report.removed > 0, '--yes --json should report removed count > 0')
   assert.equal(report.files.length, report.removed, 'files array length should match removed')
+  assert.ok(Array.isArray(report.failed), 'failed should be an array')
+  assert.equal(report.failed.length, 0, 'no failures in a clean purge')
 })
 
 test('purge CLI empty directory does not error', async () => {
@@ -341,4 +348,96 @@ test('purge CLI unknown argument is a usage error', async () => {
   const code = await purgeCmd.purge(['--nope'], io)
   assert.equal(code, 2, 'unknown flag should exit 2')
   assert.match(err(), /unknown argument/, 'should explain the usage error')
+})
+
+test('executePurge records items that fail to delete', async () => {
+  await seedArtifacts()
+  await manifest.readManifest()
+  await backdateAll()
+
+  // Lock one file so `rm` fails on it (Windows: LockFileEx → EBUSY/EPERM).
+  // On POSIX, an open file can still be unlinked, so the test degrades to
+  // a no-op when the platform allows the deletion despite the lock.
+  const exportsDir = join(paths.NEXUS_HOME, 'exports')
+  const lockTarget = join(exportsDir, 'old-export.zip')
+  const fh = await open(lockTarget, 'r+')
+  // `lock`/`unlock` exist at runtime on Windows (LockFileEx) but are not
+  // declared in `@types/node`'s `FileHandle` — cast through `any`.
+  const lockable = fh as unknown as { lock(): Promise<void>; unlock(): Promise<void> }
+  try {
+    await lockable.lock()
+  } catch {
+    // Locking not supported — skip gracefully.
+    await fh.close()
+    return
+  }
+
+  try {
+    const items = await purge.scanPurgeable()
+    const result = await purge.executePurge(items)
+
+    // If the platform deleted the file despite the lock, the test cannot
+    // exercise the failure path — skip rather than assert vacuously.
+    const { stat: fileStat } = await import('node:fs/promises')
+    const stillExists = await fileStat(lockTarget).catch(() => null)
+    if (!stillExists) return
+
+    assert.equal(result.failed.length, 1, 'one item should have failed')
+    assert.equal(result.failed[0]!.item.path, lockTarget, 'failed item should be the locked file')
+    assert.ok(result.failed[0]!.error.length > 0, 'error message should be non-empty')
+    // The other items should still be removed successfully.
+    assert.ok(result.removed.length > 0, 'other items should still be removed')
+    assert.equal(
+      result.removed.length + result.failed.length,
+      items.length - result.skippedRecent.length,
+      'removed + failed should equal attempted deletions',
+    )
+  } finally {
+    await lockable.unlock()
+    await fh.close()
+  }
+})
+
+test('purge CLI --json --yes includes failed array when deletion fails', async () => {
+  await seedArtifacts()
+  await manifest.readManifest()
+  await backdateAll()
+
+  // Lock a file so `rm` fails (see previous test for platform caveats).
+  const exportsDir = join(paths.NEXUS_HOME, 'exports')
+  const lockTarget = join(exportsDir, 'old-export.zip')
+  const fh = await open(lockTarget, 'r+')
+  const lockable = fh as unknown as { lock(): Promise<void>; unlock(): Promise<void> }
+  try {
+    await lockable.lock()
+  } catch {
+    await fh.close()
+    return
+  }
+
+  try {
+    const { io, out } = mockIO()
+    const code = await purgeCmd.purge(['--yes', '--json'], io)
+    assert.equal(code, 0)
+
+    const report = JSON.parse(out())
+    assert.equal(report.version, 1)
+    assert.ok(Array.isArray(report.failed), 'failed should be an array')
+
+    // If the platform deleted the file despite the lock, skip the failure
+    // assertion — the `failed` array should be empty in that case.
+    const { stat: fileStat } = await import('node:fs/promises')
+    const stillExists = await fileStat(lockTarget).catch(() => null)
+    if (!stillExists) {
+      assert.equal(report.failed.length, 0, 'no failures when platform allows deletion')
+      return
+    }
+
+    assert.equal(report.failed.length, 1, 'one failure should be reported')
+    assert.equal(report.failed[0].path, lockTarget)
+    assert.ok(report.failed[0].error.length > 0, 'error should be non-empty')
+  } finally {
+    await lockable.unlock()
+    await fh.close()
+  }
 })

@@ -46,9 +46,20 @@ export interface PurgeableItem {
  * side effects, nothing is deleted.
  */
 export declare function scanPurgeable(): Promise<PurgeableItem[]>;
+/** One item the purge attempted to delete but could not. */
+export interface PurgeFailedItem {
+    /** The item that could not be removed — carries path, size, and category. */
+    item: PurgeableItem;
+    /**
+     * Human-readable error message (the `message` property of the caught
+     * exception). Wording is not contract — it is a diagnostic aid, not a
+     * stable API.
+     */
+    error: string;
+}
 /**
- * Result of {@link executePurge}: what was actually deleted and what the mtime
- * guard spared.
+ * Result of {@link executePurge}: what was actually deleted, what the mtime
+ * guard spared, and what failed to delete.
  */
 export interface PurgeResult {
     /** Items successfully removed. */
@@ -58,18 +69,27 @@ export interface PurgeResult {
      * The caller can surface these so the user knows they exist but were kept.
      */
     skippedRecent: PurgeableItem[];
+    /**
+     * Items the purge tried to delete but could not (permission denied, file
+     * vanished mid-delete, device busy, …). The per-item try/catch still
+     * prevents one stubborn file from aborting the rest — but unlike the
+     * previous silent swallow, the failure is now surfaced so the caller can
+     * report it to the user.
+     */
+    failed: PurgeFailedItem[];
 }
 /**
- * Delete every item the scan returned. Errors are swallowed per-item so one
+ * Delete every item the scan returned. Errors are caught per-item so one
  * stubborn file does not abort the rest — the caller reports what was
- * actually removed via the return value.
+ * actually removed, what the mtime guard spared, and what failed via the
+ * return value's three arrays.
  *
  * Items whose mtime falls within {@link PURGE_MTIME_GUARD_MS} of now are
  * spared: a directory touched in the last 24 hours is likely still in active
  * use, even if no manifest entry currently references it. `stat` failure
  * (directory vanished between scan and delete) does NOT trigger the guard —
  * `catch(() => undefined)` falls through to the normal `rm` path, which will
- * also fail and be swallowed by the per-item try/catch.
+ * also fail and be recorded in `failed`.
  *
  * **Exception**: `corrupt-manifest` items bypass the mtime guard. These are
  * atomic-write backups of broken content (see `readManifest` in
