@@ -5,6 +5,7 @@
 - `add` 会把实际安装到的 commit 记入 `manifest.json`（新增 `commit` 字段）——`list` 以短 SHA 显示。
 - `update` 按 pin 类型分派：**分支 pin 快进拉取**、**tag/commit pin 是固定点**（只校验、绝不拉取），已固定但发生漂移的 checkout 会**自动恢复**。
 - `import --locked` 创建一种独立的显式 package lock：克隆 detached 在导出 commit，`list` 显示 `LOCK=yes`，`doctor --updates` 标明精确 package commit。成功执行 `switch-version` 后该显式锁被清除。
+- `diff <name> [<ref>] [--stat]` 提供**只读远端差异预览**：depth-1 fetch，输出 unified diff 或 diffstat，绝不 checkout 或写 manifest/链接。分支 pin 条目可省略目标 ref（默认当前分支）；detached 和 locked 条目必须明确指定。
 - 重复 `add` 已注册的仓库会被**拒绝**，且不影响已有克隆。
 
 以下操作都是安全的：不碰你真实的 `~/.dsh`、不访问任何 GitHub 仓库、当前仓库只被读取（或经 `npm run build` 重新编译）。所有临时状态都在专用临时目录里，最后统一删除。
@@ -37,6 +38,7 @@ npm run test:build  # 可选：把 src+test 编译到 test-dist/，无 loader �
 | `test/manifest.test.ts` | `markUpdated` 盖章 `updatedAt` + `commit` |
 | `test/import.test.ts` / `test/list.test.ts` / `test/doctor.test.ts` | 精确 package commit 恢复与回退边界；显式锁展示及其与普通 detached pin 的区分 |
 | `test/switch-version.test.ts` | 成功显式切换版本会清除 package lock |
+| `test/diff.test.ts` | 分支默认目标；显式 branch/tag/SHA；detached/locked 拒绝；subdir 限定；`--stat`；无变化退出 0；浅克隆懒加载 blob；参数安全；per-entry 锁 |
 
 ---
 
@@ -234,6 +236,48 @@ unset DSH_HOME
 
 ---
 
+## 第四部分 — 远端差异预览（`diff`）
+
+`diff` 是只读的远端比较：depth-1 fetch，不 checkout，不写 manifest 或链接。分支 pin 条目可省略目标 ref（默认当前分支）；detached 和 locked 条目必须指定。
+
+### Linux / macOS
+
+```bash
+# 接续第二部分 B 步（分支 pin，已最新）：
+# ---- E) 无远端变化时 diff ----
+node lib/cli/index.js diff up; echo "exit=$?"
+# 期望：空输出（或无差异），exit=0
+
+# ---- F) 推 v3，diff 显示变化 ----
+cd "$UP"
+printf '# demo v5\n---\nname: demo\ndescription: v5\n' > SKILL.md
+git add . && git commit -m fifth
+cd "$PROJECT"
+node lib/cli/index.js diff up
+# 期望：unified diff 显示新内容
+
+# ---- G) --stat ----
+node lib/cli/index.js diff up --stat
+# 期望：diffstat（如 "SKILL.md | 2 +-"）
+
+# ---- H) 显式 ref ----
+node lib/cli/index.js diff up main
+# 期望：与 F 相同的 diff
+
+# ---- I) detached 条目必须指定目标 ----
+node lib/cli/index.js remove up
+node lib/cli/index.js add "file://$UP#v1.0.0"   # tag pin → detached
+node lib/cli/index.js diff up; echo "exit=$?"
+# 期望：error: detached HEAD; provide a branch, tag or commit, exit=1
+node lib/cli/index.js diff up main               # → 指定 ref 后成功
+```
+
+### Windows（Git Bash）
+
+命令与上面相同，只需替换路径写法（`cygpath -m`、`file:///`）。
+
+---
+
 ## 每一步应该输出什么
 
 | 步骤 | 期望输出 | 含义 |
@@ -244,6 +288,10 @@ unset DSH_HOME
 | C：漂移后执行 `update` | `✓ restored to pinned xxxxxxx` | 检测到漂移并自动 checkout 回 pin |
 | D：重复 `add` | 拒绝提示，exit code 1 | 保护生效；已有克隆不受影响 |
 | `manifest.json` | 每条含 `"commit": "<40位SHA>"` | 锁本身 |
+| E：`diff`（无变化） | 空或无差异输出，exit=0 | 远端与本地一致 |
+| F：`diff`（远端有变化） | unified diff 补丁 | 远端有新内容 |
+| G：`diff --stat` | diffstat 摘要 | 文件级变更统计 |
+| I：`diff` detached（无 ref） | error，exit=1 | detached 必须指定目标 |
 
 ---
 
@@ -282,6 +330,13 @@ unset DSH_HOME
     `SKILL.md` 带完整 frontmatter——不需要归一化的仓库克隆是干净的，
     手动模拟漂移才走得通。nexus 只保证自己的 `update` 不受脏工作区
     影响，不代你在克隆里执行任意 git 命令。
+
+12. **`diff` 绝不写任何东西** —— 不 checkout、不更新 manifest、不重建
+    链接。只做 fetch（depth-1）和比较。exit 0 表示比较成功（即使 diff
+    为空）；exit 1 表示出错（detached 未指定目标、skill 不存在等）。
+13. **浅克隆上首次 `diff` 可能较慢** —— 克隆使用
+    `--filter=blob:none`；首次比较会懒加载目标 blob。后续 diff 很快
+    （blob 已缓存）。
 
 ---
 

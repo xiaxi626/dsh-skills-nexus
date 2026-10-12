@@ -11,6 +11,10 @@ This guide verifies the **version-lock ("lockfile-lite")** changes:
   detached at the exported commit, `list` shows `LOCK=yes`, and
   `doctor --updates` identifies the exact package commit. A successful
   `switch-version` clears this explicit lock.
+- `diff <name> [<ref>] [--stat]` provides a **read-only remote comparison**:
+  depth-1 fetch, unified diff or diffstat, never checks out or writes
+  manifest/links. Branch-pinned entries may omit the target; detached and
+  locked entries must name one.
 - Re-adding an already-registered repo is **refused** without touching its
   clone.
 
@@ -48,6 +52,7 @@ The suite never touches your real environment: every test file uses a temp
 | `test/manifest.test.ts` | `markUpdated` stamps `updatedAt` + `commit` |
 | `test/import.test.ts` / `test/list.test.ts` / `test/doctor.test.ts` | exact package-commit restore and fallback boundary; explicit lock display and distinction from ordinary detached pins |
 | `test/switch-version.test.ts` | a successful explicit version switch clears a package lock |
+| `test/diff.test.ts` | branch default target; explicit branch/tag/SHA; detached/locked refusal; subdir scoping; `--stat`; no-change exits 0; partial clone lazy blob; parameter safety; per-entry lock |
 
 ---
 
@@ -248,6 +253,50 @@ unset DSH_HOME
 
 ---
 
+## Part 4 — remote diff preview (`diff`)
+
+`diff` is a read-only remote comparison: depth-1 fetch, no checkout, no
+manifest or link writes. Branch-pinned entries may omit the target ref
+(defaults to the current branch); detached and locked entries must name one.
+
+### Linux / macOS
+
+```bash
+# Continue from Part 2 step B (branch pin, up to date):
+# ---- E) diff with no remote changes ----
+node lib/cli/index.js diff up; echo "exit=$?"
+# Expected: empty output (or "up to date"), exit=0
+
+# ---- F) push v3, diff shows changes ----
+cd "$UP"
+printf '# demo v5\n---\nname: demo\ndescription: v5\n' > SKILL.md
+git add . && git commit -m fifth
+cd "$PROJECT"
+node lib/cli/index.js diff up
+# Expected: unified diff showing the new content
+
+# ---- G) --stat ----
+node lib/cli/index.js diff up --stat
+# Expected: diffstat (e.g. "SKILL.md | 2 +-")
+
+# ---- H) explicit ref ----
+node lib/cli/index.js diff up main
+# Expected: same diff as F
+
+# ---- I) detached entry must name target ----
+node lib/cli/index.js remove up
+node lib/cli/index.js add "file://$UP#v1.0.0"   # tag pin → detached
+node lib/cli/index.js diff up; echo "exit=$?"
+# Expected: error: detached HEAD; provide a branch, tag or commit, exit=1
+node lib/cli/index.js diff up main               # → works with explicit ref
+```
+
+### Windows (Git Bash)
+
+Same commands with path substitutions (`cygpath -m`, `file:///`).
+
+---
+
 ## What each step should print
 
 | step | expected output | meaning |
@@ -258,6 +307,10 @@ unset DSH_HOME
 | C: `update` after drift | `✓ restored to pinned xxxxxxx` | drifted checkout detected and checked back out |
 | D: re-`add` | refusal message, exit code 1 | guard works; existing clone untouched |
 | `manifest.json` | `"commit": "<40-char SHA>"` per entry | the lock itself |
+| E: `diff` (no changes) | empty or no-diff output, exit=0 | remote matches local |
+| F: `diff` (remote moved) | unified diff patch | remote has new content |
+| G: `diff --stat` | diffstat summary | file-level change counts |
+| I: `diff` on detached (no ref) | error, exit=1 | detached must name target |
 
 ---
 
@@ -301,6 +354,14 @@ unset DSH_HOME
     need no normalization clone clean, so manually simulating drift works.
     Nexus only guarantees its own `update` is unaffected by dirty worktrees;
     it does not make arbitrary manual git commands inside clones safe.
+
+12. **`diff` never writes anything** — no checkout, no manifest update, no
+    link rebuild. It only fetches (depth-1) and compares. Exit 0 means the
+    comparison succeeded (even if the diff is empty); exit 1 means an error
+    (detached without target, skill not found, etc.).
+13. **First `diff` on a partial clone may be slow** — the clone uses
+    `--filter=blob:none`; the first comparison fetches target blobs lazily.
+    Subsequent diffs are fast (blobs cached).
 
 ---
 
