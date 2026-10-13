@@ -1,7 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { ListedEntry } from '../src/manifest.js'
-import type { GroupState } from '../src/http/routes.js'
 
 /**
  * Tests for `deriveGroupStates` — the function that computes group-level

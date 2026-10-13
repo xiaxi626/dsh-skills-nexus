@@ -196,7 +196,7 @@ test('link trae-cn reports conflict on duplicate run', async () => {
 
     // Second run reports conflict.
     const { io: io2, lines: lines2 } = captureIO()
-    const exitCode2 = await linkCmd.link(['trae-cn', '--trae-cn-dir', traeCnDir], io2)
+    const _exitCode2 = await linkCmd.link(['trae-cn', '--trae-cn-dir', traeCnDir], io2)
     // Exit code may be 0 (with warnings) or 1 (with errors), depending on implementation.
     // The key assertion is that the conflict is reported.
     assert.ok(

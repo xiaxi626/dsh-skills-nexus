@@ -203,7 +203,7 @@ test('linkLocal creates manifest entries and symlinks', async () => {
       error: () => {},
       interactive: false,
     }
-    const { plan, result } = await external.linkLocal('trae-cn', { traeCnDir }, io)
+    const { result } = await external.linkLocal('trae-cn', { traeCnDir }, io)
 
     assert.equal(result.added.length, 1)
     assert.equal(result.added[0], 'trae-cn.skills.execute-skill')

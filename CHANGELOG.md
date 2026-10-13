@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+**2026-10-13 · Fixed · 测试文件 lint 问题——移除未使用的变量和导入**
+
+- **变更**：`test/cli-link.test.ts` 将未使用的 `exitCode2` 改为 `_exitCode2`；`test/external-entrydir.test.ts` 移除未使用的 `mkdir` 导入；`test/external-link.test.ts` 移除未使用的 `plan` 解构；`test/group-states.test.ts` 移除未使用的 `GroupState` 导入。
+- **验证**：`npm run lint` 0 errors，`npm test` 733 项全部通过。
+
 **2026-10-13 · Fixed · 面板组开关状态同步——切换后组级 Switch 立即反映新状态**
 
 - **背景**：`reconcileAfter` 在协调过程中通过 `reconcileList` 的 `onTick` 回调更新 `entries`，但 `groupStates` 只在 `refresh` 时从服务端获取。切换组开关后，子条目立即更新，但组级 Switch 的状态（`on`/`off`/`mixed`）保持旧值，直到下次手动 refresh 或再次点击开关。
