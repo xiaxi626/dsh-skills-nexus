@@ -1,5 +1,6 @@
 import { listEntries, readManifest } from '../../manifest.js'
-import { REPOS_DIR, OFFICIAL_SKILLS_DIR, repoDir } from '../../paths.js'
+import { REPOS_DIR, OFFICIAL_SKILLS_DIR } from '../../paths.js'
+import { entrySkillDir } from '../../external.js'
 import { stat } from 'node:fs/promises'
 import { isEntryEnabled } from '../../link.js'
 import { cliIO } from '../../ops-io.js'
@@ -85,7 +86,7 @@ export async function list(argv: string[], io: OpsIO = cliIO): Promise<number> {
 
   const rows: string[][] = []
   for (const s of skills) {
-    const dir = repoDir(s.path)
+    const dir = entrySkillDir(s)
     let present = 'missing'
     try {
       await stat(dir)

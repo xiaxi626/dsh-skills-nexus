@@ -23,6 +23,7 @@
 import { readdir, stat } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
 import { OFFICIAL_SKILLS_DIR, REPOS_DIR, repoDir } from './paths.js'
+import { entrySkillDir } from './external.js'
 import { isLinkAt, readLinkEntryTarget, safeRealPath } from './link.js'
 import { readManifest } from './manifest.js'
 import { isDetachedHead, lsRemoteCommit } from './git.js'
@@ -68,7 +69,7 @@ export interface HealthIssue {
  * one as "disabled" too — a check that could not see the thing it checks.
  */
 export async function diagnoseEntry(entry: SkillEntry): Promise<EntryDiagnosis> {
-  const base = await safeRealPath(repoDir(entry.path)) + sep
+  const base = await safeRealPath(entrySkillDir(entry)) + sep
 
   let names: string[]
   try {

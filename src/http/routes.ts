@@ -53,7 +53,8 @@ import {
   repoSlug,
   sanitizeName,
 } from '../git.js'
-import { repoDir, NEXUS_HOME } from '../paths.js'
+import { NEXUS_HOME } from '../paths.js'
+import { entrySkillDir } from '../external.js'
 import { findEntry, hasEntry, hasGitSource, isExternalEntry, listEntries, readManifest } from '../manifest.js'
 import { entryLinks, hasCollision, linkSkill, unlinkSkill } from '../link.js'
 import { removeSkill } from '../remove.js'
@@ -839,8 +840,7 @@ async function toggleEntryCore(
   let changed = false
   if (enabled) {
     const existing = new Set((await entryLinks(entry)).map((l) => l.name))
-    const dir = repoDir(entry.path)
-    const skillRoot = entry.subdir !== undefined ? join(dir, entry.subdir) : dir
+    const skillRoot = entrySkillDir(entry)
     const skills = await previewSkills(skillRoot)
     for (const s of skills) {
       const fmName = s.invalidName ? sanitizeName(s.invalidName) : s.name

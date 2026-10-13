@@ -1,8 +1,8 @@
-import { join } from 'node:path'
 import { readdir } from 'node:fs/promises'
 import { readManifest, findEntry } from '../../manifest.js'
 import { repoDir, OFFICIAL_SKILLS_DIR, skillLinkPath } from '../../paths.js'
 import { linkSkill, unlinkIfPointsInto, isEntryEnabled } from '../../link.js'
+import { entrySkillDir } from '../../external.js'
 import { previewSkills } from '../../resolve.js'
 import { sanitizeName } from '../../git.js'
 import { cliIO } from '../../ops-io.js'
@@ -168,8 +168,11 @@ async function toggleLinks(
   enabled: boolean,
   io: OpsIO,
 ): Promise<number> {
-  const dir = repoDir(entry.path)
-  const skillRoot = entry.subdir ? join(dir, entry.subdir) : dir
+  const skillRoot = entrySkillDir(entry)
+  // Attribution base: the clone root for managed entries, the externalDir for
+  // new-style external entries (which carry externalDir). Old-style external
+  // entries (from --link-only adoption) use repoDir like managed entries.
+  const dir = (entry.ownership === 'external' && entry.externalDir) ? skillRoot : repoDir(entry.path)
   let count = 0
 
   if (enabled) {
