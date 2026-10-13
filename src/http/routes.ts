@@ -1,5 +1,5 @@
 /**
- * The 11 `/skills-nexus/*` routes (§7.1) as plain route specs over an
+ * The 12 `/skills-nexus/*` routes (§7.1) as plain route specs over an
  * injected request/response surface — tests drive them without a server, and
  * `src/index.ts` owns the single `webServer.register` adaption (§7.4).
  *
@@ -56,6 +56,7 @@ import {
 import { NEXUS_HOME } from '../paths.js'
 import { entrySkillDir } from '../external.js'
 import { findEntry, hasEntry, hasGitSource, isExternalEntry, listEntries, readManifest } from '../manifest.js'
+import type { ListedEntry } from '../manifest.js'
 import { entryLinks, hasCollision, linkSkill, unlinkSkill } from '../link.js'
 import { removeSkill } from '../remove.js'
 import { previewSkills } from '../resolve.js'
@@ -84,6 +85,8 @@ import { importPackage } from '../import.js'
 import type { ImportErrorCode, ImportOptions, ImportPlan, ImportResult } from '../import.js'
 import { AdoptError, adoptSkill, assertAdoptable } from '../adopt.js'
 import type { AdoptErrorCode } from '../adopt.js'
+import { LinkError, planLinkLocal, linkLocal } from '../external.js'
+import type { LinkErrorCode, LinkOptions } from '../external.js'
 import { createJob, getJob, requestCancel, runJob } from './jobs.js'
 import type { JobKind } from './jobs.js'
 import { quietIO } from './io.js'
@@ -142,6 +145,10 @@ function fail(res: RouteResponse, err: unknown): void {
     sendError(res, adoptStatus(err.code), err.code, { message: err.message })
     return
   }
+  if (err instanceof LinkError) {
+    sendError(res, linkStatus(err.code), err.code, { message: err.message })
+    return
+  }
   process.stderr.write(`[${PLUGIN_ID}] route error: ${err instanceof Error ? err.stack : String(err)}\n`)
   sendError(res, 500, 'internal-error')
 }
@@ -194,6 +201,20 @@ function adoptStatus(code: AdoptErrorCode): number {
 }
 
 /**
+ * §10.4 status for a `LinkError`. Name collisions and already-existing entries
+ * are conflicts (409); the rest are caller input or resolution failures (400).
+ */
+function linkStatus(code: LinkErrorCode): number {
+  switch (code) {
+    case 'already-exists':
+    case 'name-collision':
+      return 409
+    default:
+      return 400
+  }
+}
+
+/**
  * §7.5 受理即锁: claim the flight synchronously (a 409 must be decided before
  * the 202), take the file lock, register the job and answer `202` — the op
  * then runs in the background holding both until `release`.
@@ -229,6 +250,61 @@ async function accept(
 
 function short(sha: string): string {
   return sha.slice(0, 7)
+}
+
+/* ------------------------------------------------------------------ */
+/* Group state derivation                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A derived group state: for each distinct L1 group prefix found in
+ * `groupPath`, report whether all/none/some of its members are enabled.
+ * The panel uses this for the group-level Switch.
+ */
+export interface GroupState {
+  /** The group path (e.g. `['trae-cn']` for L1, `['trae-cn','skills']` for L2). */
+  path: string[]
+  /** 'on' = all enabled, 'off' = none enabled, 'mixed' = some enabled. */
+  state: 'on' | 'off' | 'mixed'
+  /** Number of entries in this group. */
+  count: number
+}
+
+/**
+ * Derive group states from the listed entries. Groups are identified by
+ * the `groupPath` field; entries without it are not grouped.
+ */
+function deriveGroupStates(listed: ListedEntry[]): GroupState[] {
+  // Collect all distinct group paths (at every level).
+  const groupMap = new Map<string, { path: string[]; enabled: number; total: number }>()
+  for (const l of listed) {
+    if (l.entry.groupPath === undefined) continue
+    // Register every prefix level (L1, L2, L3, ...).
+    for (let depth = 1; depth <= l.entry.groupPath.length; depth++) {
+      const prefix = l.entry.groupPath.slice(0, depth)
+      const key = prefix.join('/')
+      const existing = groupMap.get(key)
+      if (existing !== undefined) {
+        existing.total++
+        if (l.enabled) existing.enabled++
+      } else {
+        groupMap.set(key, { path: prefix, enabled: l.enabled ? 1 : 0, total: 1 })
+      }
+    }
+  }
+  // Derive the state from the counts.
+  const states: GroupState[] = []
+  for (const { path, enabled, total } of groupMap.values()) {
+    const state: GroupState['state'] =
+      enabled === 0 ? 'off' : enabled === total ? 'on' : 'mixed'
+    states.push({ path, state, count: total })
+  }
+  // Sort by path depth then alphabetically for stable output.
+  states.sort((a, b) => {
+    if (a.path.length !== b.path.length) return a.path.length - b.path.length
+    return a.path.join('.').localeCompare(b.path.join('.'))
+  })
+  return states
 }
 
 /* ------------------------------------------------------------------ */
@@ -286,9 +362,17 @@ async function listRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
         }),
       ),
       update: l.update,
+      // External entries from the link channel carry a hierarchical group
+      // path; managed entries do not. The panel uses this for grouped
+      // rendering and for the group-level Switch derivation.
+      ...(l.entry.groupPath !== undefined ? { groupPath: l.entry.groupPath } : {}),
+      ...(l.entry.externalDir !== undefined ? { externalDir: l.entry.externalDir } : {}),
     })),
   )
-  sendData(res, { entries }, 'done')
+  // Derive group states from the entries: for each distinct L1 group prefix
+  // found in `groupPath`, report whether all/on/off/mixed its members are.
+  const groupStates = deriveGroupStates(listed)
+  sendData(res, { entries, groupStates }, 'done')
 }
 
 /** Frontmatter name of the skill behind a link; falls back to the link name. */
@@ -720,16 +804,34 @@ async function switchVersionRoute(req: RouteRequest, res: RouteResponse): Promis
   })
 }
 
-/** POST /toggle — `{ name, enabled }`, synchronous, target-attribution semantics (§6.4). */
+/** POST /toggle — `{ name, enabled }` or `{ group, enabled }`, synchronous, target-attribution semantics (§6.4). */
 async function toggleRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
   if (!requireMethod(req, res, 'POST')) return
   if (!requireMutationSafe(req, res)) return
   const body = await readJson(req)
   const name = strField(body, 'name')
+  const group = strField(body, 'group')
   const enabled = boolField(body, 'enabled')
-  if (name === undefined) throw new HttpError(400, 'missing-field', { field: 'name' })
   if (enabled === undefined) throw new HttpError(400, 'missing-field', { field: 'enabled' })
-
+  // Group mode: toggle every entry whose groupPath starts with the prefix.
+  if (group !== undefined) {
+    if (name !== undefined) throw new HttpError(400, 'ambiguous', { detail: 'name and group are mutually exclusive' })
+    const manifest = await readManifest()
+    const matches = manifest.skills.filter(
+      (e) => e.groupPath !== undefined && e.groupPath.join('/').startsWith(group),
+    )
+    if (matches.length === 0) throw new HttpError(404, 'not-found', { group })
+    const results: Array<{ name: string; enabled: boolean; changed: boolean }> = []
+    for (const entry of matches) {
+      const { changed, ...data } = await lockedFor(entry.name, () => toggleEntryCore(entry, enabled))
+      results.push({ name: data.name, enabled: data.enabled, changed })
+    }
+    const anyChanged = results.some((r) => r.changed)
+    sendData(res, { group, results }, anyChanged ? 'pending' : 'done')
+    return
+  }
+  // Single-entry mode.
+  if (name === undefined) throw new HttpError(400, 'missing-field', { field: 'name' })
   const manifest = await readManifest()
   const entry = findEntry(manifest, name)
   if (entry === undefined) throw new HttpError(404, 'not-found', { name })
@@ -750,6 +852,59 @@ async function jobCancel(req: RouteRequest, res: RouteResponse): Promise<void> {
   const job = requestCancel(id)
   if (job === undefined) throw new HttpError(404, 'not-found', { id })
   sendData(res, { id: job.id, status: job.status }, 'done')
+}
+
+/* ------------------------------------------------------------------ */
+/* POST /link (§10.5 — the external skill channel)                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * POST /link — `{ source, traeCnDir?, group?, force?, confirm? }`.
+ *
+ * Two shapes, like import: without `confirm` the route answers a synchronous
+ * preview (the plan); with `confirm` it is accepted as a job. The link channel
+ * creates manifest entries and symlinks for external skills (currently only
+ * trae-cn), so the job holds the per-skill flight + file lock.
+ */
+async function linkRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
+  if (!requireMethod(req, res, 'POST')) return
+  if (!requireMutationSafe(req, res)) return
+  const body = await readJson(req)
+  const source = strField(body, 'source')
+  if (source === undefined) throw new HttpError(400, 'missing-field', { field: 'source' })
+  const traeCnDir = strField(body, 'traeCnDir')
+  const group = strField(body, 'group')
+  const force = boolField(body, 'force') === true
+  const confirm = boolField(body, 'confirm') === true
+
+  const linkOpts: LinkOptions = {
+    ...(traeCnDir !== undefined ? { traeCnDir } : {}),
+    ...(group !== undefined ? { group } : {}),
+    ...(force ? { force: true } : {}),
+  }
+
+  if (!confirm) {
+    // Synchronous preview: plan without touching nexus state.
+    const preview = await planLinkLocal(source, linkOpts)
+    sendData(res, { plan: preview }, 'done')
+    return
+  }
+
+  requireConfirm(res, body, `Link skills from "${source}"?`)
+  // The job name is the source identifier; the flight lock is per-skill but
+  // link creates multiple entries, so the job-level lock is the file lock only.
+  await accept(res, 'link', source, async (io) => {
+    const { plan: executedPlan, result } = await linkLocal(source, linkOpts, io)
+    io.emit(`Linked ${result.added.length} skill(s) from ${source}\n`)
+    for (const name of result.added) {
+      const entry = executedPlan.entries.find((e) => e.name === name)
+      const groupStr = entry ? entry.groupPath.join('/') : name
+      io.emit(`  ✓ ${name}  (${groupStr})\n`)
+    }
+    for (const name of result.skipped) {
+      io.emit(`  ✗ ${name}  (skipped)\n`)
+    }
+  })
 }
 
 /* ------------------------------------------------------------------ */
@@ -885,6 +1040,7 @@ export function createNexusRoutes(): RouteSpec[] {
     { kind: 'exact', path: '/skills-nexus/check-updates', handler: wrap(checkUpdatesRoute) },
     { kind: 'exact', path: '/skills-nexus/switch-version', handler: wrap(switchVersionRoute) },
     { kind: 'exact', path: '/skills-nexus/toggle', handler: wrap(toggleRoute) },
+    { kind: 'exact', path: '/skills-nexus/link', handler: wrap(linkRoute) },
     { kind: 'exact', path: '/skills-nexus/export', handler: wrap(exportRoute) },
     { kind: 'exact', path: '/skills-nexus/job', handler: wrap(jobStatus) },
     { kind: 'exact', path: '/skills-nexus/job/cancel', handler: wrap(jobCancel) },

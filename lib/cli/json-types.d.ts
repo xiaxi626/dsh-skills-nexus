@@ -65,6 +65,10 @@ export interface ListJsonEntry {
     enabled: boolean;
     links: ListJsonLink[];
     update: ListJsonUpdate | null;
+    /** Hierarchical group path, set for external entries from the link channel. */
+    groupPath?: string[];
+    /** Absolute path to the external skill directory, set for external entries. */
+    externalDir?: string;
 }
 export interface ListJsonReport {
     version: 1;

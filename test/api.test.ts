@@ -797,9 +797,10 @@ test('the add-zip route is gone: zip is not an installation method any more', ()
     'no route may answer /skills-nexus/add-zip',
   )
   // The package channel took that row over with exactly two routes (import and
-  // the adopt action), and export adds one more — so the table is 11 + 2 + 1.
+  // the adopt action), export adds one more, and the link channel adds one —
+  // so the table is 11 + 2 + 1 + 1.
   // The upload path itself is a raw body, not a restored multipart endpoint.
-  assert.equal(table.length, 14, 'the §7.1 table plus import/adopt/export')
+  assert.equal(table.length, 15, 'the §7.1 table plus import/adopt/export/link')
   assert.deepEqual(
     table.filter((s) => s.path.startsWith('/skills-nexus/import')).map((s) => s.path),
     ['/skills-nexus/import'],

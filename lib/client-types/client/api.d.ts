@@ -84,6 +84,10 @@ export interface ListEntry {
     enabled: boolean;
     links: ListLink[];
     update: UpdateStatus | null;
+    /** Hierarchical group path, set for external entries from the link channel. */
+    groupPath?: string[];
+    /** Absolute path to the external skill directory, set for external entries. */
+    externalDir?: string;
 }
 export interface DoctorReport {
     version: number;
@@ -99,7 +103,7 @@ export interface DoctorReport {
         updates: number;
     };
 }
-export type JobKind = 'add' | 'import' | 'adopt' | 'update' | 'switch-version';
+export type JobKind = 'add' | 'import' | 'adopt' | 'update' | 'switch-version' | 'link';
 export type JobStatus = 'running' | 'done' | 'error' | 'cancelled';
 /** §7.5 Job schema as `GET /job` serves it. */
 export interface Job {
@@ -191,6 +195,38 @@ export interface ImportPlanEntry {
     conflict: boolean;
     files: number;
 }
+/**
+ * One skill discovered under the trae-cn root (client-side mirror of the
+ * server's `LinkPlanEntry`).
+ */
+export interface LinkPlanEntry {
+    /** Flat management name = `groupPath.join('.')`. */
+    name: string;
+    /** Hierarchical group path, e.g. `['trae-cn', 'skills', 'brainstorming']`. */
+    groupPath: string[];
+    /** Absolute path to the external skill directory. */
+    externalDir: string;
+    /** Frontmatter skill name (for display). */
+    skillName: string;
+}
+/** The full link preview — every planned entry plus any name collisions. */
+export interface LinkPlan {
+    /** Source identifier (currently always 'trae-cn'). */
+    source: string;
+    /** Entries that would be (or were) created. */
+    entries: LinkPlanEntry[];
+    /** Names that already exist in the manifest (skipped unless `--force`). */
+    conflicts: string[];
+}
+/**
+ * A derived group state: for each distinct group prefix, whether all/none/some
+ * of its members are enabled. Served by `GET /list` alongside `entries`.
+ */
+export interface GroupState {
+    path: string[];
+    state: 'on' | 'off' | 'mixed';
+    count: number;
+}
 /** Options of `POST /import`; the package travels beside them, as the body. */
 export interface ImportBody {
     /** Preview only: answers the plan synchronously, touches no nexus state. */
@@ -208,9 +244,23 @@ export interface ImportBody {
     noNetCheck?: boolean;
     locked?: boolean;
 }
+/** Body of `POST /link`: register external skills as manifest entries. */
+export interface LinkBody {
+    /** Source identifier (currently only 'trae-cn'). */
+    source: string;
+    /** Override the trae-cn root directory. */
+    traeCnDir?: string;
+    /** Override the L1 group name (default: the source value). */
+    group?: string;
+    /** Bypass name-collision checks and overwrite existing entries. */
+    force?: boolean;
+    /** Required for the actual execution; absent = synchronous preview. */
+    confirm?: boolean;
+}
 export interface NexusApi {
     list(): Promise<Envelope<{
         entries: ListEntry[];
+        groupStates: GroupState[];
     }>>;
     doctor(): Promise<Envelope<DoctorReport>>;
     add(body: AddBody): Promise<Envelope<{
@@ -246,6 +296,20 @@ export interface NexusApi {
             linkName: string;
             enabled: boolean;
         }>;
+    }>>;
+    toggleGroup(group: string, enabled: boolean): Promise<Envelope<{
+        group: string;
+        results: Array<{
+            name: string;
+            enabled: boolean;
+            changed: boolean;
+        }>;
+    }>>;
+    linkPreview(source: string, opts?: Omit<LinkBody, 'source' | 'confirm'>): Promise<Envelope<{
+        plan: LinkPlan;
+    }>>;
+    linkLocal(source: string, opts?: Omit<LinkBody, 'source' | 'confirm'>): Promise<Envelope<{
+        jobId: string;
     }>>;
     job(id: string): Promise<Envelope<{
         job: Job;
