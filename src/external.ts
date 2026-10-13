@@ -19,7 +19,7 @@ import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import { repoDir } from './paths.js'
-import { addEntry, readManifest } from './manifest.js'
+import { addEntry, readManifest, removeEntry } from './manifest.js'
 import { hasCollision, linkSkill } from './link.js'
 import type { SkillEntry } from './types.js'
 import type { OpsIO } from './ops-io.js'
@@ -334,6 +334,11 @@ export async function linkLocal(
       addedAt: new Date().toISOString(),
       externalDir: entry.externalDir,
       groupPath: entry.groupPath,
+    }
+
+    // When --force is used, remove the existing entry before adding the new one.
+    if (opts.force) {
+      await removeEntry(entry.name)
     }
 
     await addEntry(skillEntry)

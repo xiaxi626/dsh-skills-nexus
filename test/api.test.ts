@@ -1219,3 +1219,76 @@ test('export by name writes a single-entry zip', async () => {
   assert.match(data.out, /exp-single\.zip$/)
   assert.ok(await exists(data.out))
 })
+
+/* ------------------------------------------------------------------ */
+/* Link route                                                          */
+/* ------------------------------------------------------------------ */
+
+test('link preview returns plan without creating entries', async () => {
+  await clearEntries()
+  const traeCnDir = await mkdtemp(join(tmpdir(), 'nexus-api-link-'))
+  try {
+    // Seed a trae-cn-like skill directory.
+    const skillDir = join(traeCnDir, 'skills', 'test-skill')
+    await mkdir(skillDir, { recursive: true })
+    await writeFile(join(skillDir, 'SKILL.md'), skillMd('test-skill'))
+
+    const res = await call('/skills-nexus/link', {
+      method: 'POST',
+      body: JSON.stringify({ source: 'trae-cn', traeCnDir }),
+    })
+    assert.equal(res.status, 200)
+    const data = dataOf<{ plan: { source: string; entries: Array<{ name: string }>; conflicts: string[] } }>(res)
+    assert.equal(data.plan.source, 'trae-cn')
+    assert.equal(data.plan.entries.length, 1)
+    assert.equal(data.plan.entries[0]?.name, 'trae-cn.skills.test-skill')
+    assert.equal(data.plan.conflicts.length, 0)
+
+    // Verify no entry was created.
+    const m = await manifest.readManifest()
+    assert.equal(m.skills.length, 0)
+  } finally {
+    await rm(traeCnDir, { recursive: true, force: true })
+  }
+})
+
+test('link with confirm creates entries and symlinks', async () => {
+  await clearEntries()
+  const traeCnDir = await mkdtemp(join(tmpdir(), 'nexus-api-link-'))
+  try {
+    const skillDir = join(traeCnDir, 'skills', 'confirm-skill')
+    await mkdir(skillDir, { recursive: true })
+    await writeFile(join(skillDir, 'SKILL.md'), skillMd('confirm-skill'))
+
+    const res = await call('/skills-nexus/link', {
+      method: 'POST',
+      body: JSON.stringify({ source: 'trae-cn', traeCnDir, confirm: true }),
+    })
+    assert.equal(res.status, 202)
+    const data = dataOf<{ jobId: string }>(res)
+    assert.ok(data.jobId)
+
+    // Wait for the job to complete.
+    const job = await waitForJob(data.jobId)
+    assert.equal(job.status, 'done')
+
+    // Verify the entry was created.
+    const m = await manifest.readManifest()
+    const entry = m.skills.find((s) => s.name === 'trae-cn.skills.confirm-skill')
+    assert.ok(entry, 'entry not created')
+    assert.equal(entry.ownership, 'external')
+    assert.equal(entry.externalDir, skillDir)
+  } finally {
+    await rm(traeCnDir, { recursive: true, force: true })
+  }
+})
+
+test('link rejects unknown source', async () => {
+  await clearEntries()
+  const res = await call('/skills-nexus/link', {
+    method: 'POST',
+    body: JSON.stringify({ source: 'unknown-source' }),
+  })
+  assert.equal(res.status, 400)
+  assert.equal(errorsOf(res).error, 'resolve-failed')
+})
