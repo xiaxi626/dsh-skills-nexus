@@ -247,6 +247,10 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   /** The synchronous `--dry-run` verdict, once previewed. */
   const [importPlan, setImportPlan] = useState<ImportPlan | null>(null)
   const [importBusy, setImportBusy] = useState(false)
+  // Intentionally sticky across successful imports: whole-machine migration
+  // workflows import several packages in a row, all locked. Clearing it on
+  // success would force the user to re-check for every file.
+  const [importLocked, setImportLocked] = useState(false)
   /** Name/url filter over the rendered rows (client-side; touches no state). */
   const [query, setQuery] = useState('')
   /** The last `doctor` result, or null before the first check. */
@@ -503,7 +507,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     void run('import', async () => {
       setImportBusy(true)
       try {
-        const env = await api.importPreview(file)
+        const env = await api.importPreview(file, { locked: importLocked })
         if (alive.current) setImportPlan(env.data.plan)
       } finally {
         setImportBusy(false)
@@ -523,9 +527,10 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     void run('import', async () => {
       setImportBusy(true)
       try {
-        const env = await api.importPackage(file)
+        const env = await api.importPackage(file, { locked: importLocked })
         setImportFile(null)
         setImportPlan(null)
+        // importLocked is intentionally NOT cleared here — see declaration.
         await track(`package ${file.name}`, env.data, importedAll(plan))
       } finally {
         setImportBusy(false)
@@ -763,6 +768,18 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
             preview
           </Button>
         </div>
+        <label className={css.checkboxRow}>
+          <input
+            type="checkbox"
+            checked={importLocked}
+            onChange={(e) => {
+              setImportLocked(e.target.checked)
+              setImportPlan(null)
+            }}
+            disabled={importBusy}
+          />
+          restore exact recorded versions (locked)
+        </label>
         <p className={css.hint}>
           nexus package (.zip) produced by <code>export</code> — preview the plan, then confirm
         </p>

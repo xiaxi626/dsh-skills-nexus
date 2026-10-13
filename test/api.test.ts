@@ -819,7 +819,7 @@ function barePackage(skillName: string): Buffer {
 }
 
 /** A labelled package: `nexus-package.json` (§5) + the payload it describes. */
-function labelledPackage(entryName: string, gitUrl: string): Buffer {
+function labelledPackage(entryName: string, gitUrl: string, commit = ''): Buffer {
   const label = {
     schema: 'dsh-skills-nexus/package',
     version: 1,
@@ -832,7 +832,7 @@ function labelledPackage(entryName: string, gitUrl: string): Buffer {
         url: gitUrl,
         gitUrl,
         ref: 'main',
-        commit: '',
+        commit,
         enabled: true,
         skills: [{ name: entryName, description: 'demo', root: `${entryName}`, links: [entryName] }],
       },
@@ -916,6 +916,24 @@ test('import dry-run reports a labelled package as not-checked, never unreachabl
   assert.equal(plan.entries[0]!.name, 'api-import-labelled')
   assert.equal(plan.entries[0]!.decision.kind, 'snapshot')
   assert.equal(plan.entries[0]!.decision.reason, 'not-checked')
+  assert.deepEqual((await manifest.readManifest()).skills, [])
+})
+
+test('import dry-run with locked answers git-locked when the label carries a commit SHA', async () => {
+  const sha = 'a'.repeat(40)
+  const res = await call('/skills-nexus/import', {
+    method: 'POST',
+    url: '/skills-nexus/import?dryRun=true&locked=true',
+    headers: { 'x-nexus-filename': 'locked-pkg.zip' },
+    body: labelledPackage('api-locked-entry', 'github:owner/api-locked-entry', sha),
+  })
+  assert.equal(res.status, 200)
+  const { plan } = dataOf<{ plan: ImportPlanView }>(res)
+  assert.equal(plan.labelled, true)
+  assert.equal(plan.entries.length, 1)
+  assert.equal(plan.entries[0]!.name, 'api-locked-entry')
+  assert.equal(plan.entries[0]!.decision.kind, 'git-locked')
+  // The locked path skips network probing entirely — offline-safe by design.
   assert.deepEqual((await manifest.readManifest()).skills, [])
 })
 

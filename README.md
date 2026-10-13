@@ -290,8 +290,10 @@ From the panel you can:
   disclosure — on the same install pipeline as the CLI, including frontmatter
   normalization;
 - import a package — pick a file, read the same per-entry verdicts `import
-  --dry-run` prints (clone or snapshot, and why), then confirm. The upload is a
-  raw body with the filename beside it; there is no multipart endpoint;
+  --dry-run` prints (clone or snapshot, and why), then confirm. Tick the locked
+  checkbox to restore the exact commits recorded in the label, equivalent to
+  `import --locked`. The upload is a raw body with the filename beside it;
+  there is no multipart endpoint;
 - attach a source to a snapshot — the `adopt` action, offered only on entries
   with no git source, where you type the repository url (it is never guessed);
 - enable / disable, update, pin to another ref, and remove entries —

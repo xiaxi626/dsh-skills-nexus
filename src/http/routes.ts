@@ -481,6 +481,7 @@ async function importRoute(req: RouteRequest, res: RouteResponse): Promise<void>
     noRemote: flag('noRemote'),
     noNetCheck: flag('noNetCheck'),
     each: flag('each'),
+    locked: flag('locked'),
     // Filling out this route is not answering a collection-repo question: the
     // panel has no mid-job prompt, so the large-collection guard stays closed.
     yes: false,

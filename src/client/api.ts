@@ -224,6 +224,7 @@ export interface ImportBody {
   force?: boolean
   noRemote?: boolean
   noNetCheck?: boolean
+  locked?: boolean
 }
 
 export interface NexusApi {

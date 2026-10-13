@@ -94,6 +94,16 @@
   gap: 8px;
 }
 
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .formRow > :first-child {
   flex: 1 1 auto;
   min-width: 0;

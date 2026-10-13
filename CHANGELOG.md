@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+**2026-10-13 · Added · 面板导入新增 locked checkbox，与 CLI `import --locked` 等效**
+
+- 面板 import 区域新增 `restore exact recorded versions (locked)` checkbox，勾选后 preview 和 import 调用均带 `locked: true` query 参数，后端路由透传给已有的 import 核心（`src/import.ts`），按 package label 记录的精确 commit 做 depth-1 fetch + detached checkout。
+- checkbox 有意保持 sticky：成功导入后不清除勾选状态，方便整机迁移场景连续导入多个包。切换 checkbox 会清空当前 preview 结果（locked 状态变化需要重新生成 plan）。
+- 后端 `src/http/routes.ts` 加一行 `locked: flag('locked')`；`src/client/api.ts` 的 `ImportBody` 加 `locked?: boolean`；`src/client/panel.module.css` 新增 `.checkboxRow` 样式（`--dsw-*` token）。
+- CLI 端零改动——`import --locked` 早已完整支持，本次仅打开面板侧通道。
+- 测试：`test/panel-render.test.tsx` 补静态断言（checkbox + locked 文案）；`test/client-api.test.ts` 扩展 preview/import 用例加 `locked: true` query 断言；`test/api.test.ts` 的 `labelledPackage` helper 加可选 commit 参数并新增 locked dry-run 用例（断言 `git-locked` 判定）。
+- 验证：`npm test` 全量 637 项中 634 通过、0 失败、3 跳过；L3 安全扫描无发现。
+
 **2026-10-11 · Fixed · `purge` 失败可见性——删除失败不再静默吞掉**
 
 - **背景**：`executePurge` 对每个 item 的 `rm` 失败静默 `catch {}`，用户无法知道哪些 artifact 删除失败。CLI 人类模式和 JSON 报告均只展示成功删除的项，失败项无声消失。

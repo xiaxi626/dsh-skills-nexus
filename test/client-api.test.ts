@@ -238,7 +238,7 @@ test('importPreview uploads the file as the body with dryRun in the query', asyn
   const plan = { source: 'pkg.zip', labelled: false, entries: [] }
   const { fetchFn, calls } = fakeFetch([ok({ plan }, 'done')])
   const file = fakeFile('my.skills.zip')
-  const env = await createApi(fetchFn).importPreview(file)
+  const env = await createApi(fetchFn).importPreview(file, { locked: true })
 
   assert.deepEqual(env.data.plan, plan)
   const call = calls[0]!
@@ -252,6 +252,7 @@ test('importPreview uploads the file as the body with dryRun in the query', asyn
   const query = new URLSearchParams(call.input.split('?')[1]!)
   assert.equal(query.get('dryRun'), 'true')
   assert.equal(query.get('confirm'), 'false')
+  assert.equal(query.get('locked'), 'true')
 })
 
 test('importPackage asks for the real run (confirm) and forwards the options', async () => {
@@ -261,6 +262,7 @@ test('importPackage asks for the real run (confirm) and forwards the options', a
     each: true,
     noNetCheck: true,
     subdir: 'skills/alpha',
+    locked: true,
   })
 
   assert.deepEqual(env.data, { jobId: 'job-9' })
@@ -272,6 +274,7 @@ test('importPackage asks for the real run (confirm) and forwards the options', a
   assert.equal(query.get('each'), 'true')
   assert.equal(query.get('noNetCheck'), 'true')
   assert.equal(query.get('subdir'), 'skills/alpha')
+  assert.equal(query.get('locked'), 'true')
   // Options nobody set must not appear as "undefined" strings — the server
   // reads `flag()`/`strField` and would treat them as truthy garbage.
   assert.equal(query.has('name'), false)

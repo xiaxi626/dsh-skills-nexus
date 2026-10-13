@@ -91,6 +91,9 @@ test('the panel renders the package import row (§10.3)', () => {
   // `add-zip` control used to occupy, and the route behind it is `import`.
   assert.doesNotMatch(html, /add-zip/)
   assert.doesNotMatch(html, /upload zip/)
+  // The locked checkbox is present in the import form area.
+  assert.match(html, /type="checkbox"/)
+  assert.match(html, /locked/)
 })
 
 test('the panel renders its empty state without inventing entries', () => {
