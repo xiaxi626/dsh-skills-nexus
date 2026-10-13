@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+**2026-10-13 · Fixed · 面板组开关状态同步——切换后组级 Switch 立即反映新状态**
+
+- **背景**：`reconcileAfter` 在协调过程中通过 `reconcileList` 的 `onTick` 回调更新 `entries`，但 `groupStates` 只在 `refresh` 时从服务端获取。切换组开关后，子条目立即更新，但组级 Switch 的状态（`on`/`off`/`mixed`）保持旧值，直到下次手动 refresh 或再次点击开关。
+- **变更**：`src/client/panel.tsx` 的 `reconcileAfter` 在协调完成后追加 `await api.list()` 并调用 `setGroupStates(env.data.groupStates ?? [])`，确保 `groupStates` 与 `entries` 同步更新。副作用：工具栏（refresh / check updates / export all）不再因状态不一致触发多余重渲染而闪动。
+- **验证**：手动验证——切换组开关后，组级 Switch 图标立即从 `○` 变为 `✓`（或反向），工具栏无闪动。`npm test` 733 项全部通过。
+
 **2026-10-13 · Added · trae-cn link channel：外部技能符号链接通道与组批量开关**
 
 - **背景**：用户本地已有 trae-cn 风格的技能目录（`~/.trae-cn/skills/`、`~/.trae-cn/builtin_skills/`），nexus 此前只能 clone 仓库或 import 包，无法直接引用这些已存在的目录。需要一条新通道：发现外部目录 → 注册 manifest 条目 → 创建 symlink，不克隆、不拥有目录。

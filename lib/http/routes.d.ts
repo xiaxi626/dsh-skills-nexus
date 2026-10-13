@@ -27,6 +27,7 @@
  * later phase).
  */
 import type { RouteSpec } from './types.js';
+import type { ListedEntry } from '../manifest.js';
 /**
  * A derived group state: for each distinct L1 group prefix found in
  * `groupPath`, report whether all/none/some of its members are enabled.
@@ -40,6 +41,11 @@ export interface GroupState {
     /** Number of entries in this group. */
     count: number;
 }
+/**
+ * Derive group states from the listed entries. Groups are identified by
+ * the `groupPath` field; entries without it are not grouped.
+ */
+export declare function deriveGroupStates(listed: ListedEntry[]): GroupState[];
 /**
  * Upload cap for a package body (§5's 200MB-class ceiling, restored with the
  * channel itself). It is a *transport* guard: `readZip` still enforces the

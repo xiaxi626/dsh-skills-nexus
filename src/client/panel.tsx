@@ -343,6 +343,9 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
         if (!alive.current) return
         setEntries(entries)
         setListError(null)
+        // Sync groupStates after reconciliation completes
+        const env = await api.list()
+        if (alive.current) setGroupStates(env.data.groupStates ?? [])
       } catch (err) {
         if (!alive.current) return
         if (err instanceof ReconcileTimeoutError) {
