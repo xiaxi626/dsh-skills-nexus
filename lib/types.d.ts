@@ -45,6 +45,10 @@ export interface SkillEntry {
     addedAt: string;
     /** ISO timestamp of the last successful `git pull`. */
     updatedAt?: string;
+    /** External 条目指向的技能根目录绝对路径（仅 ownership='external' 时有值）。 */
+    externalDir?: string;
+    /** 分层组路径，如 ['trae-cn','skills','brainstorming']。 */
+    groupPath?: string[];
 }
 /** Persistent state backend for the CLI. */
 export interface Manifest {

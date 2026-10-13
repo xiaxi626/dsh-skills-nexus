@@ -43,6 +43,7 @@ flowchart TD
 ```
 
 - **CLI writes**: `add` / `import` / `update` / `remove` commands operate git, update `manifest.json`, and create/remove symlinks in `~/.dsh/skills/`
+- **External references**: `link trae-cn` creates external entries that symlink to directories the user already owns — nexus never clones or deletes those directories
 - **Official provider reads**: the built-in filesystem provider scans `~/.dsh/skills/` and discovers skills through symlinks
 - **Decoupled**: CLI only manages clones and symlinks; discovery and serving are entirely handled by the official provider
 
@@ -62,6 +63,13 @@ dsh-skills-nexus import package.zip --locked
    └─ shallow clone/fetch the recorded commit, then checkout detached
    └─ append entry with locked: true; use payload only when the remote
       explicitly reports that commit unavailable
+
+dsh-skills-nexus link trae-cn
+   └─ scan ~/.trae-cn/skills/ and builtin_skills/ for skill directories
+   └─ for each discovered skill:
+      └─ create manifest entry with ownership: 'external'
+      └─ create symlink → ~/.dsh/skills/<name>/ → points to external dir
+   └─ entry carries groupPath for hierarchical grouping
 
 DSH filesystem provider (official, built-in)
    └─ scans ~/.dsh/skills/ → discovers all symlinked skills automatically
@@ -84,6 +92,12 @@ Key design points:
   skips a skill.
 - **Lightweight enable/disable**: just create/remove symlinks — clone data
   always stays in `repos/`.
+- **External entries (`link` channel)**: entries with `ownership: 'external'`
+  point at directories the user owns. `entrySkillDir(entry)` returns the
+  external directory for these entries (vs the clone directory for managed
+  entries). `remove` deletes only the link and manifest entry, never the
+  target directory. External entries carry a `groupPath` for hierarchical
+  grouping; `enable`/`disable --group <path>` batch-toggles entries by prefix.
 - **Explicit package locks are manifest facts**: `import --locked` records
   `locked: true` after checking out the package's exact commit. Health checks
   do not infer this flag from detached HEAD, so ordinary tag/commit pins remain
@@ -113,7 +127,8 @@ Required: `name`, `description`. Optional, respected by the provider:
 ~/.dsh/
 ├── skills/                          # official DSH skills root (provider scans here)
 │   ├── skill-a/        → symlink →  ~/.dsh/skills-nexus/repos/repo-a/
-│   └── skill-b/        → symlink →  ~/.dsh/skills-nexus/repos/repo-b/skills/foo/
+│   ├── skill-b/        → symlink →  ~/.dsh/skills-nexus/repos/repo-b/skills/foo/
+│   └── trae-cn.skills.brainstorming/ → symlink →  ~/.trae-cn/skills/brainstorming/  (external entry)
 │
 └── skills-nexus/
     ├── manifest.json                 # state backend: CLI writes
@@ -131,6 +146,7 @@ Required: `name`, `description`. Optional, respected by the provider:
 
 - `repos/` is nexus's private storage — all git clones live here, keeping their original structure intact. The CLI uses git to clone / pull / checkout these directories. Clones are nexus-managed: `add` / `update` may normalize frontmatter in place (fix invalid names, add missing `description`), and `update` discards local changes before pulling (with a warning) — do not edit clones by hand.
 - `~/.dsh/skills/` is the official DSH skills root — the official filesystem provider only scans this level. Nexus creates one symlink per skill here, pointing to the actual directory in `repos/`. This way the official provider discovers all skills automatically, with no custom provider needed.
+- **External entries** (created by `link trae-cn`) symlink to directories outside nexus's control — typically `~/.trae-cn/skills/`. Nexus never clones, updates, or deletes those directories. `remove` only deletes the link and the manifest entry.
 
 `enable` / `disable` simply create/remove symlinks — lightweight and atomic, clone data always stays in `repos/`. `remove` deletes both the symlink and the clone directory.
 

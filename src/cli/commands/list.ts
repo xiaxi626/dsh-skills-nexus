@@ -1,5 +1,6 @@
 import { listEntries, readManifest } from '../../manifest.js'
-import { REPOS_DIR, OFFICIAL_SKILLS_DIR, repoDir } from '../../paths.js'
+import { REPOS_DIR, OFFICIAL_SKILLS_DIR } from '../../paths.js'
+import { entrySkillDir } from '../../external.js'
 import { stat } from 'node:fs/promises'
 import { isEntryEnabled } from '../../link.js'
 import { cliIO } from '../../ops-io.js'
@@ -85,7 +86,7 @@ export async function list(argv: string[], io: OpsIO = cliIO): Promise<number> {
 
   const rows: string[][] = []
   for (const s of skills) {
-    const dir = repoDir(s.path)
+    const dir = entrySkillDir(s)
     let present = 'missing'
     try {
       await stat(dir)
@@ -100,25 +101,28 @@ export async function list(argv: string[], io: OpsIO = cliIO): Promise<number> {
     rows.push([
       state,
       s.name,
-      sourceLabel(s.gitUrl || s.url),
+      // External entries get an "ext" prefix on the SOURCE column.
+      s.ownership === 'external' ? `ext:${sourceLabel(s.gitUrl || s.url)}` : sourceLabel(s.gitUrl || s.url),
       s.subdir ?? '—',
       s.ref,
       s.commit ? short(s.commit) : '—',
       s.locked === true ? 'yes' : '—',
       present,
       s.updatedAt ? relative(s.updatedAt) : '—',
+      s.groupPath ? s.groupPath.join('/') : '—',
     ])
   }
 
   const nameW = Math.max(4, ...rows.map((r) => r[1]!.length))
   const srcW = Math.max(6, ...rows.map((r) => r[2]!.length))
   const subW = Math.max(6, ...rows.map((r) => r[3]!.length))
+  const grpW = Math.max(5, ...rows.map((r) => r[9]!.length))
   io.emit(
-    `    ${'NAME'.padEnd(nameW)}  ${'SOURCE'.padEnd(srcW)}  ${'SUBDIR'.padEnd(subW)}  REF           COMMIT    LOCK  DIR      UPDATED\n`,
+    `    ${'NAME'.padEnd(nameW)}  ${'SOURCE'.padEnd(srcW)}  ${'SUBDIR'.padEnd(subW)}  REF           COMMIT    LOCK  DIR      UPDATED     GROUP\n`,
   )
   for (const r of rows) {
     io.emit(
-      `${r[0]}  ${r[1]!.padEnd(nameW)}  ${r[2]!.padEnd(srcW)}  ${r[3]!.padEnd(subW)}  ${r[4]!.padEnd(13)}${r[5]!.padEnd(10)}${r[6]!.padEnd(6)}${r[7]!.padEnd(9)}${r[8]}\n`,
+      `${r[0]}  ${r[1]!.padEnd(nameW)}  ${r[2]!.padEnd(srcW)}  ${r[3]!.padEnd(subW)}  ${r[4]!.padEnd(13)}${r[5]!.padEnd(10)}${r[6]!.padEnd(6)}${r[7]!.padEnd(9)}${r[8]!.padEnd(12)}${r[9]!.padEnd(grpW)}\n`,
     )
   }
   io.emit(
@@ -168,6 +172,8 @@ async function listJson(io: OpsIO, filter?: string): Promise<number> {
             latestCommit: update.latestCommit,
             checkedAt: update.checkedAt,
           },
+    ...(entry.groupPath ? { groupPath: entry.groupPath } : {}),
+    ...(entry.externalDir ? { externalDir: entry.externalDir } : {}),
   }))
 
   const report: ListJsonReport = { version: 1, entries }

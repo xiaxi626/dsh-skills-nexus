@@ -238,6 +238,8 @@ export interface ToggleOptions {
   names: string[]
   /** Emit the version-1 machine report on stdout instead of human text. */
   json: boolean
+  /** Filter by group path prefix (`/`-separated). When set, names may be empty. */
+  group?: string
 }
 
 /**
@@ -251,8 +253,10 @@ export interface ToggleOptions {
 export function parseToggleArgs(argv: string[], command: 'enable' | 'disable'): ToggleOptions {
   const names: string[] = []
   let json = false
+  let group: string | undefined
 
-  for (const a of argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!
     const eqIdx = a.indexOf('=')
     const flag = eqIdx !== -1 ? a.slice(0, eqIdx) : a
     const inlineVal = eqIdx !== -1 ? a.slice(eqIdx + 1) : undefined
@@ -262,19 +266,22 @@ export function parseToggleArgs(argv: string[], command: 'enable' | 'disable'): 
         throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
       }
       json = true
+    } else if (flag === '--group') {
+      group = inlineVal ?? argv[++i]
+      if (!group) throw new Error('--group requires a path, e.g. --group trae-cn/skills')
     } else if (!a.startsWith('-')) {
       // 名字不以 `-` 开头（skill 名为 kebab-case），整段收集，含 `=` 也不拆。
       names.push(a)
     } else {
-      throw new Error(`unknown argument "${a}"; usage: dsh-skills-nexus ${command} <name>... [--json]`)
+      throw new Error(`unknown argument "${a}"; usage: dsh-skills-nexus ${command} <name>... [--group <path>] [--json]`)
     }
   }
 
-  if (names.length === 0) {
-    throw new Error(`missing skill name; usage: dsh-skills-nexus ${command} <name>... [--json]`)
+  if (names.length === 0 && !group) {
+    throw new Error(`missing skill name; usage: dsh-skills-nexus ${command} <name>... [--group <path>] [--json]`)
   }
 
-  return { names, json }
+  return { names, json, ...(group === undefined ? {} : { group }) }
 }
 
 export interface ExportOptions {
@@ -624,5 +631,105 @@ export function parseAdoptArgs(argv: string[]): AdoptOptions {
     prune,
     ...(ref === undefined ? {} : { ref }),
     ...(subdir === undefined ? {} : { subdir }),
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* link                                                                */
+/* ------------------------------------------------------------------ */
+
+export interface LinkCLIOptions {
+  /** Source identifier (positional, currently only 'trae-cn'). */
+  source: string
+  /** Override trae-cn root directory. */
+  traeCnDir?: string
+  /** Override L1 group name (default = source value). */
+  group?: string
+  /** Bypass name-collision checks. */
+  force: boolean
+  /** Preview without creating anything. */
+  dryRun: boolean
+  /** Emit a machine-readable report on stdout. */
+  json: boolean
+}
+
+/**
+ * Parse `link` args: one source positional plus optional flags.
+ *
+ * Strict like `import`: the source is required and unknown flags are usage
+ * errors. `--group <name>` sets the L1 group name (default = source value);
+ * it is functionally effective but the multi-source use case it serves does
+ * not yet exist (single source), so it is a "feature present, use case
+ * awaited" flag.
+ */
+export function parseLinkArgs(argv: string[]): LinkCLIOptions {
+  const positionals: string[] = []
+  let traeCnDir: string | undefined
+  let group: string | undefined
+  let force = false
+  let dryRun = false
+  let json = false
+
+  const boolean = (flag: string, inlineVal: string | undefined): void => {
+    if (inlineVal !== undefined) {
+      throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
+    }
+  }
+
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!
+    const eqIdx = a.indexOf('=')
+    const flag = eqIdx !== -1 ? a.slice(0, eqIdx) : a
+    const inlineVal = eqIdx !== -1 ? a.slice(eqIdx + 1) : undefined
+
+    switch (flag) {
+      case '--trae-cn-dir':
+        traeCnDir = inlineVal ?? argv[++i]
+        if (!traeCnDir) throw new Error('--trae-cn-dir requires a path, e.g. --trae-cn-dir /path/to/.trae-cn')
+        break
+      case '--group':
+        group = inlineVal ?? argv[++i]
+        if (!group) throw new Error('--group requires a name, e.g. --group my-skills')
+        break
+      case '--force':
+        boolean(flag, inlineVal)
+        force = true
+        break
+      case '--dry-run':
+        boolean(flag, inlineVal)
+        dryRun = true
+        break
+      case '--json':
+        boolean(flag, inlineVal)
+        json = true
+        break
+      default:
+        if (a.startsWith('-')) {
+          throw new Error(
+            `unknown argument "${a}"; usage: dsh-skills-nexus link <source> [--dry-run] [--group <name>] [--force] [--json]`,
+          )
+        }
+        positionals.push(a)
+    }
+  }
+
+  if (positionals.length === 0) {
+    throw new Error(
+      'missing source; usage: dsh-skills-nexus link <source> [--dry-run] [--group <name>] [--force] [--json]',
+    )
+  }
+  if (positionals.length > 1) {
+    throw new Error(
+      `link takes one source at a time (got ${positionals.length}); run it once per source`,
+    )
+  }
+
+  return {
+    source: positionals[0]!,
+    force,
+    dryRun,
+    json,
+    ...(traeCnDir === undefined ? {} : { traeCnDir }),
+    ...(group === undefined ? {} : { group }),
   }
 }

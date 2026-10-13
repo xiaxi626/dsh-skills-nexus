@@ -533,6 +533,72 @@ test('a no-op enable (links already present) answers hotReload done', async () =
 })
 
 /* ------------------------------------------------------------------ */
+/* POST /toggle — group mode (trae-cn link channel)                    */
+/* ------------------------------------------------------------------ */
+
+/** Seed an external entry with groupPath for toggle group tests. */
+async function seedExternalEntry(
+  name: string,
+  groupPath: string[],
+  externalDir: string,
+): Promise<void> {
+  await manifest.addEntry({
+    name,
+    url: `trae-cn:${groupPath.slice(1).join('/')}`,
+    gitUrl: '',
+    ref: '',
+    ownership: 'external',
+    path: externalDir,
+    addedAt: new Date().toISOString(),
+    externalDir,
+    groupPath,
+  })
+}
+
+test('toggle group mode disables all matching entries', async () => {
+  // Seed entries with groupPath.
+  await seedExternalEntry('grp.skills.alpha', ['grp', 'skills', 'alpha'], join(home, 'grp-alpha'))
+  await seedExternalEntry('grp.skills.beta', ['grp', 'skills', 'beta'], join(home, 'grp-beta'))
+  await seedExternalEntry('other.skills.gamma', ['other', 'skills', 'gamma'], join(home, 'other-gamma'))
+
+  // Enable them first by creating symlinks.
+  await link.linkSkill('grp.skills.alpha', join(home, 'grp-alpha'))
+  await link.linkSkill('grp.skills.beta', join(home, 'grp-beta'))
+  await link.linkSkill('other.skills.gamma', join(home, 'other-gamma'))
+
+  // Disable the 'grp' group.
+  const res = await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ group: 'grp', enabled: false }),
+  })
+  assert.equal(res.status, 200)
+  const data = dataOf<{ group: string; results: Array<{ name: string; enabled: boolean; changed: boolean }> }>(res)
+  assert.equal(data.group, 'grp')
+  assert.equal(data.results.length, 2)
+  assert.equal(data.results.every((r) => r.enabled === false), true)
+
+  // The 'other' entry should still be enabled.
+  assert.ok(await exists(paths.skillLinkPath('other.skills.gamma')))
+})
+
+test('toggle group mode returns 404 when no entries match', async () => {
+  const res = await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ group: 'nonexistent', enabled: false }),
+  })
+  assert.equal(res.status, 404)
+})
+
+test('toggle group mode rejects both name and group (400)', async () => {
+  const res = await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'grp.skills.alpha', group: 'grp', enabled: false }),
+  })
+  assert.equal(res.status, 400)
+  assert.equal(errorsOf(res).error, 'ambiguous')
+})
+
+/* ------------------------------------------------------------------ */
 /* ------------------------------------------------------------------ */
 /* POST /add (pre-flight only, plus one local-clone happy path)        */
 /* ------------------------------------------------------------------ */
@@ -797,9 +863,10 @@ test('the add-zip route is gone: zip is not an installation method any more', ()
     'no route may answer /skills-nexus/add-zip',
   )
   // The package channel took that row over with exactly two routes (import and
-  // the adopt action), and export adds one more — so the table is 11 + 2 + 1.
+  // the adopt action), export adds one more, and the link channel adds one —
+  // so the table is 11 + 2 + 1 + 1.
   // The upload path itself is a raw body, not a restored multipart endpoint.
-  assert.equal(table.length, 14, 'the §7.1 table plus import/adopt/export')
+  assert.equal(table.length, 15, 'the §7.1 table plus import/adopt/export/link')
   assert.deepEqual(
     table.filter((s) => s.path.startsWith('/skills-nexus/import')).map((s) => s.path),
     ['/skills-nexus/import'],
@@ -1217,4 +1284,77 @@ test('export by name writes a single-entry zip', async () => {
   assert.equal(data.files, 1)
   assert.match(data.out, /exp-single\.zip$/)
   assert.ok(await exists(data.out))
+})
+
+/* ------------------------------------------------------------------ */
+/* Link route                                                          */
+/* ------------------------------------------------------------------ */
+
+test('link preview returns plan without creating entries', async () => {
+  await clearEntries()
+  const traeCnDir = await mkdtemp(join(tmpdir(), 'nexus-api-link-'))
+  try {
+    // Seed a trae-cn-like skill directory.
+    const skillDir = join(traeCnDir, 'skills', 'test-skill')
+    await mkdir(skillDir, { recursive: true })
+    await writeFile(join(skillDir, 'SKILL.md'), skillMd('test-skill'))
+
+    const res = await call('/skills-nexus/link', {
+      method: 'POST',
+      body: JSON.stringify({ source: 'trae-cn', traeCnDir }),
+    })
+    assert.equal(res.status, 200)
+    const data = dataOf<{ plan: { source: string; entries: Array<{ name: string }>; conflicts: string[] } }>(res)
+    assert.equal(data.plan.source, 'trae-cn')
+    assert.equal(data.plan.entries.length, 1)
+    assert.equal(data.plan.entries[0]?.name, 'trae-cn.skills.test-skill')
+    assert.equal(data.plan.conflicts.length, 0)
+
+    // Verify no entry was created.
+    const m = await manifest.readManifest()
+    assert.equal(m.skills.length, 0)
+  } finally {
+    await rm(traeCnDir, { recursive: true, force: true })
+  }
+})
+
+test('link with confirm creates entries and symlinks', async () => {
+  await clearEntries()
+  const traeCnDir = await mkdtemp(join(tmpdir(), 'nexus-api-link-'))
+  try {
+    const skillDir = join(traeCnDir, 'skills', 'confirm-skill')
+    await mkdir(skillDir, { recursive: true })
+    await writeFile(join(skillDir, 'SKILL.md'), skillMd('confirm-skill'))
+
+    const res = await call('/skills-nexus/link', {
+      method: 'POST',
+      body: JSON.stringify({ source: 'trae-cn', traeCnDir, confirm: true }),
+    })
+    assert.equal(res.status, 202)
+    const data = dataOf<{ jobId: string }>(res)
+    assert.ok(data.jobId)
+
+    // Wait for the job to complete.
+    const job = await waitForJob(data.jobId)
+    assert.equal(job.status, 'done')
+
+    // Verify the entry was created.
+    const m = await manifest.readManifest()
+    const entry = m.skills.find((s) => s.name === 'trae-cn.skills.confirm-skill')
+    assert.ok(entry, 'entry not created')
+    assert.equal(entry.ownership, 'external')
+    assert.equal(entry.externalDir, skillDir)
+  } finally {
+    await rm(traeCnDir, { recursive: true, force: true })
+  }
+})
+
+test('link rejects unknown source', async () => {
+  await clearEntries()
+  const res = await call('/skills-nexus/link', {
+    method: 'POST',
+    body: JSON.stringify({ source: 'unknown-source' }),
+  })
+  assert.equal(res.status, 400)
+  assert.equal(errorsOf(res).error, 'resolve-failed')
 })

@@ -42,6 +42,7 @@ flowchart TD
 ```
 
 - **CLI 管写入**：`add` / `import` / `update` / `remove` 等命令操作 git、写 `manifest.json`，并在 `~/.dsh/skills/` 中创建/删除 symlink
+- **外部引用**：`link trae-cn` 创建外部条目，符号链接到用户已有的目录——nexus 不克隆、不删除那些目录
 - **官方 provider 管读取**：DSH 内置的 filesystem provider 自动扫描 `~/.dsh/skills/`，发现 symlink 指向的 skill
 - **两边解耦**：CLI 只管克隆和 symlink；发现和加载完全交给官方 provider
 
@@ -62,6 +63,13 @@ dsh-skills-nexus import package.zip --locked
    └─ 以 locked: true 写入条目；仅当远端明确报告该 commit 不可获取时
       才使用包内载荷
 
+dsh-skills-nexus link trae-cn
+   └─ 扫描 ~/.trae-cn/skills/ 和 builtin_skills/ 下的技能目录
+   └─ 对每个发现的技能：
+      └─ 创建 ownership: 'external' 的 manifest 条目
+      └─ 创建 symlink → ~/.dsh/skills/<name>/ → 指向外部目录
+   └─ 条目携带 groupPath 用于层级分组
+
 DSH filesystem provider（官方内置）
    └─ 扫描 ~/.dsh/skills/ → 自动发现所有 symlink 指向的 skill
    └─ 读取每个 SKILL.md 的 frontmatter + body
@@ -74,6 +82,7 @@ DSH filesystem provider（官方内置）
 - **多 skill 仓库支持**：集合仓库为每个发现的 skill 创建一个 symlink——都展平在 `~/.dsh/skills/` 顶层，官方 provider 单层扫描即可发现。
 - **安装时归一化**：修正不合法的 frontmatter 名称，补全缺失的 description，确保官方 provider 不会静默跳过 skill。
 - **enable/disable 轻量**：只是创建/删除 symlink，克隆数据始终保留在 `repos/` 中。
+- **外部条目（`link` 通道）**：`ownership: 'external'` 的条目指向用户拥有的目录。`entrySkillDir(entry)` 对这些条目返回外部目录（对管理条目返回克隆目录）。`remove` 只删除链接和 manifest 条目，不删除目标目录。外部条目携带 `groupPath` 用于层级分组；`enable`/`disable --group <path>` 按前缀批量切换条目。
 - **显式 package lock 是 manifest 事实**：`import --locked` 检出包记录的精确 commit 后写入 `locked: true`。健康检查不会根据 detached HEAD 推导该字段，因此普通 tag/commit pin 仍可区分；成功执行 `switch-version` 后显式锁被清除。
 
 ## SKILL.md 发现规则（每个克隆仓库内）
@@ -98,7 +107,8 @@ DSH filesystem provider（官方内置）
 ~/.dsh/
 ├── skills/                          # DSH 官方 skills 根目录（官方 provider 扫描这里）
 │   ├── skill-a/        → symlink →  ~/.dsh/skills-nexus/repos/repo-a/
-│   └── skill-b/        → symlink →  ~/.dsh/skills-nexus/repos/repo-b/skills/foo/
+│   ├── skill-b/        → symlink →  ~/.dsh/skills-nexus/repos/repo-b/skills/foo/
+│   └── trae-cn.skills.brainstorming/ → symlink →  ~/.trae-cn/skills/brainstorming/  （外部条目）
 │
 └── skills-nexus/
     ├── manifest.json                 # 状态后端：CLI 写
@@ -116,6 +126,7 @@ DSH filesystem provider（官方内置）
 
 - `repos/` 是 nexus 的私有存储——所有 git 克隆都放在这里，保持原始结构不变。CLI 通过 git 对这些目录做 clone / pull / checkout 等操作。克隆由 nexus 管理：`add` / `update` 可能原地归一化 frontmatter（修正非法名称、补全缺失的 `description`），`update` 在拉取前会丢弃本地改动（有警告）——请勿手动编辑克隆。
 - `~/.dsh/skills/` 是 DSH 官方的 skills 根目录——官方 filesystem provider 只扫描这一层。nexus 在这里为每个 skill 创建一个 symlink，指向 `repos/` 中的实际目录。这样官方 provider 就能自动发现所有 skill，无需自定义 provider。
+- **外部条目**（由 `link trae-cn` 创建）符号链接到 nexus 控制范围之外的目录——通常是 `~/.trae-cn/skills/`。nexus 不克隆、不更新、不删除那些目录。`remove` 只删除链接和 manifest 条目。
 
 `enable` / `disable` 就是创建/删除 symlink——轻量且原子化，克隆数据始终保留在 `repos/` 中。`remove` 则同时删除 symlink 和克隆目录。
 

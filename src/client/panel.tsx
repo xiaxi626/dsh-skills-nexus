@@ -84,11 +84,17 @@ import {
   pollJob,
   reconcileList,
 } from './api.js'
-import type { DoctorReport, HotReload, ImportPlan, Job, ListEntry, NexusApi } from './api.js'
+import type { DoctorReport, GroupState, HotReload, ImportPlan, Job, LinkPlan, ListEntry, NexusApi } from './api.js'
 import css from './panel.module.css'
 
 /** Reconciliation for `import`: every entry the plan promised shows up. */
 function importedAll(plan: ImportPlan): (entries: ListEntry[]) => boolean {
+  const wanted = plan.entries.map((e) => e.name)
+  return (entries) => wanted.every((name) => entries.some((e) => e.name === name))
+}
+
+/** Reconciliation for `link`: every planned entry shows up in the list. */
+function linkedAll(plan: LinkPlan): (entries: ListEntry[]) => boolean {
   const wanted = plan.entries.map((e) => e.name)
   return (entries) => wanted.every((name) => entries.some((e) => e.name === name))
 }
@@ -226,6 +232,7 @@ export { matchesQuery }
 export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   const [api] = useState<NexusApi>(() => apiProp ?? createApi())
   const [entries, setEntries] = useState<ListEntry[]>([])
+  const [groupStates, setGroupStates] = useState<GroupState[]>([])
   const [listError, setListError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState<string | null>(null)
@@ -251,6 +258,9 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   // workflows import several packages in a row, all locked. Clearing it on
   // success would force the user to re-check for every file.
   const [importLocked, setImportLocked] = useState(false)
+  /** Link channel state: preview plan and busy flag. */
+  const [linkPlan, setLinkPlan] = useState<LinkPlan | null>(null)
+  const [linkBusy, setLinkBusy] = useState(false)
   /** Name/url filter over the rendered rows (client-side; touches no state). */
   const [query, setQuery] = useState('')
   /** The last `doctor` result, or null before the first check. */
@@ -278,6 +288,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
       const env = await api.list()
       if (!alive.current) return
       setEntries(env.data.entries)
+      setGroupStates(env.data.groupStates ?? [])
       setListError(null)
     } catch (err) {
       if (alive.current) setListError(errorText(err))
@@ -332,6 +343,9 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
         if (!alive.current) return
         setEntries(entries)
         setListError(null)
+        // Sync groupStates after reconciliation completes
+        const env = await api.list()
+        if (alive.current) setGroupStates(env.data.groupStates ?? [])
       } catch (err) {
         if (!alive.current) return
         if (err instanceof ReconcileTimeoutError) {
@@ -538,6 +552,50 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     })
   }
 
+  /* ---------------- link trae-cn skills ---------------- */
+
+  /** Preview what `link trae-cn` would create. */
+  const onPreviewLink = (): void => {
+    void run('link', async () => {
+      setLinkBusy(true)
+      try {
+        const env = await api.linkPreview('trae-cn')
+        if (alive.current) setLinkPlan(env.data.plan)
+      } finally {
+        setLinkBusy(false)
+      }
+    })
+  }
+
+  /** Execute the link: create manifest entries and symlinks. */
+  const onLink = (): void => {
+    void run('link', async () => {
+      setLinkBusy(true)
+      try {
+        const env = await api.linkLocal('trae-cn')
+        setLinkPlan(null)
+        await track('link trae-cn', env.data, linkedAll(
+          linkPlan ?? { source: 'trae-cn', entries: [], conflicts: [] },
+        ))
+      } finally {
+        setLinkBusy(false)
+      }
+    })
+  }
+
+  /** Toggle every entry in a group by its path prefix. */
+  const onToggleGroup = (groupPath: string, targetEnabled: boolean): void => {
+    void run(`group ${groupPath}`, async () => {
+      const env = await api.toggleGroup(groupPath, targetEnabled)
+      // Reconcile: every entry in the group should reflect the target state.
+      await reconcileAfter(`group ${groupPath}`, env.hotReload, (entries) =>
+        entries
+          .filter((e) => e.groupPath?.join('/').startsWith(groupPath))
+          .every((e) => e.enabled === targetEnabled),
+      )
+    })
+  }
+
   const onAdopt = (entry: ListEntry): void => {
     const url = (adoptInputs[entry.name] ?? '').trim()
     if (url.length === 0) {
@@ -662,6 +720,27 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     () => entries.filter((e) => matchesQuery(e, query)),
     [entries, query],
   )
+  /** Entries separated into grouped (have groupPath) and ungrouped. */
+  const { groupedEntries, ungroupedEntries } = useMemo(() => {
+    const grouped: ListEntry[] = []
+    const ungrouped: ListEntry[] = []
+    for (const e of visibleEntries) {
+      if (e.groupPath !== undefined && e.groupPath.length > 0) grouped.push(e)
+      else ungrouped.push(e)
+    }
+    return { groupedEntries: grouped, ungroupedEntries: ungrouped }
+  }, [visibleEntries])
+  /** L1 groups derived from grouped entries: map from L1 name to entries. */
+  const l1Groups = useMemo(() => {
+    const map = new Map<string, ListEntry[]>()
+    for (const e of groupedEntries) {
+      const l1 = e.groupPath![0]!
+      const existing = map.get(l1)
+      if (existing !== undefined) existing.push(e)
+      else map.set(l1, [e])
+    }
+    return map
+  }, [groupedEntries])
 
   /* ---------------- render ---------------- */
 
@@ -823,6 +902,52 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
         </div>
       )}
 
+      {/* ---------------- link trae-cn skills ---------------- */}
+      <div className={css.formRow} style={{ marginTop: 8 }}>
+        <Button
+          type="button"
+          onClick={onPreviewLink}
+          disabled={linkBusy}
+        >
+          link trae-cn skills
+        </Button>
+        <span className={css.hint} style={{ marginLeft: 8 }}>
+          discover and register skills from ~/.trae-cn/
+        </span>
+      </div>
+      {linkPlan !== null && (
+        <div className={css.plan}>
+          <p className={css.hint}>
+            {`source: ${linkPlan.source} · ${linkPlan.entries.length} skill(s) found`}
+            {linkPlan.conflicts.length > 0 ? ` · ${linkPlan.conflicts.length} conflict(s)` : ''}
+          </p>
+          <ul className={css.planList}>
+            {linkPlan.entries.map((entry) => (
+              <li key={entry.name}>
+                <strong>{entry.name}</strong>{' '}
+                ({entry.groupPath.join('/')})
+                {entry.skillName ? ` — ${entry.skillName}` : ''}
+              </li>
+            ))}
+          </ul>
+          {linkPlan.conflicts.map((name) => (
+            <p className={css.error} key={name}>
+              {`conflict: "${name}" already exists (pass --force from CLI to overwrite)`}
+            </p>
+          ))}
+          <div className={css.entryActions}>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={onLink}
+              disabled={linkBusy || linkPlan.entries.length === 0}
+            >
+              link
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* ---------------- toolbar ---------------- */}
       <div className={css.toolbar}>
         <span className={css.search}>
@@ -864,7 +989,8 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
       )}
 
       <ul className={css.entries}>
-        {visibleEntries.map((entry) => (
+        {/* Ungrouped entries rendered flat */}
+        {ungroupedEntries.map((entry) => (
           <li key={entry.name}>
             <EntryCard
               entry={entry}
@@ -884,6 +1010,45 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
             />
           </li>
         ))}
+        {/* Grouped entries rendered under L1 group headers */}
+        {[...l1Groups.entries()].map(([l1Name, groupEntries]) => {
+          const gs = groupStates.find((g) => g.path.length === 1 && g.path[0] === l1Name)
+          const groupEnabled = gs?.state === 'on'
+          const groupMixed = gs?.state === 'mixed'
+          return (
+            <li key={`group:${l1Name}`}>
+              <div className={css.groupHeader}>
+                <Switch
+                  checked={groupEnabled}
+                  onChange={() => onToggleGroup(l1Name, !groupEnabled)}
+                  label={`${groupMixed ? '◐' : groupEnabled ? '✓' : '○'} ${l1Name} (${groupEntries.length})`}
+                />
+              </div>
+              <ul className={css.entries}>
+                {groupEntries.map((entry) => (
+                  <li key={entry.name}>
+                    <EntryCard
+                      entry={entry}
+                      refValue={refInputs[entry.name] ?? ''}
+                      onRefChange={(v) => setRefInputs((prev) => ({ ...prev, [entry.name]: v }))}
+                      adoptValue={adoptInputs[entry.name] ?? ''}
+                      onAdoptChange={(v) => setAdoptInputs((prev) => ({ ...prev, [entry.name]: v }))}
+                      adoptSubdirValue={adoptSubdirInputs[entry.name] ?? ''}
+                      onAdoptSubdirChange={(v) =>
+                        setAdoptSubdirInputs((prev) => ({ ...prev, [entry.name]: v }))
+                      }
+                      onToggle={onToggle}
+                      onUpdate={onUpdate}
+                      onRemove={onRemove}
+                      onSwitchVersion={onSwitchVersion}
+                      onAdopt={onAdopt}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </li>
+          )
+        })}
       </ul>
 
       {settledJobs.length > 0 && (

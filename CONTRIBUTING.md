@@ -20,7 +20,7 @@ src/
 │   ├── glob.ts       # * / ? glob expansion for remove
 │   ├── progress.ts   # TTY-gated spinner (add / update)
 │   ├── prompt.ts     # interactive confirm
-│   └── commands/     # add · list · update · export · import · adopt · switch-version · remove · toggle · doctor · completions
+│   └── commands/     # add · list · update · export · import · adopt · switch-version · remove · toggle · link · doctor · completions
 ├── client/           # browser half — excluded from the server build, bundled by build:client
 │   ├── index.tsx     # module shape: name / inject / apply (Settings slot)
 │   ├── api.ts        # typed HTTP client + confirmable / pollJob / reconcileList
@@ -30,6 +30,7 @@ src/
 ├── locks.ts          # three-layer concurrency: in-process single-flight, cache lock, O_EXCL file lock
 ├── switch-version.ts # switch orchestration (fetch → checkout → re-normalize → rebuild links)
 ├── install.ts        # the one git install phase (clone → classify → normalize → register → link), shared by add / import
+├── external.ts       # external entry channel: entrySkillDir / planLinkLocal / linkLocal / discoverTraeCnSkills
 ├── adopt.ts          # adopt orchestration: re-source a source-less entry (stage → swap → relink → manifest → rollback)
 ├── export.ts         # package entries plus the provenance label (skills/<name>/… + nexus-package.json)
 ├── import.ts         # rebuild entries from a package: git channel when the label's remote answers, snapshot otherwise

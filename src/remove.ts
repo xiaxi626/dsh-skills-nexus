@@ -1,7 +1,6 @@
-import { join } from 'node:path'
 import { rm } from 'node:fs/promises'
 import { isExternalEntry, removeEntry, removeSkillDir } from './manifest.js'
-import { repoDir } from './paths.js'
+import { entrySkillDir } from './external.js'
 import { isLinked, unlinkSkill } from './link.js'
 import { previewSkills } from './resolve.js'
 import { sanitizeName } from './git.js'
@@ -42,8 +41,7 @@ export async function removeSkill(name: string): Promise<RemoveResult> {
   const removed = await removeEntry(name)
   if (!removed) return { removed: false, links: [] }
 
-  const dir = repoDir(removed.path)
-  const skillRoot = removed.subdir ? join(dir, removed.subdir) : dir
+  const skillRoot = entrySkillDir(removed)
   const links: string[] = []
   const unlink = async (linkName: string): Promise<void> => {
     if (await isLinked(linkName)) {

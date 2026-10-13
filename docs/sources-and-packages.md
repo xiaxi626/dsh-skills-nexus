@@ -6,7 +6,7 @@ How skills enter the nexus and how they are packaged for transport.
 
 ## Source channels
 
-Skills enter the nexus through four channels. Each produces an entry in
+Skills enter the nexus through five channels. Each produces an entry in
 `manifest.json`; the entry's updatability depends on whether it carries a
 git source.
 
@@ -16,6 +16,7 @@ git source.
 | B | `import <dir>` | Probed from `.git` remote or metadata; empty if none | Probed → yes; otherwise frozen | Skills already on disk, legacy directories |
 | C | `export` / `import <pkg>` | `nexus-package.json` label inside the package | Reachable source → yes; `--locked` restores the exact commit; otherwise frozen | Cross-machine migration, reproducible restore, offline delivery |
 | D | `adopt <name> --url` | User provides it explicitly | Yes, after the operation completes | A frozen entry whose repository was found later |
+| E | `link <source>` | Local directory path (no git) | No (external entries) | Reference skills from directories you already own |
 
 ## Channel A: git source (`add`)
 
@@ -224,6 +225,67 @@ as `rollbackSwitch`).
 **Boundaries.** Does not change the entry name. Does not change link names
 (except those needed for rebuild). **Never guesses the url** — the caller
 must provide it explicitly.
+
+## Channel E: external reference (`link`)
+
+```bash
+dsh-skills-nexus link trae-cn                       # discover skills under ~/.trae-cn/
+dsh-skills-nexus link trae-cn --trae-cn-dir /path   # override the root directory
+dsh-skills-nexus link trae-cn --dry-run             # preview without creating entries
+dsh-skills-nexus link trae-cn --group custom        # override the L1 group name
+dsh-skills-nexus link trae-cn --force               # replace existing entries on conflict
+```
+
+`link` discovers skills from external directories the user already owns and
+creates *external entries* — manifest records with `ownership: 'external'`
+that symlink to those directories. Nexus never clones, updates, or deletes
+the target directories. `remove` only deletes the link and the manifest
+entry, never the directory.
+
+Currently the only accepted source is `trae-cn`, which scans
+`<root>/skills/` and `<root>/builtin_skills/` for skill directories.
+
+| Flag | Effect |
+|---|---|
+| `--trae-cn-dir <path>` | Override the trae-cn root directory (default: `~/.trae-cn`) |
+| `--group <name>` | Override the L1 group name (default: the source value) |
+| `--dry-run` | Preview the plan without creating entries or symlinks |
+| `--force` | Replace existing manifest entries on name conflict |
+| `--json` | Emit a machine-readable report |
+
+### Naming convention
+
+Each discovered skill becomes an entry with:
+
+- `groupPath = [group ?? source, subdir, dirName]` — e.g. `['trae-cn', 'skills', 'brainstorming']`
+- `name = groupPath.join('.')` — e.g. `trae-cn.skills.brainstorming`
+- `externalDir` — absolute path to the skill directory
+- `ownership: 'external'`
+
+### Group toggle
+
+External entries carry a hierarchical `groupPath`. The `enable` and `disable`
+commands accept `--group <path>` to batch-toggle every entry whose
+`groupPath` starts with the given prefix:
+
+```bash
+dsh-skills-nexus enable --group trae-cn/skills     # enable all trae-cn skills
+dsh-skills-nexus disable --group trae-cn            # disable everything under trae-cn
+```
+
+The web panel renders grouped entries under L1 group headers with a
+group-level Switch (✓/○/◐ for on/off/mixed).
+
+### External entries vs managed entries
+
+| | Managed entries | External entries |
+|---|---|---|
+| Created by | `add`, `import`, `adopt` | `link` |
+| `ownership` | `'managed'` | `'external'` |
+| Directory owned by | nexus (under `repos/`) | the user |
+| Updatable | Yes (git pull) | No (no git source) |
+| `remove` deletes directory | Yes | No (only link + manifest) |
+| `groupPath` | Not set | Hierarchical path array |
 
 ## Package format: `nexus-package.json`
 

@@ -45,6 +45,15 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--dsw-alias-border-subtle, rgba(128, 128, 128, 0.2));
+  margin-bottom: 4px;
+}
+
 .hint {
   margin: 0;
   color: var(--dsw-alias-label-tertiary);

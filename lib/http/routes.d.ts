@@ -1,5 +1,5 @@
 /**
- * The 11 `/skills-nexus/*` routes (§7.1) as plain route specs over an
+ * The 12 `/skills-nexus/*` routes (§7.1) as plain route specs over an
  * injected request/response surface — tests drive them without a server, and
  * `src/index.ts` owns the single `webServer.register` adaption (§7.4).
  *
@@ -27,6 +27,25 @@
  * later phase).
  */
 import type { RouteSpec } from './types.js';
+import type { ListedEntry } from '../manifest.js';
+/**
+ * A derived group state: for each distinct L1 group prefix found in
+ * `groupPath`, report whether all/none/some of its members are enabled.
+ * The panel uses this for the group-level Switch.
+ */
+export interface GroupState {
+    /** The group path (e.g. `['trae-cn']` for L1, `['trae-cn','skills']` for L2). */
+    path: string[];
+    /** 'on' = all enabled, 'off' = none enabled, 'mixed' = some enabled. */
+    state: 'on' | 'off' | 'mixed';
+    /** Number of entries in this group. */
+    count: number;
+}
+/**
+ * Derive group states from the listed entries. Groups are identified by
+ * the `groupPath` field; entries without it are not grouped.
+ */
+export declare function deriveGroupStates(listed: ListedEntry[]): GroupState[];
 /**
  * Upload cap for a package body (§5's 200MB-class ceiling, restored with the
  * channel itself). It is a *transport* guard: `readZip` still enforces the

@@ -1,6 +1,7 @@
 import { symlink, lstat, unlink, mkdir, readdir, rmdir, readlink, realpath } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
-import { OFFICIAL_SKILLS_DIR, repoDir, resolveLinkTarget, skillLinkPath } from './paths.js'
+import { OFFICIAL_SKILLS_DIR, resolveLinkTarget, skillLinkPath } from './paths.js'
+import { entrySkillDir } from './external.js'
 import type { SkillEntry } from './types.js'
 
 /**
@@ -232,7 +233,7 @@ export async function isLinkAt(path: string): Promise<boolean> {
  * repos alike and does not require the clone to be present.
  */
 export async function entryLinks(entry: SkillEntry): Promise<EntryLink[]> {
-  const base = await safeRealPath(repoDir(entry.path))
+  const base = await safeRealPath(entrySkillDir(entry))
   let names: string[] = []
   try {
     names = await readdir(OFFICIAL_SKILLS_DIR)

@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   parseAddArgs,
+  parseLinkArgs,
   parseListArgs,
   parseRemoveArgs,
   parseToggleArgs,
@@ -270,4 +271,109 @@ test('parseToggleArgs names the command it was invoked for', () => {
   assert.throws(() => parseToggleArgs(['--nope'], 'disable'), /disable <name>/)
   assert.throws(() => parseToggleArgs(['--nope'], 'enable'), /enable <name>/)
   assert.throws(() => parseToggleArgs([], 'disable'), /disable <name>/)
+})
+
+/* ------------------------------------------------------------------ */
+/* parseToggleArgs — --group extension                                 */
+/* ------------------------------------------------------------------ */
+
+test('parseToggleArgs --group parses a group path prefix', () => {
+  const opts = parseToggleArgs(['--group', 'trae-cn/skills'], 'enable')
+  assert.equal(opts.group, 'trae-cn/skills')
+  assert.deepEqual(opts.names, [])
+})
+
+test('parseToggleArgs --group=value inline form', () => {
+  const opts = parseToggleArgs(['--group=trae-cn/skills'], 'disable')
+  assert.equal(opts.group, 'trae-cn/skills')
+})
+
+test('parseToggleArgs --group with names combines both', () => {
+  const opts = parseToggleArgs(['--group', 'trae-cn', 'skill-a'], 'enable')
+  assert.equal(opts.group, 'trae-cn')
+  assert.deepEqual(opts.names, ['skill-a'])
+})
+
+test('parseToggleArgs --group alone (no names) is valid', () => {
+  const opts = parseToggleArgs(['--group', 'trae-cn'], 'enable')
+  assert.equal(opts.group, 'trae-cn')
+  assert.deepEqual(opts.names, [])
+})
+
+test('parseToggleArgs --group without a value throws', () => {
+  assert.throws(() => parseToggleArgs(['--group'], 'enable'), /--group requires a path/)
+})
+
+/* ------------------------------------------------------------------ */
+/* parseLinkArgs — the argv parser for `link`                          */
+/* ------------------------------------------------------------------ */
+
+test('parseLinkArgs parses the source positional', () => {
+  const opts = parseLinkArgs(['trae-cn'])
+  assert.equal(opts.source, 'trae-cn')
+  assert.equal(opts.force, false)
+  assert.equal(opts.dryRun, false)
+  assert.equal(opts.json, false)
+})
+
+test('parseLinkArgs parses --trae-cn-dir', () => {
+  const opts = parseLinkArgs(['trae-cn', '--trae-cn-dir', '/path/to/.trae-cn'])
+  assert.equal(opts.traeCnDir, '/path/to/.trae-cn')
+})
+
+test('parseLinkArgs parses --trae-cn-dir=value inline form', () => {
+  const opts = parseLinkArgs(['trae-cn', '--trae-cn-dir=/path'])
+  assert.equal(opts.traeCnDir, '/path')
+})
+
+test('parseLinkArgs parses --group', () => {
+  const opts = parseLinkArgs(['trae-cn', '--group', 'custom-group'])
+  assert.equal(opts.group, 'custom-group')
+})
+
+test('parseLinkArgs parses --group=value inline form', () => {
+  const opts = parseLinkArgs(['trae-cn', '--group=custom'])
+  assert.equal(opts.group, 'custom')
+})
+
+test('parseLinkArgs parses --force', () => {
+  const opts = parseLinkArgs(['trae-cn', '--force'])
+  assert.equal(opts.force, true)
+})
+
+test('parseLinkArgs parses --dry-run', () => {
+  const opts = parseLinkArgs(['trae-cn', '--dry-run'])
+  assert.equal(opts.dryRun, true)
+})
+
+test('parseLinkArgs parses --json', () => {
+  const opts = parseLinkArgs(['trae-cn', '--json'])
+  assert.equal(opts.json, true)
+})
+
+test('parseLinkArgs missing source throws', () => {
+  assert.throws(() => parseLinkArgs([]), /missing source/)
+  assert.throws(() => parseLinkArgs(['--force']), /missing source/)
+})
+
+test('parseLinkArgs multiple sources throws', () => {
+  assert.throws(() => parseLinkArgs(['trae-cn', 'other']), /one source at a time/)
+})
+
+test('parseLinkArgs unknown flag throws', () => {
+  assert.throws(() => parseLinkArgs(['trae-cn', '--nope']), /unknown argument/)
+})
+
+test('parseLinkArgs boolean flags reject inline values', () => {
+  assert.throws(() => parseLinkArgs(['trae-cn', '--force=true']), /takes no value/)
+  assert.throws(() => parseLinkArgs(['trae-cn', '--dry-run=1']), /takes no value/)
+  assert.throws(() => parseLinkArgs(['trae-cn', '--json=false']), /takes no value/)
+})
+
+test('parseLinkArgs --trae-cn-dir without a value throws', () => {
+  assert.throws(() => parseLinkArgs(['trae-cn', '--trae-cn-dir']), /--trae-cn-dir requires a path/)
+})
+
+test('parseLinkArgs --group without a value throws', () => {
+  assert.throws(() => parseLinkArgs(['trae-cn', '--group']), /--group requires a name/)
 })

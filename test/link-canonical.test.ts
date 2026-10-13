@@ -16,15 +16,15 @@ import type { SkillEntry } from '../src/types.js'
 /**
  * Regression for the macOS/Windows CI failure.
  *
- * `isLinkEntry` 鈥?and therefore `hasCollision`, the `409 collision` answers in
- * `add`/`toggle`, and the link attribution `export` does 鈥?compares a
+ * `isLinkEntry` — and therefore `hasCollision`, the `409 collision` answers in
+ * `add`/`toggle`, and the link attribution `export` does — compares a
  * `realpath`-canonicalized path against the one it was handed. When the skills
  * root sits under an ancestor that `realpath` rewrites, the two strings differ
  * even for a **real directory**, so a hand-placed directory looked like a
  * nexus-owned link: safe to replace, and no collision to report.
  *
- * macOS hits this for free 鈥?`os.tmpdir()` is under `/var`, which is a symlink
- * to `/private/var` 鈥?and Windows hits it through 8.3 short-name expansion
+ * macOS hits this for free — `os.tmpdir()` is under `/var`, which is a symlink
+ * to `/private/var` — and Windows hits it through 8.3 short-name expansion
  * (`RUNNER~1` on the hosted runners). Linux does not, which is why only two of
  * the three CI platforms ever failed. This test manufactures the condition by
  * putting the whole DSH_HOME behind a directory link, and **asserts the
@@ -33,7 +33,7 @@ import type { SkillEntry } from '../src/types.js'
  * Skips only where the condition genuinely cannot be staged: an unelevated
  * Windows host cannot create a real directory symlink, and a junction is not
  * rewritten by `realpath` (verified on this host). Such a host is not affected
- * by this class of bug anyway 鈥?it is exactly the platform where `resolve` and
+ * by this class of bug anyway — it is exactly the platform where `resolve` and
  * `realpath` agree.
  *
  * The fresh module graph is not incidental: `paths.ts` captures `DSH_HOME` at
@@ -77,15 +77,15 @@ test('a real directory under a rewritten ancestor is still a collision', async (
       'precondition: the skills root must need canonicalizing',
     )
 
-    // A real directory the user placed 鈫?still a collision.
+    // A real directory the user placed → still a collision.
     await mkdir(viaPaths.skillLinkPath('canon-dir'), { recursive: true })
     assert.equal(await viaLink.hasCollision('canon-dir'), true)
 
-    // A real file 鈫?also a collision; it is not a link we may replace.
+    // A real file → also a collision; it is not a link we may replace.
     await writeFile(viaPaths.skillLinkPath('canon-file'), 'x', 'utf8')
     assert.equal(await viaLink.hasCollision('canon-file'), true)
 
-    // A managed link 鈫?not a collision, and still attributable.
+    // A managed link → not a collision, and still attributable.
     const repo = viaPaths.repoDir('canon-repo')
     await mkdir(repo, { recursive: true })
     await writeFile(join(repo, 'SKILL.md'), '---\nname: canon-repo\n---\n', 'utf8')

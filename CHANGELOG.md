@@ -4,6 +4,33 @@
 
 ## [Unreleased]
 
+**2026-10-13 · Fixed · 测试文件 lint 问题——移除未使用的变量和导入**
+
+- **变更**：`test/cli-link.test.ts` 将未使用的 `exitCode2` 改为 `_exitCode2`；`test/external-entrydir.test.ts` 移除未使用的 `mkdir` 导入；`test/external-link.test.ts` 移除未使用的 `plan` 解构；`test/group-states.test.ts` 移除未使用的 `GroupState` 导入。
+- **验证**：`npm run lint` 0 errors，`npm test` 733 项全部通过。
+
+**2026-10-13 · Fixed · 面板组开关状态同步——切换后组级 Switch 立即反映新状态**
+
+- **背景**：`reconcileAfter` 在协调过程中通过 `reconcileList` 的 `onTick` 回调更新 `entries`，但 `groupStates` 只在 `refresh` 时从服务端获取。切换组开关后，子条目立即更新，但组级 Switch 的状态（`on`/`off`/`mixed`）保持旧值，直到下次手动 refresh 或再次点击开关。
+- **变更**：`src/client/panel.tsx` 的 `reconcileAfter` 在协调完成后追加 `await api.list()` 并调用 `setGroupStates(env.data.groupStates ?? [])`，确保 `groupStates` 与 `entries` 同步更新。副作用：工具栏（refresh / check updates / export all）不再因状态不一致触发多余重渲染而闪动。
+- **验证**：手动验证——切换组开关后，组级 Switch 图标立即从 `○` 变为 `✓`（或反向），工具栏无闪动。`npm test` 733 项全部通过。
+
+**2026-10-13 · Added · trae-cn link channel：外部技能符号链接通道与组批量开关**
+
+- **背景**：用户本地已有 trae-cn 风格的技能目录（`~/.trae-cn/skills/`、`~/.trae-cn/builtin_skills/`），nexus 此前只能 clone 仓库或 import 包，无法直接引用这些已存在的目录。需要一条新通道：发现外部目录 → 注册 manifest 条目 → 创建 symlink，不克隆、不拥有目录。
+- **变更**：
+  - **核心层**（`src/external.ts`，新增 350 行）：`entrySkillDir(entry)` 统一解析读取路径——external 条目返回 `externalDir`，managed 条目走旧三元式（逐字节等价断言）。`planLinkLocal(source, opts)` 发现 trae-cn 目录并构造 `LinkPlan`（entries + conflicts）。`linkLocal(source, opts, io)` 执行计划：写 manifest + 创建 symlink。`discoverTraeCnSkills(root)` 扫描 `skills/` 和 `builtin_skills/` 子目录。命名规则：`name = groupPath.join('.')`，`groupPath = [group ?? source, subdir, dirName]`。
+  - **CLI 命令**（`src/cli/commands/link.ts`，新增 114 行）：`link trae-cn` 注册外部技能。`--dry-run` 预览、`--json` 结构化输出、`--trae-cn-dir <path>` 覆盖根目录、`--group <name>` 覆盖 L1 组名、`--force` 覆盖冲突。`src/cli/args.ts` 新增 `parseLinkArgs`（支持 `--flag=value` 等号写法，布尔 flag 拒绝内联值）。
+  - **组批量开关**（`src/cli/commands/toggle.ts` 扩展）：`enable`/`disable` 新增 `--group <path>` 参数，按 `groupPath` 前缀批量匹配条目。`src/cli/args.ts` 的 `parseToggleArgs` 新增 `--group` 解析。无匹配时报 `no entries match group` 错误。
+  - **HTTP 路由**（`src/http/routes.ts` 扩展）：`POST /skills-nexus/link`（link 路由，支持 preview 和 execute）、`POST /skills-nexus/toggle` 新增 group 模式（`{group, enabled}` body）。`deriveGroupStates(listed)` 计算组级 on/off/mixed 状态供面板使用。`GET /skills-nexus/list` 响应新增 `groupStates` 字段。
+  - **面板组渲染**（`src/client/panel.tsx` 扩展 166 行）：条目按 `groupPath` 分为 grouped/ungrouped。L1 组渲染组级 Switch（`✓`/`○`/`◐` 表示 on/off/mixed），点击触发 `api.toggleGroup(group, enabled)`。
+  - **list 命令**（`src/cli/commands/list.ts` 扩展）：默认表格新增 GROUP 列（`groupPath.join('/')` 或 `—`）。`--json` 输出条件性包含 `groupPath` 字段。
+  - **类型扩展**：`src/types.ts` 的 `SkillEntry` 新增 `groupPath?: string[]` 和 `externalDir?: string` 字段。`src/client/api.ts` 新增 `GroupState`、`LinkPlan`、`LinkBody` 类型和 `toggleGroup`/`linkPreview`/`linkLocal` API 方法。
+  - **补全脚本**：bash/zsh/fish/powershell 四种补全脚本同步新增 `link` 子命令及 flags（`--dry-run`、`--json`、`--trae-cn-dir`、`--group`、`--force`）。`enable`/`disable` 补全新增 `--group` flag。
+- **验证**：`typecheck`、`lint`、`npm test` 全部通过，733 项中 730 通过、0 失败、3 跳过。新增测试文件：`test/external-entrydir.test.ts`（entrySkillDir 等价断言）、`test/external-link.test.ts`（planLinkLocal/linkLocal/discoverTraeCnSkills）、`test/cli-link.test.ts`（CLI link 命令全流程）、`test/toggle-group.test.ts`（组前缀匹配与批量 toggle）、`test/group-states.test.ts`（deriveGroupStates 状态派生）。扩展测试：`test/api.test.ts`（link 路由 + toggleGroup 路由）、`test/args.test.ts`（parseLinkArgs + parseToggleArgs --group）、`test/list.test.ts`（GROUP 列 + groupPath JSON 字段）。
+- **未覆盖**：面板组渲染的静态测试（`panel-render.test.tsx`）因 `renderToStaticMarkup` 不触发 `useEffect` 而无法验证组 Switch 渲染，需 DOM 环境。
+- **不做**：不实现 `link` 的多源同时操作（一次一个 source，多次运行即可）；不实现 `link` 的 git 操作（external 条目不克隆、不更新、不切换版本）；不实现面板侧的 link 入口（低频场景，CLI 足够）。
+
 **2026-10-13 · Added · 面板导入新增 locked checkbox，与 CLI `import --locked` 等效**
 
 - 面板 import 区域新增 `restore exact recorded versions (locked)` checkbox，勾选后 preview 和 import 调用均带 `locked: true` query 参数，后端路由透传给已有的 import 核心（`src/import.ts`），按 package label 记录的精确 commit 做 depth-1 fetch + detached checkout。

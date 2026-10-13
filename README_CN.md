@@ -105,6 +105,8 @@ dsh-skills-nexus update [name]                      # 刷新（分支 pin 拉取
 dsh-skills-nexus switch-version <name> <ref> [--type <branch|tag|commit>]  # 把克隆切到另一个 ref（fetch、checkout、重归一化、重建链接）
 dsh-skills-nexus enable  <name>...                  # 创建 symlink（默认开启）；可一次给多个名字
 dsh-skills-nexus disable <name>...                  # 删除 symlink 但不删克隆
+dsh-skills-nexus enable  --group trae-cn/skills     # 批量开启 groupPath 以指定前缀开头的所有条目
+dsh-skills-nexus disable --group trae-cn            # 批量禁用 L1 组下的所有条目
 dsh-skills-nexus remove <name>...                   # 删除克隆 + symlink + 注销（可一次给多个名字）
 dsh-skills-nexus remove 'theme-*'                   # …或用 * / ? 通配符匹配 skill 名
 dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # 只读体检 nexus 全量状态（退出码 0/1/2）
@@ -118,6 +120,13 @@ dsh-skills-nexus import migrate.zip --dry-run       # 逐条目预览：真克�
 dsh-skills-nexus import migrate.zip                 # 按记录的 ref 重建条目
 dsh-skills-nexus import migrate.zip --locked        # 恢复各条目记录的精确 commit
 dsh-skills-nexus adopt <name> --url github:owner/repo   # 给无 git 源的条目补回来路
+
+# 链接外部技能（引用你已有的目录——不克隆）
+dsh-skills-nexus link trae-cn                       # 发现 ~/.trae-cn/skills/ 和 builtin_skills/ 下的技能
+dsh-skills-nexus link trae-cn --dry-run             # 预览但不创建条目
+dsh-skills-nexus link trae-cn --trae-cn-dir /path   # 覆盖 trae-cn 根目录
+dsh-skills-nexus link trae-cn --group custom        # 覆盖 L1 组名（默认 trae-cn）
+dsh-skills-nexus link trae-cn --force               # 冲突时替换已有条目
 ```
 
 取值型选项（`--name`、`--ref`、`--subdir`）也支持 `--flag=value` 写法（如 `--subdir=skills/foo`、`--name=owner-skills`）；布尔选项 `--yes` 不接受值。
@@ -179,6 +188,8 @@ dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo --subdir skill
 在面板里你可以：
 
 - 浏览条目卡片——链接名、启用状态、固定的 commit、`no source` / `linked directory` / `disabled` 等状态标签，以及分支跟踪条目的「有更新」徽标；
+- 管理**外部条目**（由 CLI `link trae-cn` 创建）——面板以 `linked directory` 标签显示它们及其外部路径，支持启用/禁用和删除（删除只移除链接，不碰用户目录）；
+- 带 `groupPath` 的条目（如来自 `link trae-cn`）渲染在可折叠的 L1 组头下，带组级 Switch（✓/○/◐ 表示 on/off/mixed）——切换组 Switch 批量启用或禁用该组所有条目；
 - 在工具栏过滤列表——搜索框按名字或 url 匹配；右侧的徽标在有待更新条目时显示待更新数量，并常驻显示已注册技能总数；
 - 按 git url 添加 skill——可在折叠区填写可选项 `name`（覆盖条目名）、`ref`、`subdir`（monorepo 内的目录）——与 CLI 同一条安装流水线，含 frontmatter 归一化；
 - **导入包**——选好文件后先看逐条目判定（与 `import --dry-run` **同一套措辞**：真克隆还是落快照、以及为什么），确认后才真正导入。勾选 locked 后按标签记录的精确 commit 恢复，与 `import --locked` 等效。上传走**裸 body**、文件名放在旁边，没有 multipart 端点；
@@ -192,7 +203,7 @@ dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo --subdir skill
 
 **热加载。** 链接变化由官方 filesystem provider 的 watcher 拾取，面板操作在稳定窗口内即对运行中的宿主生效——无需重启。宿主未启用 watcher 时，面板会明说该变更在下次宿主启动时生效。
 
-**HTTP 接口（内部）。** 面板与 `/skills-nexus/*` 路由通信——GET 为 ping / list / doctor / job 轮询；POST 为 add / import / adopt / remove / update / check-updates / switch-version / toggle / export / job cancel。成功返回 `{ data, hotReload }`，长操作以 `202 { data: { jobId } }` 受理，所有变更路由均做同源校验（remove 额外仅接受 loopback）。这些路由是面板自身的管道——**不**属于[在 nexus 之上构建](docs/build-on-nexus.zh-CN.md)承诺的稳定机器接口；工具开发者请继续 shell out 调 CLI。
+**HTTP 接口（内部）。** 面板与 `/skills-nexus/*` 路由通信——GET 为 ping / list / doctor / job 轮询；POST 为 add / import / adopt / remove / update / check-updates / switch-version / toggle / toggleGroup / link / export / job cancel。成功返回 `{ data, hotReload }`，长操作以 `202 { data: { jobId } }` 受理，所有变更路由均做同源校验（remove 额外仅接受 loopback）。这些路由是面板自身的管道——**不**属于[在 nexus 之上构建](docs/build-on-nexus.zh-CN.md)承诺的稳定机器接口；工具开发者请继续 shell out 调 CLI。
 
 ## Shell 补全
 
@@ -425,6 +436,7 @@ ls -la ~/.dsh/skills/
 - **add 后是否立即可见**：默认配置下官方 filesystem provider 监听 skills 根目录，新添加的 skill 会在稳定窗口内出现在运行中宿主的新对话里——无需重载。未启用 watcher 的宿主则要等下次重扫/重启；web 面板会以「下次宿主启动」提示标注这种情况。
 - **版本固定与更新**：用 `#分支名`、`#tag名` 或 `#commit-hash` 固定 ref。安装时 manifest 会记录实际解析到的 commit（`commit` 字段）——一个轻量锁，`list` 会显示它。`update` 只对**分支** pin 的 skill 做快进拉取（并打印 commit 变化）；**tag/commit** pin 的 skill 是固定点：只校验当前 checkout 是否仍等于 pin（漂移则自动恢复），不做 pull——被固定的版本永远不会静默漂移。不加 `#ref` 时，CLI 会通过 `git ls-remote --symref` 自动探测远程默认分支（探测失败回落到 `main`）。
 - **仅用于 skill 内容仓库**：这不是 `dsh plugin add` 的替代品。如果仓库本身就有 `dsh.bundle.patch`，请用正常方式安装——nexus 是给那些没有封装的仓库用的。完整决策指南见 [nexus 与 `dsh plugin`——什么时候用哪个](docs/nexus-vs-plugin.zh-CN.md)。
+- **外部条目（`link` 通道）**：`link trae-cn` 创建*外部*条目，符号链接到用户已有的目录（如 `~/.trae-cn/skills/`）。nexus 不克隆、不更新、不删除这些目录——`remove` 只删除链接和 manifest 条目。外部条目携带 `groupPath`（如 `['trae-cn', 'skills', 'brainstorming']`）用于层级分组；`enable` 和 `disable` 接受 `--group <path>` 按前缀批量切换。Web 面板将分组条目渲染在可折叠的 L1 组头下，带组级 Switch。
 - **集合仓库与 `--subdir`**：skill 藏在子目录的集合仓库用 `--subdir <path>` 按需安装——每次安装是一个独立条目、独立克隆（独立克隆设计，P1/P2 权衡见 [docs/subdir-design.md](docs/subdir-design.md)）。新装的 `--subdir` 条目在 Git 和远端支持时为**稀疏检出**：部分克隆加 cone 模式 `sparse-checkout`（安装输出里报 `checkout: sparse`），无关 skill 目录不落盘——远端支持 blob 过滤时通常可减少下载与磁盘占用，实际收益取决于仓库布局（无硬性流量上限：cone 会保留仓库根与祖先目录的直属文件；远端忽略 filter 时可能整仓下载，nexus 会给出可见警告）。想退出稀疏：`git -C <克隆目录> sparse-checkout disable`（会把剩余内容全部拉取检出；后续 `update` 不会重新强制稀疏）；稀疏流程需要 **Git 2.35+**（更旧的 Git 其 `sparse-checkout set` 不提供 `--cone`），本机 Git 缺少该能力时，会在警告后把同一克隆补成整仓检出，不重复下载。不带 `--subdir` 全量安装时，根目录无可用 skill 会被拒绝；超过 20 个 skill 会弹确认提示。从同一仓库挑装的多个条目各自保留独立克隆，但 `list` 会显示 **SOURCE** 列（来源 `owner/repo`），同一仓库挑出的条目一眼可辨。
 - **平铺 md 过滤**：没有 frontmatter `name` **且**没有 `description` 的平铺 `*.md` 不会被当作 skill——集合仓库的文档（`README.zh-CN.md`、`CONTRIBUTING.md`、`community-leaderboard.md` 等）永远不会被"假装安装"。发现阶段的跳过名单也按前缀模式覆盖 `readme*`、`contributing*`、`license*`、`changelog*`、`code-of-conduct*`、`security*`。
 - **同名不消歧**：DSH 按名称索引 skill，后安装的同名 skill 会覆盖前者。用 `--name` 区分条目，或用 `--subdir` 只装需要的。`--subdir` 安装时显式传入的 `--name` 若归一化后与默认条目名（subdir 末段）相同，安装成功后会提示可省略该参数。enable/disable 按条目（即按安装的 subdir）生效，`remove` 删除整个条目的克隆及其所有 symlink。
@@ -440,7 +452,7 @@ git 上 `SKILL.md` 仓库装进 DSH 的安装器？nexus 已经把跨平台的�
 junction 软链），并对外暴露稳定、可依赖的机器接口：
 `dsh-skills-nexus list --names`（枚举已安装 skill）、`dsh-skills-nexus doctor --json`
 （带版本号的健康报告），以及 `add` / `list` / `update` / `remove` / `enable` /
-`disable` 的 `--json`（描述「刚才做了什么」的带版本号报告）。请 shell out 调 CLI——
+`disable` / `link` / `purge` 的 `--json`（描述「刚才做了什么」的带版本号报告）。请 shell out 调 CLI——
 绝不要 `import` 包内部、也不要读 `manifest.json`。完整契约、生态边界、以及
 **没有承诺**的接口清单，见
 **[在 nexus 之上构建——面向工具开发者的机器接口](docs/build-on-nexus.zh-CN.md)**。

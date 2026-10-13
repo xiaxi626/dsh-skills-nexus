@@ -12,7 +12,7 @@ import type { OpsIO } from '../src/ops-io.js'
 import { removeTree } from './fs-helpers.js'
 
 /**
- * Module-level tests for the `adopt` core 鈥?channel D of the sources &
+ * Module-level tests for the `adopt` core — channel D of the sources &
  * packages design (`docs/sources-and-packages.md`).
  *
  * The promise under test is that a frozen entry can be given an identity
@@ -21,10 +21,10 @@ import { removeTree } from './fs-helpers.js'
  * `switch-version` work on it afterwards. Two guards protect the catalog while
  * that happens: a source that yields a *different* skill set is refused unless
  * `--force` says otherwise, and a failure at any step puts the directory, the
- * links and the manifest back exactly as they were 鈥?the 搂9 invariant.
+ * links and the manifest back exactly as they were — the §9 invariant.
  *
  * `paths.ts` reads `DSH_HOME` at import time, so the env var is set in
- * `before()` before the first import of the manifest鈫抪aths chain (same pattern
+ * `before()` before the first import of the manifest→paths chain (same pattern
  * as import.test.ts). Every remote fixture is a local `file://` path, so the
  * suite never needs the network.
  */
@@ -51,7 +51,7 @@ const io: OpsIO = {
 
 /**
  * The OpsIO seam, so CLI tests never patch process.stdout. `lines` is the
- * batch output (`emit`) and `errors` the diagnostics (`error`) 鈥?kept apart
+ * batch output (`emit`) and `errors` the diagnostics (`error`) — kept apart
  * because A1's whole point is that a machine consumer reads one stream and a
  * human the other.
  */
@@ -81,7 +81,7 @@ before(async () => {
   delete process.env.DSH_SKILLS_NEXUS_HOME
   // `link`, `install` and the command modules must arrive through the same
   // dynamic chain: a *static* import of src/link.ts would evaluate paths.ts
-  // while the module graph loads 鈥?before DSH_HOME is repointed 鈥?so every
+  // while the module graph loads — before DSH_HOME is repointed — so every
   // symlink write would land in the real ~/.dsh.
   manifest = await import('../src/manifest.js')
   paths = await import('../src/paths.js')
@@ -133,7 +133,7 @@ async function seedSkill(name: string, files?: Record<string, string>): Promise<
   return root
 }
 
-/** `file://` URL of a directory 鈥?the only remote shape this suite uses. */
+/** `file://` URL of a directory — the only remote shape this suite uses. */
 function fileUrl(dir: string): string {
   return 'file:///' + dir.replaceAll('\\', '/')
 }
@@ -186,7 +186,7 @@ async function readTextOrMissing(file: string): Promise<string> {
 /**
  * A recursive listing of a directory's paths and file contents. Compared
  * verbatim before and after a refused or rolled-back adopt, so an unexpected
- * *extra* or *missing* file is caught too 鈥?not just a changed one. `.git` is
+ * *extra* or *missing* file is caught too — not just a changed one. `.git` is
  * recorded as a directory but not descended into (its internals are not what
  * the invariant is about).
  */
@@ -212,8 +212,8 @@ async function treeSnapshot(root: string): Promise<string> {
 }
 
 /**
- * Everything an adopt could disturb (搂9): the manifest bytes, the entry's
- * directory tree, and the links that point into it. Nothing else is compared 鈥? * a *new* link set is the feature, not a leak.
+ * Everything an adopt could disturb (§9): the manifest bytes, the entry's
+ * directory tree, and the links that point into it. Nothing else is compared — * a *new* link set is the feature, not a leak.
  */
 async function stateOf(name: string): Promise<{ manifest: string; dir: string; links: string }> {
   const entry = (await manifest.readManifest()).skills.find((s) => s.name === name)
@@ -236,12 +236,12 @@ async function reposNames(): Promise<string[]> {
   }
 }
 
-/** Staging directories that outlived their adopt 鈥?they never may. */
+/** Staging directories that outlived their adopt — they never may. */
 async function stageResidue(): Promise<string[]> {
   return (await reposNames()).filter((n) => n.startsWith('.adopt-stage'))
 }
 
-/** Pre-adopt backups 鈥?expected after a successful adopt, never after a failure. */
+/** Pre-adopt backups — expected after a successful adopt, never after a failure. */
 async function backupResidue(): Promise<string[]> {
   return (await reposNames()).filter((n) => n.includes('.pre-adopt'))
 }
@@ -266,7 +266,7 @@ async function entryOf(name: string): Promise<SkillEntry> {
 }
 
 /* ------------------------------------------------------------------ */
-/* parseAdoptArgs 鈥?name, source, modifiers                            */
+/* parseAdoptArgs — name, source, modifiers                            */
 /* ------------------------------------------------------------------ */
 
 test('parseAdoptArgs keeps the entry name, the source and the modifiers apart', () => {
@@ -309,7 +309,7 @@ test('parseAdoptArgs rejects what it cannot mean', () => {
 })
 
 /* ------------------------------------------------------------------ */
-/* The promise 鈥?a frozen entry becomes an updatable one                */
+/* The promise — a frozen entry becomes an updatable one                */
 /* ------------------------------------------------------------------ */
 
 test('adopt re-sources a snapshot from its real repository and rebuilds the links', async () => {
@@ -386,7 +386,7 @@ test('an entry with no directory at all is adopted, and stays disabled', async (
   await makeRepo(remoteDir, { 'SKILL.md': skillMd('orphan') })
   // A manifest entry whose clone is gone (doctor's missing-target): there is
   // nothing to compare against and nothing to back up, but adopting it is the
-  // repair 鈥?the entry gets a real clone again.
+  // repair — the entry gets a real clone again.
   await addEntry({ name: 'orphan' })
 
   const result = await adopter.adoptSkill({ name: 'orphan', url: fileUrl(remoteDir), io })
@@ -503,7 +503,7 @@ test('--subdir defaults to the recorded root, and an explicit one replaces it', 
   assert.ok(link !== undefined)
   assert.equal(await realpath(link.target), await realpath(join(clone, 'skills', 'alpha')), 'the link points at the subdir')
 
-  // `--subdir .` is the clone root 鈥?the manifest records that as "no subdir".
+  // `--subdir .` is the clone root — the manifest records that as "no subdir".
   const root = join(home, 'remote-root')
   await makeRepo(root, { 'SKILL.md': skillMd('root-skill') })
   const overridden = await adopter.adoptSkill({
@@ -556,7 +556,7 @@ test('a failure after the swap restores the directory, the links and the manifes
 
   // Force a late failure: `writeManifest` writes `<manifest>.tmp` and renames it
   // over the live file, so a directory sitting at that path makes the write
-  // itself fail. That is the failure mode the rollback exists for 鈥?the fresh
+  // itself fail. That is the failure mode the rollback exists for — the fresh
   // clone has already replaced the directory by then.
   const tmp = `${paths.MANIFEST_PATH}.tmp`
   await mkdir(tmp)
@@ -586,7 +586,7 @@ test('adopt refuses what it cannot do, before touching anything', async () => {
   assert.equal(unknown.code, 'skill-not-found')
 
   // An `ownership: 'external'` entry only links a directory the user owns:
-  // 搂2.1's hard invariant (external 鈬?no gitUrl) exists so nexus never touches
+  // §2.1's hard invariant (external → no gitUrl) exists so nexus never touches
   // it, and adopting one would have to replace it.
   await addEntry({ name: 'planted', ownership: 'external' })
   const external = await refusalOf({ name: 'planted', url: remote })

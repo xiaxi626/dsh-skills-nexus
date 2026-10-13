@@ -83,6 +83,8 @@ export interface ToggleOptions {
     names: string[];
     /** Emit the version-1 machine report on stdout instead of human text. */
     json: boolean;
+    /** Filter by group path prefix (`/`-separated). When set, names may be empty. */
+    group?: string;
 }
 /**
  * Parse `enable`/`disable` args: one or more names plus `--json`.
@@ -197,4 +199,28 @@ export interface AdoptOptions {
  * name identifies which entry to re-source, and there is no batch form.
  */
 export declare function parseAdoptArgs(argv: string[]): AdoptOptions;
+export interface LinkCLIOptions {
+    /** Source identifier (positional, currently only 'trae-cn'). */
+    source: string;
+    /** Override trae-cn root directory. */
+    traeCnDir?: string;
+    /** Override L1 group name (default = source value). */
+    group?: string;
+    /** Bypass name-collision checks. */
+    force: boolean;
+    /** Preview without creating anything. */
+    dryRun: boolean;
+    /** Emit a machine-readable report on stdout. */
+    json: boolean;
+}
+/**
+ * Parse `link` args: one source positional plus optional flags.
+ *
+ * Strict like `import`: the source is required and unknown flags are usage
+ * errors. `--group <name>` sets the L1 group name (default = source value);
+ * it is functionally effective but the multi-source use case it serves does
+ * not yet exist (single source), so it is a "feature present, use case
+ * awaited" flag.
+ */
+export declare function parseLinkArgs(argv: string[]): LinkCLIOptions;
 //# sourceMappingURL=args.d.ts.map
