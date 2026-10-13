@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { OpsIO } from '../src/ops-io.js'
@@ -136,7 +136,7 @@ test('link trae-cn creates manifest entries and symlinks', async () => {
     // Verify the symlink exists.
     const linkPath = paths.skillLinkPath('trae-cn.skills.execute-skill')
     const linkTarget = await linker.safeRealPath(linkPath)
-    assert.equal(linkTarget, skillDir)
+    assert.equal(await realpath(linkTarget), await realpath(skillDir))
   } finally {
     await rm(traeCnDir, { recursive: true, force: true })
   }
