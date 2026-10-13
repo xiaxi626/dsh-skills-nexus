@@ -195,7 +195,7 @@ test('a corrupt manifest is an error', async () => {
 
 test('a corrupt manifest suppresses orphan checks (no mass-delete false positives)', async () => {
   // A healthy clone + link exist, but the manifest is unreadable. Ownership is
-  // unknown, so orphan checks must be SKIPPED 鈥?never flag everything for deletion.
+  // unknown, so orphan checks must be SKIPPED — never flag everything for deletion.
   const dir = await makeClone('good-repo')
   await makeLink('good-skill', dir)
   await mkdir(paths.NEXUS_HOME, { recursive: true })
@@ -232,7 +232,7 @@ test('a corrupt manifest suppresses orphan checks (no mass-delete false positive
 
 test('a manifest with a malformed entry is corrupt-manifest and does not throw', async () => {
   await mkdir(paths.NEXUS_HOME, { recursive: true })
-  // Parseable JSON, correct version, but the entry is missing required fields 鈥?
+  // Parseable JSON, correct version, but the entry is missing required fields —
   // must be reported structurally, not crash downstream repoDir()/readlink().
   await writeFile(
     paths.MANIFEST_PATH,
@@ -266,7 +266,7 @@ test('a clone missing .git is git-sanity warn', async () => {
 })
 
 /* ------------------------------------------------------------------ */
-/* Source-less entries (搂2.1 form (b) / 搂6.2 doctor 鍒嗘祦)              */
+/* Source-less entries (§2.1 form (b) / §6.2 doctor 分流)              */
 /* ------------------------------------------------------------------ */
 
 /** A snapshot entry: empty git fields are structural, not corruption. */
@@ -289,7 +289,7 @@ test('a source-less entry passes the manifest shape check (empty git fields are 
   const report = await doctorMod.runChecks(false)
   assert.equal(findCheck(report, 'manifest').status, 'ok')
   assert.match(findCheck(report, 'manifest').detail ?? '', /1 entry/)
-  // Trusted manifest 鈫?orphan checks run instead of being skipped.
+  // Trusted manifest → orphan checks run instead of being skipped.
   assert.equal(findCheck(report, 'orphan-repo').status, 'ok')
   assert.equal(findCheck(report, 'orphan-link').status, 'ok')
   assert.equal(findCheck(report, 'symlinks').status, 'ok')
@@ -369,7 +369,7 @@ test('doctor distinguishes an explicit import lock from an ordinary detached pin
 })
 
 /* ------------------------------------------------------------------ */
-/* external-disabled check (搂1.5 / 搂6.2)                               */
+/* external-disabled check (§1.5 / §6.2)                               */
 /* ------------------------------------------------------------------ */
 
 test('external *.disabled markers are reported as external-disabled (warn)', async () => {
@@ -383,7 +383,7 @@ test('external *.disabled markers are reported as external-disabled (warn)', asy
   assert.equal(ext.issues.length, 1)
   assert.equal(ext.issues[0]!.code, 'external-disabled')
   assert.match(ext.issues[0]!.detail ?? '', /SKILL\.md\.disabled/)
-  // Caution: no fix/delete hint 鈥?the marker belongs to the external tool.
+  // Caution: no fix/delete hint — the marker belongs to the external tool.
   assert.equal(ext.issues[0]!.fix, undefined)
 })
 

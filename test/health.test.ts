@@ -9,7 +9,7 @@ import { DANGLING_LINKS_OBSERVABLE, removeTree } from './fs-helpers.js'
 /**
  * Integration tests for the health-check module (`src/health.ts`).
  *
- * Exercises real filesystem symlinks 鈥?same pattern as test/link.test.ts.
+ * Exercises real filesystem symlinks — same pattern as test/link.test.ts.
  * DSH_HOME is pointed at a temp dir before importing the module chain.
  */
 
