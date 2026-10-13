@@ -108,7 +108,15 @@ async function captureList(argv: string[]): Promise<{ code: number; out: string;
 
 /** Reset the manifest to exactly the given entries (seeded, no clone needed). */
 async function reset(
-  ...entries: Array<{ name: string; gitUrl: string; subdir?: string; locked?: boolean }>
+  ...entries: Array<{
+    name: string
+    gitUrl: string
+    subdir?: string
+    locked?: boolean
+    groupPath?: string[]
+    externalDir?: string
+    ownership?: 'managed' | 'external'
+  }>
 ): Promise<void> {
   for (const s of (await manifest.readManifest()).skills) await manifest.removeEntry(s.name)
   for (const e of entries) {
@@ -119,6 +127,9 @@ async function reset(
       ref: 'main',
       subdir: e.subdir,
       ...(e.locked === true ? { locked: true } : {}),
+      ...(e.groupPath ? { groupPath: e.groupPath } : {}),
+      ...(e.externalDir ? { externalDir: e.externalDir } : {}),
+      ...(e.ownership ? { ownership: e.ownership } : {}),
       path: e.name,
       addedAt: new Date().toISOString(),
     })
@@ -363,4 +374,53 @@ test('--filter is case-insensitive', async () => {
   const { code, out } = await captureList(['--filter', 'theme'])
   assert.equal(code, 0)
   assert.match(out, /Theme-Dark/)
+})
+
+/* ------------------------------------------------------------------ */
+/* list — groupPath display (trae-cn link channel)                     */
+/* ------------------------------------------------------------------ */
+
+test('list table includes a GROUP column header', async () => {
+  await reset({ name: 'foo', gitUrl: 'https://github.com/owner/repo.git' })
+  const { out } = await captureList([])
+  assert.match(out, /GROUP/)
+})
+
+test('list table shows groupPath for entries that have one', async () => {
+  await reset({
+    name: 'trae-cn.skills.brainstorming',
+    gitUrl: '',
+    groupPath: ['trae-cn', 'skills', 'brainstorming'],
+    ownership: 'external',
+  })
+  const { out } = await captureList([])
+  assert.match(out, /trae-cn\/skills\/brainstorming/)
+})
+
+test('list table shows em dash for entries without groupPath', async () => {
+  await reset({ name: 'no-group', gitUrl: 'https://github.com/owner/repo.git' })
+  const { out } = await captureList([])
+  // The GROUP column value should be '—' (em dash) for entries without groupPath.
+  const line = out.split('\n').find((l) => l.includes('no-group')) ?? ''
+  // The line ends with the GROUP column value followed by padding.
+  assert.match(line, /—\s*$/)
+})
+
+test('list --json includes groupPath for entries that have one', async () => {
+  await reset({
+    name: 'trae-cn.skills.alpha',
+    gitUrl: '',
+    groupPath: ['trae-cn', 'skills', 'alpha'],
+    ownership: 'external',
+  })
+  const { out } = await captureList(['--json'])
+  const entry = parseReport(out).entries[0]!
+  assert.deepEqual(entry.groupPath, ['trae-cn', 'skills', 'alpha'])
+})
+
+test('list --json omits groupPath for entries without one', async () => {
+  await reset({ name: 'no-group-json', gitUrl: 'https://github.com/owner/repo.git' })
+  const { out } = await captureList(['--json'])
+  const entry = parseReport(out).entries[0]!
+  assert.equal('groupPath' in entry, false)
 })

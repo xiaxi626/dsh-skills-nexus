@@ -274,7 +274,7 @@ export interface GroupState {
  * Derive group states from the listed entries. Groups are identified by
  * the `groupPath` field; entries without it are not grouped.
  */
-function deriveGroupStates(listed: ListedEntry[]): GroupState[] {
+export function deriveGroupStates(listed: ListedEntry[]): GroupState[] {
   // Collect all distinct group paths (at every level).
   const groupMap = new Map<string, { path: string[]; enabled: number; total: number }>()
   for (const l of listed) {

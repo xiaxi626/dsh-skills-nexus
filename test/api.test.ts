@@ -533,6 +533,72 @@ test('a no-op enable (links already present) answers hotReload done', async () =
 })
 
 /* ------------------------------------------------------------------ */
+/* POST /toggle — group mode (trae-cn link channel)                    */
+/* ------------------------------------------------------------------ */
+
+/** Seed an external entry with groupPath for toggle group tests. */
+async function seedExternalEntry(
+  name: string,
+  groupPath: string[],
+  externalDir: string,
+): Promise<void> {
+  await manifest.addEntry({
+    name,
+    url: `trae-cn:${groupPath.slice(1).join('/')}`,
+    gitUrl: '',
+    ref: '',
+    ownership: 'external',
+    path: externalDir,
+    addedAt: new Date().toISOString(),
+    externalDir,
+    groupPath,
+  })
+}
+
+test('toggle group mode disables all matching entries', async () => {
+  // Seed entries with groupPath.
+  await seedExternalEntry('grp.skills.alpha', ['grp', 'skills', 'alpha'], join(home, 'grp-alpha'))
+  await seedExternalEntry('grp.skills.beta', ['grp', 'skills', 'beta'], join(home, 'grp-beta'))
+  await seedExternalEntry('other.skills.gamma', ['other', 'skills', 'gamma'], join(home, 'other-gamma'))
+
+  // Enable them first by creating symlinks.
+  await link.linkSkill('grp.skills.alpha', join(home, 'grp-alpha'))
+  await link.linkSkill('grp.skills.beta', join(home, 'grp-beta'))
+  await link.linkSkill('other.skills.gamma', join(home, 'other-gamma'))
+
+  // Disable the 'grp' group.
+  const res = await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ group: 'grp', enabled: false }),
+  })
+  assert.equal(res.status, 200)
+  const data = dataOf<{ group: string; results: Array<{ name: string; enabled: boolean; changed: boolean }> }>(res)
+  assert.equal(data.group, 'grp')
+  assert.equal(data.results.length, 2)
+  assert.equal(data.results.every((r) => r.enabled === false), true)
+
+  // The 'other' entry should still be enabled.
+  assert.ok(await exists(paths.skillLinkPath('other.skills.gamma')))
+})
+
+test('toggle group mode returns 404 when no entries match', async () => {
+  const res = await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ group: 'nonexistent', enabled: false }),
+  })
+  assert.equal(res.status, 404)
+})
+
+test('toggle group mode rejects both name and group (400)', async () => {
+  const res = await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'grp.skills.alpha', group: 'grp', enabled: false }),
+  })
+  assert.equal(res.status, 400)
+  assert.equal(errorsOf(res).error, 'ambiguous')
+})
+
+/* ------------------------------------------------------------------ */
 /* ------------------------------------------------------------------ */
 /* POST /add (pre-flight only, plus one local-clone happy path)        */
 /* ------------------------------------------------------------------ */
