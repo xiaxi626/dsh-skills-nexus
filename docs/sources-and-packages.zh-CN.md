@@ -6,7 +6,7 @@
 
 ## 来源通道
 
-技能通过四条通道进入 nexus。每条通道都会在 `manifest.json` 中产生一个条目；条目的可更新性取决于它是否携带 git 源。
+技能通过五条通道进入 nexus。每条通道都会在 `manifest.json` 中产生一个条目；条目的可更新性取决于它是否携带 git 源。
 
 | 通道 | 命令 | 身份来源 | 可更新 | 典型场景 |
 |---|---|---|---|---|
@@ -14,6 +14,7 @@
 | B | `import <dir>` | 从 `.git` remote 或元数据探测；无则空 | 探测到 → 是；否则冻结 | 磁盘上已有的技能、遗留目录 |
 | C | `export` / `import <pkg>` | 包内的 `nexus-package.json` 标签 | 来源可达 → 是；`--locked` 恢复精确 commit；否则冻结 | 跨机器迁移、可复现恢复、离线交付 |
 | D | `adopt <name> --url` | 用户显式给出 | 操作完成后 → 是 | 冻结条目后来找到了它的仓库 |
+| E | `link <source>` | 本地目录路径（无 git） | 否（外部条目） | 引用用户已有的目录中的技能 |
 
 ## 通道 A：git 源（`add`）
 
@@ -181,6 +182,59 @@ dsh-skills-nexus adopt <name> --url <git-url> [--ref <r>] [--subdir <p>] [--forc
 **失败回退。** 任一步失败：恢复备份目录，还原旧链接集，manifest 不变，非零退出并输出原因。回退是 best-effort（吞掉自身的错误，与 `rollbackSwitch` 同款模式）。
 
 **边界。** 不改条目名。不改链接名（重建所需的除外）。**不猜测 url**——调用方必须显式给出。
+
+## 通道 E：外部引用（`link`）
+
+```bash
+dsh-skills-nexus link trae-cn                       # 发现 ~/.trae-cn/ 下的技能
+dsh-skills-nexus link trae-cn --trae-cn-dir /path   # 覆盖根目录
+dsh-skills-nexus link trae-cn --dry-run             # 预览但不创建条目
+dsh-skills-nexus link trae-cn --group custom        # 覆盖 L1 组名
+dsh-skills-nexus link trae-cn --force               # 冲突时替换已有条目
+```
+
+`link` 从用户已有的外部目录中发现技能，创建*外部条目*——`ownership: 'external'` 的 manifest 记录，符号链接到那些目录。nexus 不克隆、不更新、不删除目标目录。`remove` 只删除链接和 manifest 条目，不删除目录。
+
+目前唯一接受的来源是 `trae-cn`，扫描 `<root>/skills/` 和 `<root>/builtin_skills/` 下的技能目录。
+
+| 参数 | 作用 |
+|---|---|
+| `--trae-cn-dir <path>` | 覆盖 trae-cn 根目录（默认：`~/.trae-cn`） |
+| `--group <name>` | 覆盖 L1 组名（默认：来源值） |
+| `--dry-run` | 预览计划但不创建条目或 symlink |
+| `--force` | 名称冲突时替换已有 manifest 条目 |
+| `--json` | 输出机器可读报告 |
+
+### 命名规则
+
+每个发现的技能成为一个条目，带：
+
+- `groupPath = [group ?? source, subdir, dirName]` — 如 `['trae-cn', 'skills', 'brainstorming']`
+- `name = groupPath.join('.')` — 如 `trae-cn.skills.brainstorming`
+- `externalDir` — 技能目录的绝对路径
+- `ownership: 'external'`
+
+### 组批量开关
+
+外部条目携带层级 `groupPath`。`enable` 和 `disable` 命令接受 `--group <path>` 批量切换 `groupPath` 以给定前缀开头的每个条目：
+
+```bash
+dsh-skills-nexus enable --group trae-cn/skills     # 开启所有 trae-cn 技能
+dsh-skills-nexus disable --group trae-cn            # 禁用 trae-cn 下的所有条目
+```
+
+Web 面板将分组条目渲染在 L1 组头下，带组级 Switch（✓/○/◐ 表示 on/off/mixed）。
+
+### 外部条目 vs 管理条目
+
+| | 管理条目 | 外部条目 |
+|---|---|---|
+| 创建者 | `add`、`import`、`adopt` | `link` |
+| `ownership` | `'managed'` | `'external'` |
+| 目录归属 | nexus（在 `repos/` 下） | 用户 |
+| 可更新 | 是（git pull） | 否（无 git 源） |
+| `remove` 删除目录 | 是 | 否（只删链接 + manifest） |
+| `groupPath` | 未设置 | 层级路径数组 |
 
 ## 包格式：`nexus-package.json`
 

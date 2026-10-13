@@ -36,11 +36,11 @@
 
 ## 你可以依赖的接口
 
-nexus 暴露四条机器可读路径。四条都是稳定契约；CLI 的其余一切都是面向人类的，可能变。
+nexus 暴露五条机器可读路径。五条都是稳定契约；CLI 的其余一切都是面向人类的，可能变。
 
 - **只读**：`list --names` 与 `doctor --json`（见下）。
 - **写侧**：`add --json`、`update --json`、`remove --json`、`enable --json`、
-  `disable --json`，以及 `list --json`——共用一份契约，见下方
+  `disable --json`、`link --json`，以及 `list --json`——共用一份契约，见下方
   「`--json` 写接口（version 1）」。
 
 ### `list --names`——枚举已安装的 skill
@@ -91,8 +91,9 @@ nexus 暴露四条机器可读路径。四条都是稳定契约；CLI 的其余�
 
 ## `--json` 写接口（version 1）
 
-五个命令会输出带版本号的报告，描述它们**刚才做了什么**：`list --json`、
-`add --json`、`update --json`、`remove --json`，以及 `enable` / `disable --json`。
+六个命令会输出带版本号的报告，描述它们**刚才做了什么**：`list --json`、
+`add --json`、`update --json`、`remove --json`、`enable` / `disable --json`，
+以及 `link --json`。
 它们共用一份刻意保持窄小的契约：
 
 ### 承诺的部分
@@ -221,6 +222,28 @@ nexus 暴露四条机器可读路径。四条都是稳定契约；CLI 的其余�
 - `enabled` 是条目的**结果**状态：`not-found` 项报告的是它保持的状态，而不是被请求的
   状态。
 - `linksChanged` 统计创建（enable）或删除（disable）的 symlink 数。
+- `enable --group <path>` / `disable --group <path>` 按 `groupPath` 前缀批量切换
+  每个条目。报告形状相同；每个匹配条目作为自己的项出现在 `results[]` 中。
+
+`link --json`：
+
+```json
+{
+  "version": 1,
+  "results": [
+    { "name": "trae-cn.skills.brainstorming", "status": "linked",
+      "groupPath": ["trae-cn", "skills", "brainstorming"],
+      "externalDir": "/home/user/.trae-cn/skills/brainstorming" }
+  ],
+  "summary": { "linked": 1, "skipped": 0, "failed": 0 }
+}
+```
+
+- `status` ∈ `linked` | `skipped` | `failed`。`skipped` 携带 `code`
+  （`already-registered`、`no-skill-md`）或 `error`。
+- `groupPath` 是分配给该条目的层级路径数组。
+- `externalDir` 是用户拥有目录的绝对路径。
+- 带 `--dry-run` 时不创建条目；报告显示*将会*发生什么。
 
 ### 错误
 

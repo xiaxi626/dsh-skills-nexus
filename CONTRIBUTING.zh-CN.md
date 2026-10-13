@@ -18,7 +18,7 @@ src/
 │   ├── glob.ts       # remove 的 * / ? 通配展开
 │   ├── progress.ts   # TTY 门控 spinner（add / update）
 │   ├── prompt.ts     # 交互式确认
-│   └── commands/     # add · list · update · export · import · adopt · switch-version · remove · toggle · doctor · completions
+│   └── commands/     # add · list · update · export · import · adopt · switch-version · remove · toggle · link · doctor · completions
 ├── client/           # 浏览器半边——不参与服务端构建，由 build:client 打包
 │   ├── index.tsx     # 模块形态：name / inject / apply（Settings 槽位）
 │   ├── api.ts        # 类型化 HTTP 客户端 + confirmable / pollJob / reconcileList
@@ -28,6 +28,7 @@ src/
 ├── locks.ts          # 三层并发：进程内 single-flight、缓存锁、O_EXCL 文件锁
 ├── switch-version.ts # 切换编排（fetch → checkout → 重归一化 → 重建链接）
 ├── install.ts        # 唯一的 git 安装阶段（克隆 → 分类 → 归一化 → 注册 → 建链），add / import 共用
+├── external.ts       # 外部条目通道：entrySkillDir / planLinkLocal / linkLocal / discoverTraeCnSkills
 ├── adopt.ts          # adopt 编排：给无 git 源条目换源（暂存 → 就位 → 重建链接 → 写回 manifest → 回滚）
 ├── export.ts         # 打包条目 + 来源标签（skills/<name>/… + nexus-package.json）
 ├── import.ts         # 从包重建条目：标签远端可达走 git 通道，否则落快照

@@ -106,9 +106,9 @@ The full meaning of every check and code, with fix hints, lives in
 
 ## The `--json` write interface (version 1)
 
-Five commands emit a versioned report describing what they just did:
-`list --json`, `add --json`, `update --json`, `remove --json`, and
-`enable` / `disable --json`. They share one contract, and it is deliberately
+Six commands emit a versioned report describing what they just did:
+`list --json`, `add --json`, `update --json`, `remove --json`,
+`enable` / `disable --json`, and `link --json`. They share one contract, and it is deliberately
 narrow:
 
 ### What is promised
@@ -251,6 +251,30 @@ or `status: "not-found"` / exit `2` for a multi-match glob) rather than silent.
 - `enabled` is the entry's **resulting** state: a `not-found` item reports the
   state it keeps, not the one it was asked for.
 - `linksChanged` counts symlinks created (enable) or removed (disable).
+- `enable --group <path>` / `disable --group <path>` batch-toggles every entry
+  whose `groupPath` starts with the given prefix. The report shape is the same;
+  each matched entry appears as its own item in `results[]`.
+
+`link --json`:
+
+```json
+{
+  "version": 1,
+  "results": [
+    { "name": "trae-cn.skills.brainstorming", "status": "linked",
+      "groupPath": ["trae-cn", "skills", "brainstorming"],
+      "externalDir": "/home/user/.trae-cn/skills/brainstorming" }
+  ],
+  "summary": { "linked": 1, "skipped": 0, "failed": 0 }
+}
+```
+
+- `status` ∈ `linked` | `skipped` | `failed`. `skipped` carries `code`
+  (`already-registered`, `no-skill-md`) or `error`.
+- `groupPath` is the hierarchical path array assigned to the entry.
+- `externalDir` is the absolute path to the user-owned directory.
+- With `--dry-run`, no entries are created; the report shows what *would*
+  happen.
 
 ### Errors
 

@@ -151,6 +151,8 @@ dsh-skills-nexus update [name]                      # refresh (branch pin: pull;
 dsh-skills-nexus switch-version <name> <ref> [--type <branch|tag|commit>]  # move a clone to another ref (fetch, checkout, re-normalize, rebuild links)
 dsh-skills-nexus enable  <name>...                  # create symlink (default); several names in one run
 dsh-skills-nexus disable <name>...                  # remove symlink without deleting clone
+dsh-skills-nexus enable  --group trae-cn/skills     # batch-enable every entry whose groupPath starts with the prefix
+dsh-skills-nexus disable --group trae-cn            # batch-disable every entry under the L1 group
 dsh-skills-nexus remove <name>...                   # delete clone + symlink + unregister (one or more)
 dsh-skills-nexus remove 'theme-*'                   # ...or a * / ? glob matched against skill names
 dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # read-only full checkup of nexus state (exit 0/1/2)
@@ -164,6 +166,13 @@ dsh-skills-nexus import migrate.zip --dry-run       # per-entry preview: clone o
 dsh-skills-nexus import migrate.zip                 # rebuild entries from their recorded refs
 dsh-skills-nexus import migrate.zip --locked        # restore each exact recorded commit
 dsh-skills-nexus adopt <name> --url github:owner/repo   # give a source-less entry its git identity back
+
+# link external skills (reference directories you already own — no clone)
+dsh-skills-nexus link trae-cn                       # discover skills under ~/.trae-cn/skills/ and builtin_skills/
+dsh-skills-nexus link trae-cn --dry-run             # preview without creating entries
+dsh-skills-nexus link trae-cn --trae-cn-dir /path   # override the trae-cn root directory
+dsh-skills-nexus link trae-cn --group custom        # override the L1 group name (default: trae-cn)
+dsh-skills-nexus link trae-cn --force               # replace existing entries on conflict
 ```
 
 Value options (`--name`, `--ref`, `--subdir`) also accept the `--flag=value` form (e.g. `--subdir=skills/foo`, `--name=owner-skills`); the boolean `--yes` takes no value.
@@ -282,6 +291,14 @@ From the panel you can:
 - browse entry cards — link names, enabled state, pinned commit, status tags
   like `no source` / `linked directory` / `disabled`, and an
   `update available` badge for branch-tracked entries;
+- manage **external entries** (created by CLI `link trae-cn`) alongside
+  git-managed ones — the panel displays them with a `linked directory` tag,
+  shows their external path, and supports enable/disable and remove (which
+  only deletes the link, never the user's directory);
+- entries with a `groupPath` (e.g. from `link trae-cn`) are rendered under
+  collapsible L1 group headers with a group-level Switch (✓/○/◐ for
+  on/off/mixed) — toggling the group Switch batch-enables or batch-disables
+  every entry in the group;
 - filter the list from the toolbar — the search box matches a name or url,
   while a badge shows the number of entries awaiting updates (only when there
   is at least one) next to the total registered count;
@@ -320,7 +337,8 @@ host start.
 
 **HTTP surface (internal).** The panel talks to `/skills-nexus/*` routes —
 ping / list / doctor / job polling on GET; add / import / adopt / remove /
-update / check-updates / switch-version / toggle / export / job cancel on POST. Success
+update / check-updates / switch-version / toggle / toggleGroup / link /
+export / job cancel on POST. Success
 answers `{ data, hotReload }`, long operations are accepted as
 `202 { data: { jobId } }`, and every mutation is same-origin-checked (remove
 additionally accepts loopback only). These routes are the panel's own
@@ -634,6 +652,14 @@ ls -la ~/.dsh/skills/
   of real Cordis plugins. If a repo already ships a `dsh.bundle.patch`, install
   it the normal way — nexus is for repos that don't. See
   [nexus vs `dsh plugin`](docs/nexus-vs-plugin.md) for the full decision guide.
+- **External entries (`link` channel)**: `link trae-cn` creates *external* entries
+  that symlink to directories you already own (e.g. `~/.trae-cn/skills/`). Nexus
+  never clones, updates or deletes those directories — `remove` only deletes the
+  link and the manifest entry. External entries carry a `groupPath` (e.g.
+  `['trae-cn', 'skills', 'brainstorming']`) for hierarchical grouping; `enable`
+  and `disable` accept `--group <path>` to batch-toggle every entry under a
+  prefix. The web panel renders grouped entries under collapsible L1 group
+  headers with a group-level Switch.
 - **Collection repos & `--subdir`**: collection repos (skills nested under
   subdirectories, e.g. `trae-community/trae-skills`) are installed piecemeal
   with `--subdir <path>` — each install is its own entry with its own clone
@@ -684,7 +710,7 @@ frontmatter normalization, collection `--subdir`, Windows-junction symlinks)
 and exposes stable machine interfaces you can depend on:
 `dsh-skills-nexus list --names` (enumerate installed skills),
 `dsh-skills-nexus doctor --json` (a versioned health report), and `--json` on
-`add` / `list` / `update` / `remove` / `enable` / `disable` / `purge` (versioned reports
+`add` / `list` / `update` / `remove` / `enable` / `disable` / `link` / `purge` (versioned reports
 describing what an operation just did). Shell out to the
 CLI — never `import` package internals or read `manifest.json`. See
 **[Building on nexus — machine interfaces for tool authors](docs/build-on-nexus.md)**
