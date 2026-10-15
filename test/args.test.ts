@@ -173,6 +173,28 @@ test('parseRemoveArgs with no names yields an empty pattern list', () => {
 })
 
 /* ------------------------------------------------------------------ */
+/* parseRemoveArgs — --group                                           */
+/* ------------------------------------------------------------------ */
+
+test('parseRemoveArgs leaves group unset without --group', () => {
+  assert.equal(parseRemoveArgs(['a']).group, undefined)
+})
+
+test('parseRemoveArgs reads --group with a separate value', () => {
+  assert.equal(parseRemoveArgs(['--group', 'trae-cn/skills']).group, 'trae-cn/skills')
+  assert.deepEqual(parseRemoveArgs(['--group', 'trae-cn/skills']).patterns, [])
+})
+
+test('parseRemoveArgs reads --group with an inline value', () => {
+  assert.equal(parseRemoveArgs(['--group=trae-cn']).group, 'trae-cn')
+})
+
+test('parseRemoveArgs rejects an empty --group value', () => {
+  assert.throws(() => parseRemoveArgs(['--group=']), /requires a group path/)
+  assert.throws(() => parseRemoveArgs(['--group']), /requires a group path/)
+})
+
+/* ------------------------------------------------------------------ */
 /* parseListArgs — the names-only path for machine consumption         */
 /* ------------------------------------------------------------------ */
 

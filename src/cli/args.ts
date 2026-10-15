@@ -82,21 +82,33 @@ export interface RemoveOptions {
   yes: boolean
   /** Emit the version-1 machine report on stdout instead of human text. */
   json: boolean
+  /**
+   * Delete every entry whose `groupPath` starts with this prefix
+   * (`/`-separated, segment-exact — the same rule as `toggle --group`).
+   * Mutually exclusive with `patterns`; a prefix matching several entries is
+   * confirmed first (or pass `--yes`).
+   */
+  group?: string
 }
 
 /**
- * Parse `remove` args: one or more names/globs plus an optional `--yes`.
+ * Parse `remove` args: one or more names/globs plus an optional `--group` and
+ * `--yes`.
  *
  * Boolean flags reject an inline value for the same reason as parseAddArgs —
  * silently dropping it would turn `--yes=false` into yes=true and bypass the
- * multi-match deletion guard (remove.ts).
+ * multi-match deletion guard (remove.ts). `--group` takes a value, so the loop
+ * is index-based to consume the following argument (or an inline `--group=`
+ * form, like `parseToggleArgs`).
  */
 export function parseRemoveArgs(argv: string[]): RemoveOptions {
   const patterns: string[] = []
   let yes = false
   let json = false
+  let group: string | undefined
 
-  for (const a of argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!
     const eqIdx = a.indexOf('=')
     const flag = eqIdx !== -1 ? a.slice(0, eqIdx) : a
     const inlineVal = eqIdx !== -1 ? a.slice(eqIdx + 1) : undefined
@@ -111,13 +123,16 @@ export function parseRemoveArgs(argv: string[]): RemoveOptions {
         throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
       }
       json = true
+    } else if (flag === '--group') {
+      group = inlineVal ?? argv[++i]
+      if (!group) throw new Error('--group requires a group path, e.g. --group trae-cn/skills')
     } else if (!a.startsWith('-')) {
       // 名字与通配符都不以 `-` 开头（skill 名为 kebab-case），整段收集，含 `=` 也不拆。
       patterns.push(a)
     }
   }
 
-  return { patterns, yes, json }
+  return { patterns, yes, json, ...(group === undefined ? {} : { group }) }
 }
 
 export interface ListOptions {

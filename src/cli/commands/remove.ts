@@ -25,6 +25,13 @@ import type { RemoveJsonResult } from '../json-types.js'
  * refuses with exit code 2 rather than silently deleting everything matched.
  * Exact single names are unaffected — they remove immediately, as before.
  *
+ * `--group <path>` is the batch form of the trae-cn link channel: it matches
+ * every entry whose `groupPath` starts with the prefix, segment by segment (the
+ * same rule `toggle --group` uses), and is mutually exclusive with name
+ * patterns. A group matching several entries gets the same confirmation guard
+ * as a broad glob, and an empty group is an error (exit 1), not an empty
+ * success.
+ *
  * `--json` (P0 §4.4) reports one result per resolved name. The broad-glob guard
  * deliberately keeps its behaviour under `--json`: the machine `OpsIO` is
  * non-interactive, so a multi-match glob without `--yes` is still refused
@@ -36,11 +43,13 @@ export async function remove(argv: string[], io: OpsIO = cliIO): Promise<number>
   let patterns: string[]
   let yes: boolean
   let json: boolean
+  let group: string | undefined
   try {
     const opts = parseRemoveArgs(argv)
     patterns = opts.patterns
     yes = opts.yes
     json = opts.json
+    group = opts.group
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (jsonRequested(argv)) {
@@ -51,8 +60,12 @@ export async function remove(argv: string[], io: OpsIO = cliIO): Promise<number>
     return 2
   }
 
-  if (patterns.length === 0) {
-    io.error('Usage: dsh-skills-nexus remove <name-or-pattern>... [--json]')
+  if (group !== undefined && patterns.length > 0) {
+    io.error('error: --group cannot be combined with name patterns')
+    return 2
+  }
+  if (group === undefined && patterns.length === 0) {
+    io.error('Usage: dsh-skills-nexus remove <name-or-pattern>... [--group <path>] [--json]')
     return 2
   }
 
@@ -72,22 +85,51 @@ export async function remove(argv: string[], io: OpsIO = cliIO): Promise<number>
   }
   let failures = 0
   let broadGlobToken: string | undefined
+  let groupToken: string | undefined
   /** Per-token resolution failures, so `--json` can report them too. */
   const unresolved: string[] = []
 
-  for (const token of patterns) {
-    if (hasMeta(token)) {
-      const hits = matchNames(allNames, token)
-      if (hits.length === 0) {
-        out.error(`No skills match pattern "${token}".`)
-        failures++
-        unresolved.push(token)
-        continue
+  if (group !== undefined) {
+    // Segment-exact prefix match — the same rule as `toggle --group`. A joined
+    // string `startsWith` would let 'trae-cn/skill' match 'trae-cn/skills/*'.
+    const prefix = group.split('/')
+    const matches = manifest.skills.filter((e) => {
+      if (!e.groupPath) return false
+      return prefix.every((seg, i) => e.groupPath![i] === seg)
+    })
+    if (matches.length === 0) {
+      // An empty group is an error, so it returns here rather than through the
+      // `resolved.length === 0` early-exit below — that path emits
+      // `emitRemovalReport(io, [])`, which would answer exit code 0 under
+      // `--json`. Mirrors `toggle.ts`'s hand-written empty report.
+      const msg = `no entries match group "${group}"`
+      if (json) {
+        emitJson(io, { version: 1, results: [], summary: { removed: 0, failed: 1 } })
+        io.error(`error: ${msg}\n`)
+      } else {
+        out.error(msg)
       }
-      if (hits.length > 1 && broadGlobToken === undefined) broadGlobToken = token
-      for (const h of hits) push(h)
-    } else {
-      push(token)
+      return 1
+    }
+    for (const m of matches) push(m.name)
+    // A group that expands to several entries is a broad deletion: track it so
+    // the group guard below confirms before removing them all.
+    if (matches.length > 1) groupToken = group
+  } else {
+    for (const token of patterns) {
+      if (hasMeta(token)) {
+        const hits = matchNames(allNames, token)
+        if (hits.length === 0) {
+          out.error(`No skills match pattern "${token}".`)
+          failures++
+          unresolved.push(token)
+          continue
+        }
+        if (hits.length > 1 && broadGlobToken === undefined) broadGlobToken = token
+        for (const h of hits) push(h)
+      } else {
+        push(token)
+      }
     }
   }
 
@@ -99,6 +141,34 @@ export async function remove(argv: string[], io: OpsIO = cliIO): Promise<number>
     if (!io.interactive) {
       const message =
         `Pattern "${broadGlobToken}" matches ${resolved.length} skills: ${list}.\n` +
+        `Refusing to remove multiple skills without confirmation in a non-interactive shell.\n` +
+        `Re-run with --yes to remove them.`
+      if (json) {
+        fatalJsonError(io, message)
+        return 2
+      }
+      io.error(message)
+      return 2
+    }
+    const ok = await io.confirm(
+      `This will remove ${resolved.length} skill(s): ${list}.\n` +
+        `Continue?`,
+      false,
+    )
+    if (!ok) {
+      out.emit('Aborted — nothing removed.\n')
+      return 0
+    }
+  }
+
+  // Group guard — independent from the broadGlobToken guard above. That one
+  // tracks glob-token expansion; this one tracks `--group` prefix matches.
+  // Both gate "multi-delete needs confirmation".
+  if (groupToken !== undefined && !yes) {
+    const list = resolved.join(', ')
+    if (!io.interactive) {
+      const message =
+        `Group "${groupToken}" matches ${resolved.length} skills: ${list}.\n` +
         `Refusing to remove multiple skills without confirmation in a non-interactive shell.\n` +
         `Re-run with --yes to remove them.`
       if (json) {
