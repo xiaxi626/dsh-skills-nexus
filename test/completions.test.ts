@@ -249,6 +249,17 @@ test('templates never offer --yes where the command rejects it', () => {
   assert.doesNotMatch(powershellTemplate, /'disable'\s*\{[^}]*--yes/)
 })
 
+test('the remove branch offers --group in all four templates', () => {
+  // The documented-flag guard above only sees that `--group` appears SOMEWHERE
+  // in a template — enable/disable and link already carry it — so it cannot
+  // catch a remove branch that was never taught the flag. Pin it per template.
+  assert.match(bashTemplate, /remove\|rm\)\s+flags="[^"]*--group/)
+  assert.match(zshTemplate, /remove\|rm\)\s+compadd -- [^\n]*--group/)
+  assert.match(fishTemplate, /__fish_seen_subcommand_from remove rm' -l group/)
+  assert.match(powershellTemplate, /'remove'\s*\{[^}]*--group/)
+  assert.match(powershellTemplate, /'rm'\s*\{[^}]*--group/)
+})
+
 test('every template counts positionals, so flags do not consume the slot', () => {
   // `remove --yes <TAB>` must still offer names, because --yes is accepted
   // before the names. Every template counts the words that do not start with

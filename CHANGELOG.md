@@ -11,8 +11,9 @@
   - `src/cli/args.ts`：`parseRemoveArgs` 改为下标循环，新增 `--group <path>`（同时接受 `--group=<path>`，空值报错）；`RemoveOptions` 增加 `group?: string`。
   - `src/cli/commands/remove.ts`：`--group` 与名字 patterns 互斥（同给为 usage error，退出 2）；组模式按 `groupPath` 段级精确前缀匹配（与 `toggle --group` 同一规则）解析出待删名单；空组直接返回 1（JSON 模式手写 `{ results: [], summary: { removed: 0, failed: 1 } }`，避免经 `emitRemovalReport(io, [])` 返回退出 0）；多匹配沿用删除守卫——非交互拒绝（退出 2）、交互确认、`--yes` 跳过。外部条目只取消注册并删除符号链接，不删用户目录。
   - `src/cli/usage.ts`：用法行与新增的 `remove options` 段补充 `--group <path>`。
+  - 四个补全脚本（bash/zsh/fish/powershell）的 `remove` 分支补 `--group`。
   - managed 条目没有 `groupPath`，组模式天然只覆盖 link channel 创建的 external 条目。
-- **验证**：新增 `test/remove-group.test.ts`（10 项：整组删除与 external 目录保留、段边界、互斥、空组人类/JSON、非交互拒绝、JSON 拒绝、交互确认、abort、单匹配免确认）；扩展 `test/args.test.ts` 的 `parseRemoveArgs --group`（含 `--group=` 空值报错）。`npm run typecheck`、`npm run lint`、`npm test` 通过（748 项中 745 通过、0 失败、3 跳过）。
+- **验证**：新增 `test/remove-group.test.ts`（10 项：整组删除与 external 目录保留、段边界、互斥、空组人类/JSON、非交互拒绝、JSON 拒绝、交互确认、abort、单匹配免确认）；扩展 `test/args.test.ts` 的 `parseRemoveArgs --group`（含 `--group=` 空值报错）；`test/completions.test.ts` 新增四模板 `remove` 分支含 `--group` 的针对性断言（全局漂移守卫只验证 flag 出现于模板某处，抓不到分支漏加）。`npm run typecheck`、`npm run lint`、`npm test` 通过（749 项中 746 通过、0 失败、3 跳过）。
 - **不做**：HTTP `POST /remove` 的 group 模式与面板组级 remove 按钮不在本次范围；不改动 `remove` 对未知 `-` 选项的静默忽略行为。
 
 **2026-10-15 · Fixed · 组匹配段级精确化——HTTP toggle 路由与面板 reconcile 不再字符串前缀松匹配**
