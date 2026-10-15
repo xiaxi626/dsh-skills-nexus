@@ -583,14 +583,17 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     })
   }
 
-  /** Toggle every entry in a group by its path prefix. */
+  /** Toggle every entry in a group by its path prefix (segment-exact). */
   const onToggleGroup = (groupPath: string, targetEnabled: boolean): void => {
+    const prefix = groupPath.split('/')
     void run(`group ${groupPath}`, async () => {
       const env = await api.toggleGroup(groupPath, targetEnabled)
       // Reconcile: every entry in the group should reflect the target state.
+      // Segment-exact, like the CLI: a joined-string `startsWith` would let
+      // 'trae-cn/skill' reconcile 'trae-cn/skills/*' entries too.
       await reconcileAfter(`group ${groupPath}`, env.hotReload, (entries) =>
         entries
-          .filter((e) => e.groupPath?.join('/').startsWith(groupPath))
+          .filter((e) => e.groupPath && prefix.every((seg, i) => e.groupPath![i] === seg))
           .every((e) => e.enabled === targetEnabled),
       )
     })

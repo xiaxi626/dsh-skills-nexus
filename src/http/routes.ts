@@ -813,13 +813,18 @@ async function toggleRoute(req: RouteRequest, res: RouteResponse): Promise<void>
   const group = strField(body, 'group')
   const enabled = boolField(body, 'enabled')
   if (enabled === undefined) throw new HttpError(400, 'missing-field', { field: 'enabled' })
-  // Group mode: toggle every entry whose groupPath starts with the prefix.
+  // Group mode: toggle every entry whose groupPath matches the prefix
+  // segment-by-segment. A joined-string `startsWith` was the bug this fixes:
+  // 'trae-cn/skill' would also match every 'trae-cn/skills/*' entry, because
+  // the prefix comparison ran past the segment boundary.
   if (group !== undefined) {
     if (name !== undefined) throw new HttpError(400, 'ambiguous', { detail: 'name and group are mutually exclusive' })
     const manifest = await readManifest()
-    const matches = manifest.skills.filter(
-      (e) => e.groupPath !== undefined && e.groupPath.join('/').startsWith(group),
-    )
+    const prefix = group.split('/')
+    const matches = manifest.skills.filter((e) => {
+      if (!e.groupPath) return false
+      return prefix.every((seg, i) => e.groupPath![i] === seg)
+    })
     if (matches.length === 0) throw new HttpError(404, 'not-found', { group })
     const results: Array<{ name: string; enabled: boolean; changed: boolean }> = []
     for (const entry of matches) {

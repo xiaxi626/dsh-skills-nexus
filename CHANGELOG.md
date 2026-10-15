@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+**2026-10-15 · Fixed · 组匹配段级精确化——HTTP toggle 路由与面板 reconcile 不再字符串前缀松匹配**
+
+- **背景**：`POST /skills-nexus/toggle` 的 group 模式（`src/http/routes.ts`）与面板组开关的 reconcile 谓词（`src/client/panel.tsx`）都用 `groupPath.join('/').startsWith(group)` 做前缀匹配，会在段边界之外继续比较：`--group trae-cn/skill`（少一个 `s`）会误匹配 `trae-cn/skills/*` 下全部条目。CLI `toggle --group` 本身是逐段比较的，规则正确。
+- **变更**：`src/http/routes.ts` 的 toggle group 分支改为 `const prefix = group.split('/')` + `prefix.every((seg, i) => e.groupPath![i] === seg)` 的段级精确比较；`src/client/panel.tsx` 的 `onToggleGroup` 把 `prefix` 提到闭包外，改用同一条段级规则。
+- **验证**：`test/api.test.ts` 新增段边界用例——`group: 'trae-cn/skill'` 返回 404，`group: 'trae-cn/skills'` 返回 200 且只命中该子树条目。`npm run typecheck`、`npm test` 通过。
+- **不做**：不改动 CLI `toggle --group` 的匹配实现（本就正确）；不引入共享匹配 helper（改动面仅两处，暂不抽象）。
+
 **2026-10-13 · Fixed · 测试文件 lint 问题——移除未使用的变量和导入**
 
 - **变更**：`test/cli-link.test.ts` 将未使用的 `exitCode2` 改为 `_exitCode2`；`test/external-entrydir.test.ts` 移除未使用的 `mkdir` 导入；`test/external-link.test.ts` 移除未使用的 `plan` 解构；`test/group-states.test.ts` 移除未使用的 `GroupState` 导入。

@@ -598,6 +598,31 @@ test('toggle group mode rejects both name and group (400)', async () => {
   assert.equal(errorsOf(res).error, 'ambiguous')
 })
 
+test('toggle group mode matches whole path segments, not a string prefix', async () => {
+  // 'trae-cn/skill' must NOT match entries under 'trae-cn/skills/*'. The old
+  // joined-string `startsWith` compared past the segment boundary, so a prefix
+  // missing its final 's' swept up the whole 'trae-cn/skills' family. The route
+  // now uses the same segment-exact rule as the CLI's `toggle --group`.
+  await seedExternalEntry('seg.skills.alpha', ['trae-cn', 'skills', 'alpha'], join(home, 'seg-alpha'))
+  try {
+    const miss = await call('/skills-nexus/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ group: 'trae-cn/skill', enabled: false }),
+    })
+    assert.equal(miss.status, 404, 'a partial segment must not match')
+
+    const hit = await call('/skills-nexus/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ group: 'trae-cn/skills', enabled: false }),
+    })
+    assert.equal(hit.status, 200)
+    const data = dataOf<{ results: Array<{ name: string }> }>(hit)
+    assert.deepEqual(data.results.map((r) => r.name), ['seg.skills.alpha'])
+  } finally {
+    await manifest.removeEntry('seg.skills.alpha')
+  }
+})
+
 /* ------------------------------------------------------------------ */
 /* ------------------------------------------------------------------ */
 /* POST /add (pre-flight only, plus one local-clone happy path)        */
