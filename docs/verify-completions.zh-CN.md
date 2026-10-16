@@ -126,6 +126,7 @@ probe shell-prefix  dsh-skills-nexus completions --shell "b"
 probe update-name   dsh-skills-nexus update ""
 probe remove-yes    dsh-skills-nexus rm --yes ""
 probe remove-second dsh-skills-nexus rm alpha ""
+probe remove-flags  dsh-skills-nexus rm "--"
 probe update-flag   dsh-skills-nexus update "--x"
 
 # ---- 清理 ----
@@ -146,6 +147,7 @@ shell-prefix|bash
 update-name|alpha beta
 remove-yes|alpha beta
 remove-second|
+remove-flags|--yes --json --group
 update-flag|
 ```
 
@@ -206,6 +208,7 @@ Show shell-prefix  'dsh-skills-nexus completions --shell b'
 Show update-name   'dsh-skills-nexus update '
 Show remove-yes    'dsh-skills-nexus rm --yes '
 Show remove-second 'dsh-skills-nexus rm alpha '
+Show remove-flags  'dsh-skills-nexus rm --'
 Show update-flag   'dsh-skills-nexus update --x'
 
 # ---- 清理 ----
@@ -225,6 +228,7 @@ shell-prefix|bash
 update-name|alpha beta
 remove-yes|alpha beta
 remove-second|（你运行本块所在目录里的文件名——引擎回落行为，见第三部分）
+remove-flags|--yes --json --group
 update-flag|
 ```
 
@@ -307,6 +311,7 @@ run shell-values       dsh-skills-nexus completions --shell ''
 run update-names       dsh-skills-nexus update ''
 run remove-yes         dsh-skills-nexus remove --yes ''
 run remove-second      dsh-skills-nexus remove alpha ''
+run remove-flags       dsh-skills-nexus remove '--'
 run update-flag        dsh-skills-nexus update '--x'
 run unknown-cmd        dsh-skills-nexus nope ''
 ```
@@ -321,6 +326,7 @@ shell-values|bash zsh fish powershell
 update-names|alpha beta
 remove-yes|alpha beta
 remove-second|
+remove-flags|-- --yes --json --group
 update-flag|
 unknown-cmd|
 ```
@@ -352,6 +358,7 @@ complete -C 'dsh-skills-nexus completions --shell b'  # bash
 complete -C 'dsh-skills-nexus update '                # alpha、beta
 complete -C 'dsh-skills-nexus remove --yes '          # 含 alpha、beta
 complete -C 'dsh-skills-nexus remove alpha '          # 不再给 alpha / beta——已不是第一个槽
+complete -C 'dsh-skills-nexus remove --'              # 含 --yes --json --group
 complete -C 'dsh-skills-nexus update --x'             # 无
 
 popd

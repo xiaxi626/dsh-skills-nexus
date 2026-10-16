@@ -109,6 +109,8 @@ dsh-skills-nexus enable  --group trae-cn/skills     # 批量开启 groupPath 以
 dsh-skills-nexus disable --group trae-cn            # 批量禁用 L1 组下的所有条目
 dsh-skills-nexus remove <name>...                   # 删除克隆 + symlink + 注销（可一次给多个名字）
 dsh-skills-nexus remove 'theme-*'                   # …或用 * / ? 通配符匹配 skill 名
+dsh-skills-nexus remove --group trae-cn             # 批量删除 groupPath 以指定前缀开头的所有条目
+dsh-skills-nexus remove --group trae-cn/skills      # …或只删 skills 子组
 dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # 只读体检 nexus 全量状态（退出码 0/1/2）
 dsh-skills-nexus purge  [--yes] [--json]                # 清理积累产物（默认 dry-run）
 dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>  # 输出对应 shell 的补全脚本

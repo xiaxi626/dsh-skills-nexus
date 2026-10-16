@@ -55,6 +55,7 @@ export const fishTemplate = [
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from list ls' -l filter -r",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from remove rm' -l yes",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from remove rm' -l json",
+  "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from remove rm' -l group -r",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from update pull rollback' -l json",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from diff' -l stat",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from enable disable' -l group -r",

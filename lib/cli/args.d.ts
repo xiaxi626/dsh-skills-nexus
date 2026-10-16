@@ -29,13 +29,23 @@ export interface RemoveOptions {
     yes: boolean;
     /** Emit the version-1 machine report on stdout instead of human text. */
     json: boolean;
+    /**
+     * Delete every entry whose `groupPath` starts with this prefix
+     * (`/`-separated, segment-exact — the same rule as `toggle --group`).
+     * Mutually exclusive with `patterns`; a prefix matching several entries is
+     * confirmed first (or pass `--yes`).
+     */
+    group?: string;
 }
 /**
- * Parse `remove` args: one or more names/globs plus an optional `--yes`.
+ * Parse `remove` args: one or more names/globs plus an optional `--group` and
+ * `--yes`.
  *
  * Boolean flags reject an inline value for the same reason as parseAddArgs —
  * silently dropping it would turn `--yes=false` into yes=true and bypass the
- * multi-match deletion guard (remove.ts).
+ * multi-match deletion guard (remove.ts). `--group` takes a value, so the loop
+ * is index-based to consume the following argument (or an inline `--group=`
+ * form, like `parseToggleArgs`).
  */
 export declare function parseRemoveArgs(argv: string[]): RemoveOptions;
 export interface ListOptions {

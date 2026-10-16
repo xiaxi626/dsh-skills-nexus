@@ -433,6 +433,60 @@ test('remove without links answers hotReload done (no watcher event)', async () 
 })
 
 /* ------------------------------------------------------------------ */
+/* POST /remove — group mode                                          */
+/* ------------------------------------------------------------------ */
+
+test('remove group mode requires confirmation (409)', async () => {
+  await seedExternalEntry('rg.skills.alpha', ['rg', 'skills', 'alpha'], join(home, 'rg-alpha'))
+  const res = await call('/skills-nexus/remove', {
+    method: 'POST',
+    body: JSON.stringify({ group: 'rg' }),
+  })
+  assert.equal(res.status, 409)
+  assert.equal(errorsOf(res).error, 'confirm-required')
+})
+
+test('remove group mode rejects name+group (400 ambiguous)', async () => {
+  const res = await call('/skills-nexus/remove', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'x', group: 'rg', confirm: true }),
+  })
+  // ambiguous check fires before requireConfirm, so 400 not 409
+  assert.equal(res.status, 400)
+  assert.equal(errorsOf(res).error, 'ambiguous')
+})
+
+test('remove group mode answers 404 for an empty group', async () => {
+  const res = await call('/skills-nexus/remove', {
+    method: 'POST',
+    body: JSON.stringify({ group: 'nonexistent', confirm: true }),
+  })
+  assert.equal(res.status, 404)
+})
+
+test('remove group mode deletes every matching entry', async () => {
+  await seedExternalEntry('rg2.skills.alpha', ['rg2', 'skills', 'alpha'], join(home, 'rg2-alpha'))
+  await seedExternalEntry('rg2.skills.beta', ['rg2', 'skills', 'beta'], join(home, 'rg2-beta'))
+  await seedExternalEntry('rg2.other.gamma', ['rg2', 'other', 'gamma'], join(home, 'rg2-gamma'))
+  await link.linkSkill('rg2.skills.alpha', join(home, 'rg2-alpha'))
+  await link.linkSkill('rg2.skills.beta', join(home, 'rg2-beta'))
+  await link.linkSkill('rg2.other.gamma', join(home, 'rg2-gamma'))
+
+  const res = await call('/skills-nexus/remove', {
+    method: 'POST',
+    body: JSON.stringify({ group: 'rg2/skills', confirm: true }),
+  })
+  assert.equal(res.status, 200)
+  const data = dataOf<{ group: string; results: Array<{ name: string; removed: boolean }> }>(res)
+  assert.equal(data.group, 'rg2/skills')
+  assert.equal(data.results.length, 2)
+  const after = await manifest.readManifest()
+  assert.ok(manifest.findEntry(after, 'rg2.other.gamma') !== undefined)
+  assert.equal(manifest.findEntry(after, 'rg2.skills.alpha'), undefined)
+  assert.equal(manifest.findEntry(after, 'rg2.skills.beta'), undefined)
+})
+
+/* ------------------------------------------------------------------ */
 /* POST /toggle (§6.4 target attribution)                              */
 /* ------------------------------------------------------------------ */
 
@@ -596,6 +650,31 @@ test('toggle group mode rejects both name and group (400)', async () => {
   })
   assert.equal(res.status, 400)
   assert.equal(errorsOf(res).error, 'ambiguous')
+})
+
+test('toggle group mode matches whole path segments, not a string prefix', async () => {
+  // 'trae-cn/skill' must NOT match entries under 'trae-cn/skills/*'. The old
+  // joined-string `startsWith` compared past the segment boundary, so a prefix
+  // missing its final 's' swept up the whole 'trae-cn/skills' family. The route
+  // now uses the same segment-exact rule as the CLI's `toggle --group`.
+  await seedExternalEntry('seg.skills.alpha', ['trae-cn', 'skills', 'alpha'], join(home, 'seg-alpha'))
+  try {
+    const miss = await call('/skills-nexus/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ group: 'trae-cn/skill', enabled: false }),
+    })
+    assert.equal(miss.status, 404, 'a partial segment must not match')
+
+    const hit = await call('/skills-nexus/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ group: 'trae-cn/skills', enabled: false }),
+    })
+    assert.equal(hit.status, 200)
+    const data = dataOf<{ results: Array<{ name: string }> }>(hit)
+    assert.deepEqual(data.results.map((r) => r.name), ['seg.skills.alpha'])
+  } finally {
+    await manifest.removeEntry('seg.skills.alpha')
+  }
 })
 
 /* ------------------------------------------------------------------ */

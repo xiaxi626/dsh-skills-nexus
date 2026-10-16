@@ -223,6 +223,13 @@ dsh-skills-nexus enable --group trae-cn/skills     # 开启所有 trae-cn 技能
 dsh-skills-nexus disable --group trae-cn            # 禁用 trae-cn 下的所有条目
 ```
 
+`remove` 也接受同样的前缀做批量删除。前缀以 `/` 分隔、逐段精确匹配（与 `enable`/`disable` 同一规则），与名字 patterns 互斥；匹配多个条目前会先确认（或用 `--yes` 跳过）。匹配不到任何条目是错误，而不是空成功。
+
+```bash
+dsh-skills-nexus remove --group trae-cn/skills     # 删除所有 trae-cn 技能
+dsh-skills-nexus remove --group trae-cn --yes      # ……跳过确认提示
+```
+
 Web 面板将分组条目渲染在 L1 组头下，带组级 Switch（✓/○/◐ 表示 on/off/mixed）。
 
 ### 外部条目 vs 管理条目

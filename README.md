@@ -155,6 +155,8 @@ dsh-skills-nexus enable  --group trae-cn/skills     # batch-enable every entry w
 dsh-skills-nexus disable --group trae-cn            # batch-disable every entry under the L1 group
 dsh-skills-nexus remove <name>...                   # delete clone + symlink + unregister (one or more)
 dsh-skills-nexus remove 'theme-*'                   # ...or a * / ? glob matched against skill names
+dsh-skills-nexus remove --group trae-cn             # batch-delete every entry whose groupPath starts with the prefix
+dsh-skills-nexus remove --group trae-cn/skills      # ...or only the skills sub-group
 dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # read-only full checkup of nexus state (exit 0/1/2)
 dsh-skills-nexus purge  [--yes] [--json]                # clean up accumulated artifacts (dry-run by default)
 dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>  # print a completion script for that shell

@@ -62,7 +62,7 @@ export const zshTemplate = [
   '      list|ls)     compadd -- --names --json --filter ;;',
   '      update|pull|rollback) compadd -- --json ;;',
   '      diff)        compadd -- --stat ;;',
-  '      remove|rm)   compadd -- --yes --json ;;',
+  '      remove|rm)   compadd -- --yes --json --group ;;',
   '      enable|disable) compadd -- --group --json ;;',
   '      link)        compadd -- --dry-run --group --trae-cn-dir --force --json ;;',
   '      export)      compadd -- --all --out ;;',

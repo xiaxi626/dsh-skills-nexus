@@ -16,6 +16,13 @@ import type { OpsIO } from '../../ops-io.js';
  * refuses with exit code 2 rather than silently deleting everything matched.
  * Exact single names are unaffected — they remove immediately, as before.
  *
+ * `--group <path>` is the batch form of the trae-cn link channel: it matches
+ * every entry whose `groupPath` starts with the prefix, segment by segment (the
+ * same rule `toggle --group` uses), and is mutually exclusive with name
+ * patterns. A group matching several entries gets the same confirmation guard
+ * as a broad glob, and an empty group is an error (exit 1), not an empty
+ * success.
+ *
  * `--json` (P0 §4.4) reports one result per resolved name. The broad-glob guard
  * deliberately keeps its behaviour under `--json`: the machine `OpsIO` is
  * non-interactive, so a multi-match glob without `--yes` is still refused

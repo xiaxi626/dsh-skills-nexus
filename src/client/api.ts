@@ -288,6 +288,7 @@ export interface NexusApi {
   importPackage(file: File, opts?: ImportBody): Promise<Envelope<{ jobId: string }>>
   adopt(body: AdoptBody): Promise<Envelope<{ jobId: string }>>
   remove(name: string, confirm?: boolean): Promise<Envelope<{ name: string; removed: boolean; links: string[] }>>
+  removeGroup(group: string, confirm?: boolean): Promise<Envelope<{ group: string; results: Array<{ name: string; removed: boolean; links: string[] }> }>>
   update(name: string, confirm?: boolean): Promise<Envelope<{ jobId: string }>>
   checkUpdates(): Promise<Envelope<{ results: unknown }>>
   switchVersion(body: SwitchVersionBody): Promise<Envelope<{ jobId: string }>>
@@ -378,6 +379,7 @@ export function createApi(fetchImpl: ApiFetch = (input, init) => fetch(input, in
       postPackage(fetchImpl, file, { ...opts, dryRun: false, confirm: true }),
     adopt: (body) => postJson(fetchImpl, '/skills-nexus/adopt', body as unknown as Record<string, unknown>),
     remove: (name, confirm) => postJson(fetchImpl, '/skills-nexus/remove', { name, confirm: confirm === true }),
+    removeGroup: (group, confirm) => postJson(fetchImpl, '/skills-nexus/remove', { group, confirm: confirm === true }),
     update: (name, confirm) => postJson(fetchImpl, '/skills-nexus/update', { name, confirm: confirm === true }),
     checkUpdates: () => postJson(fetchImpl, '/skills-nexus/check-updates', {}),
     switchVersion: (body) => postJson(fetchImpl, '/skills-nexus/switch-version', body as unknown as Record<string, unknown>),

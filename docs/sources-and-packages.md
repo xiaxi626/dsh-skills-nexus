@@ -273,6 +273,17 @@ dsh-skills-nexus enable --group trae-cn/skills     # enable all trae-cn skills
 dsh-skills-nexus disable --group trae-cn            # disable everything under trae-cn
 ```
 
+`remove` takes the same prefix to batch-delete a group. The prefix is
+`/`-separated and matched segment by segment (the rule `enable`/`disable` use),
+it is mutually exclusive with name patterns, and a prefix matching several
+entries is confirmed first (or skipped with `--yes`). A prefix that matches
+nothing is an error, not an empty success.
+
+```bash
+dsh-skills-nexus remove --group trae-cn/skills     # delete every trae-cn skill
+dsh-skills-nexus remove --group trae-cn --yes      # ...without the confirmation prompt
+```
+
 The web panel renders grouped entries under L1 group headers with a
 group-level Switch (✓/○/◐ for on/off/mixed).
 

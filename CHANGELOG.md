@@ -4,6 +4,35 @@
 
 ## [Unreleased]
 
+**2026-10-16 · Added · HTTP `POST /remove` group 模式 + 客户端 `removeGroup` + 面板组级 remove 按钮**
+
+- **背景**：CLI `remove --group` 已支持批量删除（上一条目），HTTP 路由与面板缺少对应能力——link channel 一次创建的几十个条目只能通过单名逐个删除。
+- **变更**：
+  - `src/http/routes.ts`：`remove` 路由新增 group 分支，与 `toggleRoute` group 模式对称——`name` + `group` 同给返回 400 `ambiguous`，空组返回 404，`requireConfirm` 在 404 检查之后（与单名模式不同，注释说明原因），逐名取锁调用 `removeSkill`，透传 `outcome.removed` / `outcome.links`。
+  - `src/client/api.ts`：`NexusApi` 接口与 `createApi` 实现新增 `removeGroup(group, confirm?)`，复用 `/skills-nexus/remove` 端点。
+  - `src/client/panel.tsx`：L1 组头 `<Switch>` 后新增 `remove group` 按钮（`variant="outline"`，与单名 remove 按钮风格一致）；新增组级 `RiskConfirmation` overlay，description 用 `entries.filter` 动态计算技能数量；handler 通过 `confirmable` 走 ask-then-retry 流程，reconcile 谓词检查所有被删条目已从列表消失。
+- **验证**：`test/api.test.ts` 新增 4 项（409 confirm、400 ambiguous、404 empty、200 删除并验证非匹配条目保留）；`test/client-api.test.ts` 新增 1 项（`removeGroup` confirm 透传）。`npm run build`、`npm test` 通过（754 项中 751 通过、0 失败、3 跳过）。
+- **不做**：不改动 CLI `remove --group` 的实现；不引入共享匹配 helper（改动面仅两处，暂不抽象）。
+
+**2026-10-15 · Added · CLI `remove --group <path>` 批量删除**
+
+- **背景**：`link trae-cn` 一次创建几十个条目，此前没有批量删除手段——`remove` 只接受名字/glob，而 glob 匹配的是 skill 名，不是分组路径。`toggle --group` 已支持按组批量开关，`remove` 需要对齐。
+- **变更**：
+  - `src/cli/args.ts`：`parseRemoveArgs` 改为下标循环，新增 `--group <path>`（同时接受 `--group=<path>`，空值报错）；`RemoveOptions` 增加 `group?: string`。
+  - `src/cli/commands/remove.ts`：`--group` 与名字 patterns 互斥（同给为 usage error，退出 2）；组模式按 `groupPath` 段级精确前缀匹配（与 `toggle --group` 同一规则）解析出待删名单；空组直接返回 1（JSON 模式手写 `{ results: [], summary: { removed: 0, failed: 1 } }`，避免经 `emitRemovalReport(io, [])` 返回退出 0）；多匹配沿用删除守卫——非交互拒绝（退出 2）、交互确认、`--yes` 跳过。外部条目只取消注册并删除符号链接，不删用户目录。
+  - `src/cli/usage.ts`：用法行与新增的 `remove options` 段补充 `--group <path>`。
+  - 四个补全脚本（bash/zsh/fish/powershell）的 `remove` 分支补 `--group`。
+  - managed 条目没有 `groupPath`，组模式天然只覆盖 link channel 创建的 external 条目。
+- **验证**：新增 `test/remove-group.test.ts`（10 项：整组删除与 external 目录保留、段边界、互斥、空组人类/JSON、非交互拒绝、JSON 拒绝、交互确认、abort、单匹配免确认）；扩展 `test/args.test.ts` 的 `parseRemoveArgs --group`（含 `--group=` 空值报错）；`test/completions.test.ts` 新增四模板 `remove` 分支含 `--group` 的针对性断言（全局漂移守卫只验证 flag 出现于模板某处，抓不到分支漏加）。`npm run typecheck`、`npm run lint`、`npm test` 通过（749 项中 746 通过、0 失败、3 跳过）。
+- **不做**：HTTP `POST /remove` 的 group 模式与面板组级 remove 按钮不在本次范围；不改动 `remove` 对未知 `-` 选项的静默忽略行为。
+
+**2026-10-15 · Fixed · 组匹配段级精确化——HTTP toggle 路由与面板 reconcile 不再字符串前缀松匹配**
+
+- **背景**：`POST /skills-nexus/toggle` 的 group 模式（`src/http/routes.ts`）与面板组开关的 reconcile 谓词（`src/client/panel.tsx`）都用 `groupPath.join('/').startsWith(group)` 做前缀匹配，会在段边界之外继续比较：`--group trae-cn/skill`（少一个 `s`）会误匹配 `trae-cn/skills/*` 下全部条目。CLI `toggle --group` 本身是逐段比较的，规则正确。
+- **变更**：`src/http/routes.ts` 的 toggle group 分支改为 `const prefix = group.split('/')` + `prefix.every((seg, i) => e.groupPath![i] === seg)` 的段级精确比较；`src/client/panel.tsx` 的 `onToggleGroup` 把 `prefix` 提到闭包外，改用同一条段级规则。
+- **验证**：`test/api.test.ts` 新增段边界用例——`group: 'trae-cn/skill'` 返回 404，`group: 'trae-cn/skills'` 返回 200 且只命中该子树条目。`npm run typecheck`、`npm test` 通过。
+- **不做**：不改动 CLI `toggle --group` 的匹配实现（本就正确）；不引入共享匹配 helper（改动面仅两处，暂不抽象）。
+
 **2026-10-13 · Fixed · 测试文件 lint 问题——移除未使用的变量和导入**
 
 - **变更**：`test/cli-link.test.ts` 将未使用的 `exitCode2` 改为 `_exitCode2`；`test/external-entrydir.test.ts` 移除未使用的 `mkdir` 导入；`test/external-link.test.ts` 移除未使用的 `plan` 解构；`test/group-states.test.ts` 移除未使用的 `GroupState` 导入。

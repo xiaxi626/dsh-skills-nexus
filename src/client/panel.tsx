@@ -273,6 +273,9 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
    */
   const [pendingRemoval, setPendingRemoval] = useState<ListEntry | null>(null)
   const [removalAcknowledged, setRemovalAcknowledged] = useState(false)
+  /** The group awaiting a group-level remove decision. */
+  const [pendingGroupRemoval, setPendingGroupRemoval] = useState<string | null>(null)
+  const [groupRemovalAcknowledged, setGroupRemovalAcknowledged] = useState(false)
   const alive = useRef(true)
 
   useEffect(() => {
@@ -583,14 +586,17 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     })
   }
 
-  /** Toggle every entry in a group by its path prefix. */
+  /** Toggle every entry in a group by its path prefix (segment-exact). */
   const onToggleGroup = (groupPath: string, targetEnabled: boolean): void => {
+    const prefix = groupPath.split('/')
     void run(`group ${groupPath}`, async () => {
       const env = await api.toggleGroup(groupPath, targetEnabled)
       // Reconcile: every entry in the group should reflect the target state.
+      // Segment-exact, like the CLI: a joined-string `startsWith` would let
+      // 'trae-cn/skill' reconcile 'trae-cn/skills/*' entries too.
       await reconcileAfter(`group ${groupPath}`, env.hotReload, (entries) =>
         entries
-          .filter((e) => e.groupPath?.join('/').startsWith(groupPath))
+          .filter((e) => e.groupPath && prefix.every((seg, i) => e.groupPath![i] === seg))
           .every((e) => e.enabled === targetEnabled),
       )
     })
@@ -675,6 +681,32 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
       const done = await confirmable((confirm) => api.remove(entry.name, confirm), ask)
       if (done === undefined) return // declined — nothing was requested
       await reconcileAfter(entry.name, done.hotReload, goneFrom(entry.name))
+    })
+  }
+
+  /** Open the group removal overlay. */
+  const onRemoveGroup = (groupPath: string): void => {
+    setPendingGroupRemoval(groupPath)
+    setGroupRemovalAcknowledged(false)
+  }
+
+  /** The overlay's confirm: run removeGroup with the server's question. */
+  const onConfirmGroupRemoval = (): void => {
+    const group = pendingGroupRemoval
+    if (group === null) return
+    setPendingGroupRemoval(null)
+    setGroupRemovalAcknowledged(false)
+    void run(`group ${group}`, async () => {
+      const done = await confirmable(
+        (confirm) => api.removeGroup(group, confirm),
+        ask,
+      )
+      if (done === undefined) return
+      await reconcileAfter(`group ${group}`, done.hotReload, (currentEntries) =>
+        done.data.results.every((r) =>
+          !currentEntries.some((e) => e.name === r.name)
+        )
+      )
     })
   }
 
@@ -1023,6 +1055,12 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
                   onChange={() => onToggleGroup(l1Name, !groupEnabled)}
                   label={`${groupMixed ? '◐' : groupEnabled ? '✓' : '○'} ${l1Name} (${groupEntries.length})`}
                 />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onRemoveGroup(l1Name)}
+                >remove group</Button>
               </div>
               <ul className={css.entries}>
                 {groupEntries.map((entry) => (
@@ -1101,7 +1139,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
           pendingRemoval === null
             ? ''
             : `Remove "${pendingRemoval.name}"? This deletes its symlinks, its clone under repos/, and its manifest entry. ` +
-              'The confirm step asks again with the server’s own wording.'
+              "The confirm step asks again with the server's own wording."
         }
         acknowledgeLabel="I understand this deletes the clone"
         cancelLabel="cancel"
@@ -1114,6 +1152,29 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
           setRemovalAcknowledged(false)
         }}
         onConfirm={onConfirmRemoval}
+      />
+      
+      <RiskConfirmation
+        open={pendingGroupRemoval !== null}
+        title="remove skill group"
+        description={
+          pendingGroupRemoval === null
+            ? ''
+            : `Remove all ${entries.filter(
+                (e) => e.groupPath?.[0] === pendingGroupRemoval
+              ).length} skill(s) in "${pendingGroupRemoval}"? This deletes their symlinks, clones, and manifest entries.`
+        }
+        acknowledgeLabel="I understand this deletes the entire group"
+        cancelLabel="cancel"
+        closeLabel="close"
+        confirmLabel="remove group"
+        acknowledged={groupRemovalAcknowledged}
+        onAcknowledgedChange={setGroupRemovalAcknowledged}
+        onCancel={() => {
+          setPendingGroupRemoval(null)
+          setGroupRemovalAcknowledged(false)
+        }}
+        onConfirm={onConfirmGroupRemoval}
       />
     </div>
   )
