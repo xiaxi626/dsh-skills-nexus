@@ -190,6 +190,21 @@ test('remove/update default to confirm:false and forward confirm:true on demand'
   assert.deepEqual(JSON.parse(calls[2]!.init?.body as string), { name: 'a', confirm: true })
 })
 
+test('removeGroup forwards confirm flag', async () => {
+  const { fetchFn, calls } = fakeFetch([
+    { status: 409, body: { error: 'confirm-required', data: { question: 'Remove 2 skill(s) in group "g"?' } } },
+    ok({ group: 'g', results: [{ name: 'a', removed: true, links: [] }] }, 'pending'),
+  ])
+  const api = createApi(fetchFn)
+  const result = await confirmable(
+    (confirm) => api.removeGroup('g', confirm),
+    async () => true,
+  )
+  assert.deepEqual(JSON.parse(calls[0]!.init?.body as string), { group: 'g', confirm: false })
+  assert.deepEqual(JSON.parse(calls[1]!.init?.body as string), { group: 'g', confirm: true })
+  assert.deepEqual(result?.data, { group: 'g', results: [{ name: 'a', removed: true, links: [] }] })
+})
+
 test('toggle posts {name, enabled} and switch-version forwards the full body', async () => {
   const { fetchFn, calls } = fakeFetch([
     ok({ name: 'a', enabled: false, links: [] }, 'pending'),

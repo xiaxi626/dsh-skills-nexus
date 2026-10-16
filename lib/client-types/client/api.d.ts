@@ -280,6 +280,14 @@ export interface NexusApi {
         removed: boolean;
         links: string[];
     }>>;
+    removeGroup(group: string, confirm?: boolean): Promise<Envelope<{
+        group: string;
+        results: Array<{
+            name: string;
+            removed: boolean;
+            links: string[];
+        }>;
+    }>>;
     update(name: string, confirm?: boolean): Promise<Envelope<{
         jobId: string;
     }>>;

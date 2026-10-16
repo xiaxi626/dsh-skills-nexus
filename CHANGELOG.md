@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+**2026-10-16 · Added · HTTP `POST /remove` group 模式 + 客户端 `removeGroup` + 面板组级 remove 按钮**
+
+- **背景**：CLI `remove --group` 已支持批量删除（上一条目），HTTP 路由与面板缺少对应能力——link channel 一次创建的几十个条目只能通过单名逐个删除。
+- **变更**：
+  - `src/http/routes.ts`：`remove` 路由新增 group 分支，与 `toggleRoute` group 模式对称——`name` + `group` 同给返回 400 `ambiguous`，空组返回 404，`requireConfirm` 在 404 检查之后（与单名模式不同，注释说明原因），逐名取锁调用 `removeSkill`，透传 `outcome.removed` / `outcome.links`。
+  - `src/client/api.ts`：`NexusApi` 接口与 `createApi` 实现新增 `removeGroup(group, confirm?)`，复用 `/skills-nexus/remove` 端点。
+  - `src/client/panel.tsx`：L1 组头 `<Switch>` 后新增 `remove group` 按钮（`variant="outline"`，与单名 remove 按钮风格一致）；新增组级 `RiskConfirmation` overlay，description 用 `entries.filter` 动态计算技能数量；handler 通过 `confirmable` 走 ask-then-retry 流程，reconcile 谓词检查所有被删条目已从列表消失。
+- **验证**：`test/api.test.ts` 新增 4 项（409 confirm、400 ambiguous、404 empty、200 删除并验证非匹配条目保留）；`test/client-api.test.ts` 新增 1 项（`removeGroup` confirm 透传）。`npm run build`、`npm test` 通过（754 项中 751 通过、0 失败、3 跳过）。
+- **不做**：不改动 CLI `remove --group` 的实现；不引入共享匹配 helper（改动面仅两处，暂不抽象）。
+
 **2026-10-15 · Added · CLI `remove --group <path>` 批量删除**
 
 - **背景**：`link trae-cn` 一次创建几十个条目，此前没有批量删除手段——`remove` 只接受名字/glob，而 glob 匹配的是 skill 名，不是分组路径。`toggle --group` 已支持按组批量开关，`remove` 需要对齐。

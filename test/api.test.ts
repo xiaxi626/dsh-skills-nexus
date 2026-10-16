@@ -433,6 +433,60 @@ test('remove without links answers hotReload done (no watcher event)', async () 
 })
 
 /* ------------------------------------------------------------------ */
+/* POST /remove — group mode                                          */
+/* ------------------------------------------------------------------ */
+
+test('remove group mode requires confirmation (409)', async () => {
+  await seedExternalEntry('rg.skills.alpha', ['rg', 'skills', 'alpha'], join(home, 'rg-alpha'))
+  const res = await call('/skills-nexus/remove', {
+    method: 'POST',
+    body: JSON.stringify({ group: 'rg' }),
+  })
+  assert.equal(res.status, 409)
+  assert.equal(errorsOf(res).error, 'confirm-required')
+})
+
+test('remove group mode rejects name+group (400 ambiguous)', async () => {
+  const res = await call('/skills-nexus/remove', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'x', group: 'rg', confirm: true }),
+  })
+  // ambiguous check fires before requireConfirm, so 400 not 409
+  assert.equal(res.status, 400)
+  assert.equal(errorsOf(res).error, 'ambiguous')
+})
+
+test('remove group mode answers 404 for an empty group', async () => {
+  const res = await call('/skills-nexus/remove', {
+    method: 'POST',
+    body: JSON.stringify({ group: 'nonexistent', confirm: true }),
+  })
+  assert.equal(res.status, 404)
+})
+
+test('remove group mode deletes every matching entry', async () => {
+  await seedExternalEntry('rg2.skills.alpha', ['rg2', 'skills', 'alpha'], join(home, 'rg2-alpha'))
+  await seedExternalEntry('rg2.skills.beta', ['rg2', 'skills', 'beta'], join(home, 'rg2-beta'))
+  await seedExternalEntry('rg2.other.gamma', ['rg2', 'other', 'gamma'], join(home, 'rg2-gamma'))
+  await link.linkSkill('rg2.skills.alpha', join(home, 'rg2-alpha'))
+  await link.linkSkill('rg2.skills.beta', join(home, 'rg2-beta'))
+  await link.linkSkill('rg2.other.gamma', join(home, 'rg2-gamma'))
+
+  const res = await call('/skills-nexus/remove', {
+    method: 'POST',
+    body: JSON.stringify({ group: 'rg2/skills', confirm: true }),
+  })
+  assert.equal(res.status, 200)
+  const data = dataOf<{ group: string; results: Array<{ name: string; removed: boolean }> }>(res)
+  assert.equal(data.group, 'rg2/skills')
+  assert.equal(data.results.length, 2)
+  const after = await manifest.readManifest()
+  assert.ok(manifest.findEntry(after, 'rg2.other.gamma') !== undefined)
+  assert.equal(manifest.findEntry(after, 'rg2.skills.alpha'), undefined)
+  assert.equal(manifest.findEntry(after, 'rg2.skills.beta'), undefined)
+})
+
+/* ------------------------------------------------------------------ */
 /* POST /toggle (§6.4 target attribution)                              */
 /* ------------------------------------------------------------------ */
 
