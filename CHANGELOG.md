@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+**2026-10-17 · Fixed · tsconfig.client-types.json 包含跨目录导入文件，解决 IDE 标红**
+
+- **背景**：`panel.tsx` 导入了 `../filter.ts` 和 `../import-decision.ts`，这两个文件在 `src/` 目录下，不在 `src/client/` 目录下。`tsconfig.client-types.json` 的 `include` 原来只包含 `src/client/**/*` 和 `src/css-modules.d.ts`，导致 IDE 的 TypeScript 语言服务器无法解析这些跨目录导入，报 TS2307 错误（"找不到模块"或其相应的类型声明"）。
+- **变更**：`tsconfig.client-types.json` 的 `include` 新增 `src/filter.ts` 和 `src/import-decision.ts`。`emitDeclarationOnly: true` 确保只生成 `.d.ts` 文件到 `lib/client-types/`，不会生成 `.js` 文件。
+- **验证**：`npm run build:client` 通过，`lib/client-types/` 无额外文件生成。IDE 中 `panel.tsx` 不再标红。
+
 **2026-10-17 · Changed · link 区可折叠 + 多来源按钮（DisclosureRow 包裹）**
 
 - **背景**：link 区块此前是一个扁平的 `formRow` + 条件渲染的 `linkPlan` 预览块，标题 "link trae-cn skills" 硬编码了单一来源。随着更多 agent 的 link 通道计划（claude-code、workbuddy、qoder、qoder-cn），需要一个可扩展的 UI 结构：折叠/展开 + 多来源按钮行 + 占位按钮的 Tooltip 提示。
