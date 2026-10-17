@@ -60,6 +60,7 @@ import React from 'react'
 import {
   Button,
   DisclosureRow,
+  IconLinkOutlineRegular,
   IconPinOutlineRegular,
   IconRefreshOutlineRegular,
   IconSearchOutlineRegular,
@@ -70,6 +71,7 @@ import {
   Switch,
   Tag,
   TerminalBlock,
+  Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState, TagTone } from '@deepseek-ai/dsh-client-ui-primitives'
 import { describeDecision } from '../import-decision.js'
@@ -223,6 +225,23 @@ function stillListed(name: string): (entries: ListEntry[]) => boolean {
 export { matchesQuery }
 
 /**
+ * External agent sources for the link panel.
+ * Only `trae-cn` is wired today; the rest are disabled placeholders.
+ * The backend (`planLinkLocal`) rejects unknown sources with `LinkError`,
+ * so disabled buttons never reach any API path.
+ *
+ * Future: when enabling a second source, `onPreviewLink` / `onLink` must
+ * be parameterised to accept `src.id` — they currently hard-code 'trae-cn'.
+ */
+const LINK_SOURCES = [
+  { id: 'trae-cn',     label: 'Trae CN',     enabled: true  },
+  { id: 'claude-code', label: 'Claude Code',  enabled: false },
+  { id: 'workbuddy',   label: 'WorkBuddy',    enabled: false },
+  { id: 'qoder',       label: 'Qoder',        enabled: false },
+  { id: 'qoder-cn',    label: 'Qoder CN',     enabled: false },
+] as const
+
+/**
  * The panel. `api` is injectable for tests; production builds bind the global
  * fetch. The instance MUST be render-stable: a per-render `createApi()` default
  * would change `refresh`'s identity every render, re-fire the list effect, and
@@ -261,6 +280,8 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   /** Link channel state: preview plan and busy flag. */
   const [linkPlan, setLinkPlan] = useState<LinkPlan | null>(null)
   const [linkBusy, setLinkBusy] = useState(false)
+  /** Collapsed link-sources disclosure. Default open — the only live action lives here. */
+  const [linkOpen, setLinkOpen] = useState(true)
   /** Name/url filter over the rendered rows (client-side; touches no state). */
   const [query, setQuery] = useState('')
   /** The last `doctor` result, or null before the first check. */
@@ -934,51 +955,89 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
         </div>
       )}
 
-      {/* ---------------- link trae-cn skills ---------------- */}
-      <div className={css.formRow} style={{ marginTop: 8 }}>
-        <Button
-          type="button"
-          onClick={onPreviewLink}
-          disabled={linkBusy}
-        >
-          link trae-cn skills
-        </Button>
-        <span className={css.hint} style={{ marginLeft: 8 }}>
-          discover and register skills from ~/.trae-cn/
-        </span>
-      </div>
-      {linkPlan !== null && (
-        <div className={css.plan}>
-          <p className={css.hint}>
-            {`source: ${linkPlan.source} · ${linkPlan.entries.length} skill(s) found`}
-            {linkPlan.conflicts.length > 0 ? ` · ${linkPlan.conflicts.length} conflict(s)` : ''}
-          </p>
-          <ul className={css.planList}>
-            {linkPlan.entries.map((entry) => (
-              <li key={entry.name}>
-                <strong>{entry.name}</strong>{' '}
-                ({entry.groupPath.join('/')})
-                {entry.skillName ? ` — ${entry.skillName}` : ''}
-              </li>
-            ))}
-          </ul>
-          {linkPlan.conflicts.map((name) => (
-            <p className={css.error} key={name}>
-              {`conflict: "${name}" already exists (pass --force from CLI to overwrite)`}
-            </p>
-          ))}
-          <div className={css.entryActions}>
-            <Button
-              type="button"
-              variant="primary"
-              onClick={onLink}
-              disabled={linkBusy || linkPlan.entries.length === 0}
-            >
-              link
-            </Button>
+      {/* ---------------- link local skills (collapsible) ---------------- */}
+      <DisclosureRow
+        icon={<IconLinkOutlineRegular />}
+        title="link local skills"
+        open={linkOpen}
+        expandable
+        expandOnRowClick
+        onToggle={() => setLinkOpen((v) => !v)}
+        className={css.linkDisclosure}
+        contentClassName={css.linkHeaderContent}
+        contentLayoutClassName={css.linkHeaderInner}
+        collapsedContent={
+          <span className={css.linkHeaderHint}>
+            discover and register skills from agents on this machine
+          </span>
+        }
+        keepContentWhenOpen
+      >
+        <div className={css.linkBody}>
+          <div className={css.sourceRow}>
+            {LINK_SOURCES.map((src) =>
+              src.enabled ? (
+                <Button
+                  key={src.id}
+                  type="button"
+                  icon={<IconLinkOutlineRegular />}
+                  onClick={onPreviewLink}
+                  disabled={linkBusy}
+                >
+                  {src.label}
+                </Button>
+              ) : (
+                <Tooltip key={src.id} label="support planned" side="bottom">
+                  <span className={css.sourceTip}>
+                    <Button
+                      type="button"
+                      disabled
+                      aria-label={`${src.label} — support planned`}
+                    >
+                      {src.label}
+                    </Button>
+                  </span>
+                </Tooltip>
+              ),
+            )}
           </div>
+          <p className={css.hint}>
+            trae-cn reads ~/.trae-cn/ — other agents will light up as support lands
+          </p>
+          {linkPlan !== null && (
+            <div className={css.plan}>
+              <p className={css.hint}>
+                {`source: ${linkPlan.source} · ${linkPlan.entries.length} skill(s) found`}
+                {linkPlan.conflicts.length > 0 ? ` · ${linkPlan.conflicts.length} conflict(s)` : ''}
+              </p>
+              <ul className={css.planList}>
+                {linkPlan.entries.map((entry) => (
+                  <li key={entry.name}>
+                    <strong>{entry.name}</strong>{' '}
+                    ({entry.groupPath.join('/')})
+                    {entry.skillName ? ` — ${entry.skillName}` : ''}
+                  </li>
+                ))}
+              </ul>
+              {linkPlan.conflicts.map((name) => (
+                <p className={css.error} key={name}>
+                  {`conflict: "${name}" already exists (pass --force from CLI to overwrite)`}
+                </p>
+              ))}
+              <div className={css.entryActions}>
+                <Button
+                  type="button"
+                  variant="primary"
+                  onClick={onLink}
+                  disabled={linkBusy || linkPlan.entries.length === 0}
+                >
+                  link
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </DisclosureRow>
 
       {/* ---------------- toolbar ---------------- */}
       <div className={css.toolbar}>

@@ -18,12 +18,9 @@
     "resolveJsonModule": true,
     "allowJs": false
   },
-  // `src/client/**/*` rather than `**/*.ts` + `**/*.tsx`: the `*.module.css`
-  // declaration shim is a `.d.ts`, and a `.ts`-only glob silently skips it —
-  // which turns every `import css from './x.module.css'` into TS2307 even
-  // though the stylesheet and its loader both exist (the same trap the test
-  // tsconfig documents on its own `include`). The shim itself lives one level
-  // up in `src/`, so it needs its own entry.
-  "include": ["src/client/**/*", "src/css-modules.d.ts"],
+  // Include client files plus cross-directory imports (panel.tsx → ../filter.ts,
+  // ../import-decision.ts). emitDeclarationOnly ensures only .d.ts files land
+  // in lib/client-types/, never .js.
+  "include": ["src/client/**/*", "src/filter.ts", "src/import-decision.ts", "src/css-modules.d.ts"],
   "exclude": ["node_modules", "lib"]
 }
