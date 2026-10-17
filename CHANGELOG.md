@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+**2026-10-17 · Changed · link 区可折叠 + 多来源按钮（DisclosureRow 包裹）**
+
+- **背景**：link 区块此前是一个扁平的 `formRow` + 条件渲染的 `linkPlan` 预览块，标题 "link trae-cn skills" 硬编码了单一来源。随着更多 agent 的 link 通道计划（claude-code、workbuddy、qoder、qoder-cn），需要一个可扩展的 UI 结构：折叠/展开 + 多来源按钮行 + 占位按钮的 Tooltip 提示。
+- **变更**：
+  - `src/client/panel.tsx`：import 补充 `IconLinkOutlineRegular` 和 `Tooltip`；新增 `linkOpen` state（默认展开，与 `addOptionsOpen` 同模式——ephemeral React state，面板重开重置）；新增模块级常量 `LINK_SOURCES`（5 个来源，仅 `trae-cn` enabled，其余 disabled 占位）；替换原 L937–981 的 `formRow` + 条件 `plan` 块为 `DisclosureRow` 包裹——`collapsedContent` 显示泛化提示 "discover and register skills from agents on this machine"，展开后显示来源按钮行（enabled 的 Trae CN 按钮触发 `onPreviewLink`，disabled 的占位按钮外包 `Tooltip` hover "support planned"）+ 路径说明 hint + `linkPlan` 预览块。`onPreviewLink` / `onLink` 函数体不动，仍硬编码 `'trae-cn'`——后端 `planLinkLocal` 对非 `trae-cn` source 抛 `LinkError`，占位按钮 `disabled` 不触发任何 API 调用，天然防线。
+  - `src/client/panel.module.css`：新增 6 个类——`.linkDisclosure`（`margin-top: 8px` 保持 22px 垂直间距）、`.linkHeaderContent` / `.linkHeaderInner` / `.linkHeaderHint`（通过 flex 布局把 `collapsedContent` 的 hint 推到行尾）、`.linkBody` / `.sourceRow` / `.sourceTip`（按钮行布局 + Tooltip 的 span 包裹确保跨浏览器 hover 事件可达）。全部使用现有 token 或纯布局属性，不引入字面色值。
+  - `test/primitives-stub.mjs`：补 `IconLinkOutlineRegular` stub 导出（`Tooltip` stub 已存在）。
+- **验证**：`npm run typecheck`、`npm test` 通过（754 项中 751 通过、0 失败、3 跳过，用例数与上一条目持平，说明重命名 "link trae-cn skills" → "link local skills" 未破坏 `panel-render.test.tsx` 现有断言——该文件无文案断言）。聚焦验证：`node --import tsx --test test/panel-render.test.tsx`；全量回归：`npm test`。
+- **不做**：不改 install 卡片、toolbar、技能列表、后端（`external.ts` L261–266 对非 `trae-cn` source 抛 `LinkError` 的防线不动）、CLI。不引入新字面色值。`onPreviewLink` / `onLink` 不参数化接收 `src.id`——等第二个来源真正接入时再改。
+
 **2026-10-16 · Added · HTTP `POST /remove` group 模式 + 客户端 `removeGroup` + 面板组级 remove 按钮**
 
 - **背景**：CLI `remove --group` 已支持批量删除（上一条目），HTTP 路由与面板缺少对应能力——link channel 一次创建的几十个条目只能通过单名逐个删除。

@@ -242,6 +242,45 @@
   color: var(--dsw-alias-label-dimmed);
 }
 
+/* ---------------- link sources (collapsible disclosure) ---------------- */
+
+.linkDisclosure {
+  margin-top: 8px;
+}
+
+.linkHeaderContent {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.linkHeaderInner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.linkHeaderHint {
+  margin-left: auto;
+}
+
+.linkBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.sourceRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sourceTip {
+  display: inline-flex;
+}
+
 /* ---------------- package import ---------------- */
 
 .plan {
