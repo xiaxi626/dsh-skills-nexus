@@ -6,20 +6,15 @@
 [![dsh.so install](https://www.dsh.so/badge/install/dsh-skills-nexus.svg)](https://www.dsh.so/artifact/dsh-skills-nexus/)
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/xiaxi626/dsh-skills-nexus)
 ![GitHub License](https://img.shields.io/github/license/xiaxi626/dsh-skills-nexus)
+[![DSH Compatible](https://img.shields.io/badge/DSH-Compatible%20with%20Latest%20Version-blue)](https://github.com/deepseek-ai/dsh)
 
 **English** | [中文](README_CN.md)
 
 ⭐ **If this project helps you, welcome to Star for support!**
 
-A universal DSH skill adapter. **Install once**, then register **any** git
-repo that contains a `SKILL.md` as a DSH skill — one command at a time. The
-skill repo itself stays pure: no Cordis plugin code, no `package.json`, no
-`cordis.patch.yml` required.
+DSH skill lifecycle manager — from git repo cloning, external directory linking, package import/export, to group management, health checks, and cross-machine transport. Keeps up with the latest DSH version, compatible with the official filesystem provider.
 
-Nexus works by cloning SKILL.md repos to a local `~/.dsh/skills-nexus/repos/`
-directory and creating symlinks in the official DSH skills root
-(`~/.dsh/skills/`). The official filesystem provider automatically discovers,
-watches, and serves them — no custom provider or runtime scanning needed.
+dsh-skills-nexus is a community-maintained DeepSeek Harness (DSH) plugin, not an official DeepSeek AI product.
 
 ## Why
 

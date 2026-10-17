@@ -6,14 +6,15 @@
 [![dsh.so install](https://www.dsh.so/badge/install/dsh-skills-nexus.svg)](https://www.dsh.so/artifact/dsh-skills-nexus/)
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/xiaxi626/dsh-skills-nexus)
 ![GitHub License](https://img.shields.io/github/license/xiaxi626/dsh-skills-nexus)
+[![DSH Compatible](https://img.shields.io/badge/DSH-Compatible%20with%20Latest%20Version-blue)](https://github.com/deepseek-ai/dsh)
 
 [English](README.md) | **中文**
 
 ⭐ **如果项目对你有帮助，欢迎 Star 支持！**
 
-通用 DSH skill 适配器。**安装一次**，就可以把任意包含 `SKILL.md` 的 git 仓库注册为 DSH skill——一条命令添加一个仓库。skill 仓库本身保持纯净：不需要 Cordis 插件代码，不需要 `package.json`，也不需要 `cordis.patch.yml`。
+DSH skill 全生命周期管理器——从 git 仓库克隆、外部目录链接、包导入导出，到分组管理、健康检查与跨机器搬运。紧跟 DSH 最新版本，兼容官方 filesystem provider。
 
-nexus 将 SKILL.md 仓库克隆到本地 `~/.dsh/skills-nexus/repos/` 目录，然后在 DSH 官方 skills 根目录（`~/.dsh/skills/`）中创建符号链接（symlink）。官方 filesystem provider 会自动发现、监听并加载这些 skill——不再需要自定义 provider，也不再需要在运行时扫描目录。
+dsh-skills-nexus 是社区维护的 DeepSeek Harness (DSH) 插件，非 DeepSeek 官方产品。
 
 ## 为什么需要它
 

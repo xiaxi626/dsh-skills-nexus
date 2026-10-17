@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-17
+
 **2026-10-17 · Fixed · tsconfig.client-types.json 包含跨目录导入文件，解决 IDE 标红**
 
 - **背景**：`panel.tsx` 导入了 `../filter.ts` 和 `../import-decision.ts`，这两个文件在 `src/` 目录下，不在 `src/client/` 目录下。`tsconfig.client-types.json` 的 `include` 原来只包含 `src/client/**/*` 和 `src/css-modules.d.ts`，导致 IDE 的 TypeScript 语言服务器无法解析这些跨目录导入，报 TS2307 错误（"找不到模块"或其相应的类型声明"）。
