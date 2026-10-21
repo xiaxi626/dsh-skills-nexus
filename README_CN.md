@@ -125,7 +125,7 @@ dsh-skills-nexus import migrate.zip --locked        # 恢复各条目记录的�
 dsh-skills-nexus adopt <name> --url github:owner/repo   # 给无 git 源的条目补回来路
 
 # 链接外部技能（引用你已有的目录——不克隆）
-dsh-skills-nexus link trae-cn                       # 发现 ~/.trae-cn/skills/ 和 builtin_skills/ 下的技能
+dsh-skills-nexus link trae-cn                       # 发现 ~/.trae-cn/skills/ 下的技能
 dsh-skills-nexus link trae-cn --dry-run             # 预览但不创建条目
 dsh-skills-nexus link trae-cn --trae-cn-dir /path   # 覆盖 trae-cn 根目录
 dsh-skills-nexus link trae-cn --group custom        # 覆盖 L1 组名（默认 trae-cn）

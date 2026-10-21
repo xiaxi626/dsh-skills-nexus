@@ -65,7 +65,7 @@ dsh-skills-nexus import package.zip --locked
       explicitly reports that commit unavailable
 
 dsh-skills-nexus link trae-cn
-   └─ scan ~/.trae-cn/skills/ and builtin_skills/ for skill directories
+   └─ scan ~/.trae-cn/skills/ for skill directories
    └─ for each discovered skill:
       └─ create manifest entry with ownership: 'external'
       └─ create symlink → ~/.dsh/skills/<name>/ → points to external dir

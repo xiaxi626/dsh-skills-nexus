@@ -243,7 +243,7 @@ the target directories. `remove` only deletes the link and the manifest
 entry, never the directory.
 
 Currently the only accepted source is `trae-cn`, which scans
-`<root>/skills/` and `<root>/builtin_skills/` for skill directories.
+`<root>/skills/` for skill directories.
 
 | Flag | Effect |
 |---|---|

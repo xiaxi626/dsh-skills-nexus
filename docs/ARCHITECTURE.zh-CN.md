@@ -64,7 +64,7 @@ dsh-skills-nexus import package.zip --locked
       才使用包内载荷
 
 dsh-skills-nexus link trae-cn
-   └─ 扫描 ~/.trae-cn/skills/ 和 builtin_skills/ 下的技能目录
+   └─ 扫描 ~/.trae-cn/skills/ 下的技能目录
    └─ 对每个发现的技能：
       └─ 创建 ownership: 'external' 的 manifest 条目
       └─ 创建 symlink → ~/.dsh/skills/<name>/ → 指向外部目录

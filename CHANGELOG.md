@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+**2026-10-21 · Fixed · link trae-cn 只扫描 `skills/` 子目录，移除 builtin_skills**
+
+- **背景**：`~/.trae-cn/builtin_skills/` 装的是 TRAE 自带的官方技能（本机为 `TRAE-code-review`、`TRAE-debugger`、`TRAE-generate-mini-app`、`TRAE-security-review` 等），产品上决定不把它们纳入 link 通道——该通道只覆盖用户自有的 `skills/`，README/ARCHITECTURE/verify-* 也随之只描述 `skills/`。方案取舍：只收窄扫描列表，不收敛循环、不删 `DiscoveredSkill.subdir` 字段——多目录扫描是已知 roadmap（claude-code、qoder 等来源）的共同扩展点，删掉后第二个来源落地时需原样恢复，净收益为负；也暂不建 source→subdirs 注册表，其他来源的目录层级未定，建表等于猜。
+- **变更**：
+  - `src/external.ts`：`TRAE_CN_SUBDIRS` 从 `['skills', 'builtin_skills']` 收窄为 `['skills']`（功能改动仅此一行）；同步 3 处注释。`groupPath` 三段形状 `[source, subdir, dirName]` 不变，存量条目名字形状不变：旧 `trae-cn.skills.*` 重新 link 仍判 conflict；旧 `trae-cn.builtin_skills.*` 条目（若存在）仍可经 `remove --group trae-cn/builtin_skills` 清理——组匹配不依赖扫描列表，toggle/remove/面板/client 零改动。
+  - `src/cli/commands/link.ts`：jsdoc 删除 builtin_skills 描述。
+  - `test/external-link.test.ts`：用例改为「只扫 skills 且忽略 builtin_skills」——绕过 seed helper 直接构造合法的 `builtin_skills/skill-b`，断言 discovered 恰为 1 项且 `subdir === 'skills'`，把静默忽略行为钉死；两个测试文件的 `seedTraeCnSkill` 一并删掉已退化为单值的 `subdir` 参数（调用点原先全部传 `'skills'`）。
+  - `docs/verify-group-operations.md`（及 zh-CN）：`builtin_skills` 不能再经 `link` 注册，演练的第二子组改为 `vendor_skills`，在步骤 `[a]` 里用 `node --input-type=module` heredoc 直接写 manifest **并调 `linkSkill` 建链**（照抄 `linkLocal` 的两步：只写 manifest 的条目在 `list` 里是 `off`，`[b]` 的「4 off / 2 on」判别就失效）；预期输出表同步（`[a]` 变为 `Linked 4` + 6 names）；坑节新增第 3 条辨识方法（若 `[a]` 只列出 4 个名字，说明写入片段未执行）。
+  - README/README_CN、ARCHITECTURE 双语、sources-and-packages 双语：删除 `和 builtin_skills/` 措辞，改为只扫 `skills/`。
+- **验证**：分三个原子提交：`fix(link)` 源码 + `lib/` 重编译产物 → `test(link)` → `docs`。`npm run typecheck`、`npm run lint` 通过；聚焦 `node --import tsx --test test/external-link.test.ts test/cli-link.test.ts` 15/15 通过；全量 `npm test` 通过 749 项，另有 4–7 个失败全部为 Windows 临时目录 EBUSY 清理抖动（失败集合与用例总数逐次浮动，涉及 adopt/diff/install-spin/parity/rollback/switch-version 等与 link 通道无关的套件）。改后的 verify-group-operations 演练脚本已在本机 Git Bash 实测跑通全步骤（link 4 + 直写 2 含建链 → 段级隔离 → 批量删除 → 目录保留 → 空组 exit 1）。
+- **如何辨识改动**：`link trae-cn --dry-run` 报 `Linked 4`（此前双目录环境报 6）；`~/.trae-cn/builtin_skills/` 下的 TRAE 内置技能改后 link **静默不再发现它们**——不报错、不提示，这是有意行为；需要时用 `remove --group trae-cn/builtin_skills --yes` 清掉存量旧条目。
+- **不做**：不新建 source→subdirs 注册表；不改 groupPath 三段形状；不参数化 `onPreviewLink`/`onLink`；不自动清理存量 builtin 条目；不手改 `lib/`（一律经 `npm run build` 重生）；不回改历史 CHANGELOG 条目（v0.7.0 及更早条目仍如实描述当时的双目录行为，属执行快照）；`build:client` 未重跑——已验证 `lib/client.js` 中无 `builtin_skills`/`TRAE_CN_SUBDIRS` 字面量，浏览器包不内联 external.ts。
+
 ## [0.7.0] - 2026-10-17
 
 **2026-10-17 · Fixed · tsconfig.client-types.json 包含跨目录导入文件，解决 IDE 标红**

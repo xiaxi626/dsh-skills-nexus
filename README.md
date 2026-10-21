@@ -165,7 +165,7 @@ dsh-skills-nexus import migrate.zip --locked        # restore each exact recorde
 dsh-skills-nexus adopt <name> --url github:owner/repo   # give a source-less entry its git identity back
 
 # link external skills (reference directories you already own — no clone)
-dsh-skills-nexus link trae-cn                       # discover skills under ~/.trae-cn/skills/ and builtin_skills/
+dsh-skills-nexus link trae-cn                       # discover skills under ~/.trae-cn/skills/
 dsh-skills-nexus link trae-cn --dry-run             # preview without creating entries
 dsh-skills-nexus link trae-cn --trae-cn-dir /path   # override the trae-cn root directory
 dsh-skills-nexus link trae-cn --group custom        # override the L1 group name (default: trae-cn)

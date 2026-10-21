@@ -40,7 +40,7 @@ Relevant test coverage:
 
 | test file | what it verifies |
 |---|---|
-| `test/toggle-group.test.ts` | segment-exact prefix match; sub-group isolation (`trae-cn/skills` does not touch `trae-cn/builtin_skills`); empty-group error (human + JSON); name intersection (`--group <path> <name>`); already-in-that-state idempotency; managed entries (no `groupPath`) are invisible to `--group` |
+| `test/toggle-group.test.ts` | segment-exact prefix match; sub-group isolation (`trae-cn/skills` does not touch the seeded second sub-group); empty-group error (human + JSON); name intersection (`--group <path> <name>`); already-in-that-state idempotency; managed entries (no `groupPath`) are invisible to `--group` |
 | `test/remove-group.test.ts` | batch deletion with external directory preservation; segment boundary; mutual exclusion with name patterns (exit 2); empty group (human exit 1, JSON exit 1 with `summary.failed: 1`); non-TTY refusal (exit 2); interactive confirm + abort; `--yes` skip; single-match needs no `--yes` |
 | `test/api.test.ts` | HTTP toggle route segment-exact match (`trae-cn/skill` → 404, `trae-cn/skills` → 200); name+group ambiguity (400) |
 | `test/args.test.ts` | `parseRemoveArgs --group` with separate value, inline `--group=`, and empty-value rejection |
@@ -53,9 +53,10 @@ Relevant test coverage:
 One copy-paste block per platform. Replace `PROJECT` with your checkout path.
 
 The fixture creates a fake trae-cn directory with six skills across two
-sub-groups (`skills/` and `builtin_skills/`), then uses `link trae-cn
---trae-cn-dir` to register them as external entries — no real `~/.trae-cn` is
-touched.
+sub-groups — four under `skills/` (registered with `link trae-cn
+--trae-cn-dir`) and two under `vendor_skills/` (seeded by hand — manifest entry
+plus symlink: the link channel only scans `skills/`, so a second sub-group can
+no longer arrive via `link`). No real `~/.trae-cn` is touched.
 
 ### Windows (Git Bash / MINGW64)
 
@@ -65,10 +66,10 @@ TROOT="$(cygpath -m "$TEMP")/nexus-group-ops"
 rm -rf "$TROOT"
 mkdir -p "$TROOT"
 
-# ---- fake trae-cn directory: 4 skills + 2 builtin_skills ----
+# ---- fake trae-cn directory: 4 skills + 2 vendor_skills ----
 TRAECN="$TROOT/trae-cn"
 for d in skills/alpha skills/beta skills/gamma skills/delta \
-         builtin_skills/review builtin_skills/debug; do
+         vendor_skills/review vendor_skills/debug; do
   name=$(echo "$d" | tr '/' '.')
   mkdir -p "$TRAECN/$d"
   printf -- "---\nname: trae-cn.%s\ndescription: %s\n---\nBody\n" \
@@ -80,13 +81,38 @@ cd "$PROJECT"
 
 echo "--- [a] link the fake trae-cn directory ---"
 node lib/cli/index.js link trae-cn --trae-cn-dir "$TRAECN"
+# link scans skills/ only — the 2 vendor_skills entries are seeded directly.
+# Mirror linkLocal's two steps (manifest entry + symlink): a manifest-only
+# entry has no link, so `list` reports it as off and step [b] loses its
+# "4 off / 2 on" signal.
+TRAECN="$TRAECN" node --input-type=module <<'EOF'
+import('./lib/manifest.js').then(async (m) => {
+  const { join } = await import('node:path');
+  const link = await import('./lib/link.js');
+  const trae = process.env.TRAECN;
+  for (const s of ['review', 'debug']) {
+    const dir = join(trae, 'vendor_skills', s);
+    const name = `trae-cn.vendor_skills.${s}`;
+    await m.addEntry({
+      name,
+      url: `trae-cn:vendor_skills/${s}`,
+      gitUrl: '', ref: '',
+      ownership: 'external', path: dir,
+      addedAt: new Date().toISOString(),
+      externalDir: dir,
+      groupPath: ['trae-cn', 'vendor_skills', s],
+    });
+    await link.linkSkill(name, dir);
+  }
+});
+EOF
 node lib/cli/index.js list --names
 # expected: 6 names, all on
 
 echo "--- [b] disable the skills sub-group ---"
 node lib/cli/index.js disable --group trae-cn/skills
 node lib/cli/index.js list
-# expected: 4 skills/* entries off; 2 builtin_skills/* entries still on
+# expected: 4 skills/* entries off; 2 vendor_skills/* entries still on
 
 echo "--- [c] re-enable the skills sub-group ---"
 node lib/cli/index.js enable --group trae-cn/skills
@@ -102,7 +128,7 @@ node lib/cli/index.js list
 echo "--- [e] remove the skills sub-group (with --yes to skip confirm) ---"
 node lib/cli/index.js remove --group trae-cn/skills --yes
 node lib/cli/index.js list --names
-# expected: only trae-cn.builtin_skills.review and trae-cn.builtin_skills.debug
+# expected: only trae-cn.vendor_skills.review and trae-cn.vendor_skills.debug
 
 echo "--- [f] external directories survive removal ---"
 ls "$TRAECN/skills/alpha/SKILL.md" 2>/dev/null && echo "user dir preserved" || echo "USER DIR LOST"
@@ -139,7 +165,7 @@ mkdir -p "$TROOT"
 
 TRAECN="$TROOT/trae-cn"
 for d in skills/alpha skills/beta skills/gamma skills/delta \
-         builtin_skills/review builtin_skills/debug; do
+         vendor_skills/review vendor_skills/debug; do
   name=$(echo "$d" | tr '/' '.')
   mkdir -p "$TRAECN/$d"
   printf -- "---\nname: trae-cn.%s\ndescription: %s\n---\nBody\n" \
@@ -151,6 +177,31 @@ cd "$PROJECT"
 
 echo "--- [a] link the fake trae-cn directory ---"
 node lib/cli/index.js link trae-cn --trae-cn-dir "$TRAECN"
+# link scans skills/ only — the 2 vendor_skills entries are seeded directly.
+# Mirror linkLocal's two steps (manifest entry + symlink): a manifest-only
+# entry has no link, so `list` reports it as off and step [b] loses its
+# "4 off / 2 on" signal.
+TRAECN="$TRAECN" node --input-type=module <<'EOF'
+import('./lib/manifest.js').then(async (m) => {
+  const { join } = await import('node:path');
+  const link = await import('./lib/link.js');
+  const trae = process.env.TRAECN;
+  for (const s of ['review', 'debug']) {
+    const dir = join(trae, 'vendor_skills', s);
+    const name = `trae-cn.vendor_skills.${s}`;
+    await m.addEntry({
+      name,
+      url: `trae-cn:vendor_skills/${s}`,
+      gitUrl: '', ref: '',
+      ownership: 'external', path: dir,
+      addedAt: new Date().toISOString(),
+      externalDir: dir,
+      groupPath: ['trae-cn', 'vendor_skills', s],
+    });
+    await link.linkSkill(name, dir);
+  }
+});
+EOF
 node lib/cli/index.js list --names
 
 echo "--- [b] disable the skills sub-group ---"
@@ -194,13 +245,13 @@ unset DSH_HOME
 
 | step | expected output | meaning |
 |---|---|---|
-| `[a]` link | `Linked 6 skill(s) from trae-cn`; list shows 6 names, all on | external entries created with `groupPath` |
+| `[a]` link | `Linked 4 skill(s) from trae-cn`; list shows 6 names, all on | external entries created with `groupPath` (2 seeded directly) |
 | `[b]` disable sub-group | 4 `Disabled "trae-cn.skills.*"` lines; list: 4 off, 2 on | segment-exact: `trae-cn/skills` matches only the skills sub-group |
 | `[c]` enable sub-group | 4 `Enabled "trae-cn.skills.*"` lines; all 6 on | toggle is reversible |
 | `[d]` segment boundary | exit=1, `no entries match group "trae-cn/skill"`; all 6 still on | `trae-cn/skill` (missing `s`) does NOT match `trae-cn/skills/*` |
-| `[e]` remove sub-group | 4 `Removed "trae-cn.skills.*"` lines; list: 2 builtin remain | batch deletion scoped to sub-group |
+| `[e]` remove sub-group | 4 `Removed "trae-cn.skills.*"` lines; list: 2 vendor remain | batch deletion scoped to sub-group |
 | `[f]` directory check | `user dir preserved` | external entries preserve the user's source directory |
-| `[g]` remove L1 group | 2 `Removed "trae-cn.builtin_skills.*"` lines; list: empty | `trae-cn` matches all sub-groups |
+| `[g]` remove L1 group | 2 `Removed "trae-cn.vendor_skills.*"` lines; list: empty | `trae-cn` matches all sub-groups |
 | `[h]` empty group | exit=1, `no entries match group "trae-cn"` | empty group is an error, not a silent success |
 | `[i]` mutual exclusion | exit=2, `--group cannot be combined with name patterns` | usage error, nothing deleted |
 
@@ -213,20 +264,26 @@ unset DSH_HOME
 2. **`--trae-cn-dir` is required** — without it, `link trae-cn` looks at
    `~/.trae-cn` (which may not exist on the test machine). The flag overrides
    the default root.
-3. **Segment-exact vs string prefix** — the old `startsWith` bug let
+3. **`link` only scans `skills/`** — a second sub-group (`vendor_skills/` here)
+   is never picked up by `link`; it must be seeded by hand, as step `[a]` does —
+   and that means **both** the manifest entry and the symlink. A hand-written
+   manifest entry alone has no link, so `list` reports it as `off` and step `[b]`
+   stops distinguishing the two sub-groups. If step `[a]` lists only 4 names,
+   the seeding snippet did not run.
+4. **Segment-exact vs string prefix** — the old `startsWith` bug let
    `trae-cn/skill` match `trae-cn/skills/*`. Step `[d]` verifies this cannot
    happen. If you see all 6 entries toggled at step `[d]`, the fix is not in
    effect.
-4. **External entries never delete user directories** — step `[f]` checks this.
+5. **External entries never delete user directories** — step `[f]` checks this.
    `remove --group` only unregisters the manifest entry and removes the
    symlink; the user's source directory is preserved.
-5. **Managed entries are invisible to `--group`** — they have no `groupPath`,
+6. **Managed entries are invisible to `--group`** — they have no `groupPath`,
    so group operations only affect entries created by `link` (external
    entries). This is by design.
-6. **Confirmation guard** — without `--yes`, a group matching multiple entries
+7. **Confirmation guard** — without `--yes`, a group matching multiple entries
    prompts on a TTY and refuses on a non-TTY (exit 2). The walkthrough uses
    `--yes` throughout for scriptability; interactive use should see the prompt.
-7. **`git init -b main` needs git >= 2.28** — not used in this walkthrough
+8. **`git init -b main` needs git >= 2.28** — not used in this walkthrough
    (the fixture creates plain directories, not git repos), but relevant if you
    extend the fixture with `add` entries.
 

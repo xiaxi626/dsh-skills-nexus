@@ -195,7 +195,7 @@ dsh-skills-nexus link trae-cn --force               # 冲突时替换已有条�
 
 `link` 从用户已有的外部目录中发现技能，创建*外部条目*——`ownership: 'external'` 的 manifest 记录，符号链接到那些目录。nexus 不克隆、不更新、不删除目标目录。`remove` 只删除链接和 manifest 条目，不删除目录。
 
-目前唯一接受的来源是 `trae-cn`，扫描 `<root>/skills/` 和 `<root>/builtin_skills/` 下的技能目录。
+目前唯一接受的来源是 `trae-cn`，扫描 `<root>/skills/` 下的技能目录。
 
 | 参数 | 作用 |
 |---|---|
