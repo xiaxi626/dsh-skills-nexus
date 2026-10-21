@@ -59,12 +59,8 @@ async function createTraeCnDir(): Promise<string> {
   return await mkdtemp(join(tmpdir(), 'nexus-cli-link-trae-'))
 }
 
-async function seedTraeCnSkill(
-  traeCnDir: string,
-  subdir: 'skills' | 'builtin_skills',
-  name: string,
-): Promise<string> {
-  const dir = join(traeCnDir, subdir, name)
+async function seedTraeCnSkill(traeCnDir: string, name: string): Promise<string> {
+  const dir = join(traeCnDir, 'skills', name)
   await mkdir(dir, { recursive: true })
   await writeFile(join(dir, 'SKILL.md'), skillMd(name))
   return dir
@@ -94,7 +90,7 @@ test('link trae-cn --dry-run previews without creating entries', async () => {
   await clearManifest()
   const traeCnDir = await createTraeCnDir()
   try {
-    await seedTraeCnSkill(traeCnDir, 'skills', 'preview-skill')
+    await seedTraeCnSkill(traeCnDir, 'preview-skill')
 
     const { io, lines } = captureIO()
     const exitCode = await linkCmd.link(['trae-cn', '--dry-run', '--trae-cn-dir', traeCnDir], io)
@@ -118,7 +114,7 @@ test('link trae-cn creates manifest entries and symlinks', async () => {
   await clearManifest()
   const traeCnDir = await createTraeCnDir()
   try {
-    const skillDir = await seedTraeCnSkill(traeCnDir, 'skills', 'execute-skill')
+    const skillDir = await seedTraeCnSkill(traeCnDir, 'execute-skill')
 
     const { io } = captureIO()
     const exitCode = await linkCmd.link(['trae-cn', '--trae-cn-dir', traeCnDir], io)
@@ -150,7 +146,7 @@ test('link trae-cn --json outputs structured data', async () => {
   await clearManifest()
   const traeCnDir = await createTraeCnDir()
   try {
-    await seedTraeCnSkill(traeCnDir, 'skills', 'json-skill')
+    await seedTraeCnSkill(traeCnDir, 'json-skill')
 
     const { io, lines } = captureIO()
     const exitCode = await linkCmd.link(['trae-cn', '--trae-cn-dir', traeCnDir, '--json'], io)
@@ -187,7 +183,7 @@ test('link trae-cn reports conflict on duplicate run', async () => {
   await clearManifest()
   const traeCnDir = await createTraeCnDir()
   try {
-    await seedTraeCnSkill(traeCnDir, 'skills', 'conflict-skill')
+    await seedTraeCnSkill(traeCnDir, 'conflict-skill')
 
     // First run succeeds.
     const { io: io1 } = captureIO()
@@ -212,7 +208,7 @@ test('link trae-cn --force bypasses conflict', async () => {
   await clearManifest()
   const traeCnDir = await createTraeCnDir()
   try {
-    await seedTraeCnSkill(traeCnDir, 'skills', 'force-skill')
+    await seedTraeCnSkill(traeCnDir, 'force-skill')
 
     // First run.
     const { io: io1 } = captureIO()
@@ -235,7 +231,7 @@ test('link trae-cn --group overrides L1 group name', async () => {
   await clearManifest()
   const traeCnDir = await createTraeCnDir()
   try {
-    await seedTraeCnSkill(traeCnDir, 'skills', 'group-skill')
+    await seedTraeCnSkill(traeCnDir, 'group-skill')
 
     const { io } = captureIO()
     const exitCode = await linkCmd.link(['trae-cn', '--trae-cn-dir', traeCnDir, '--group', 'custom-group'], io)

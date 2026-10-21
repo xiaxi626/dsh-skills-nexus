@@ -61,12 +61,8 @@ async function createTraeCnDir(): Promise<string> {
   return await mkdtemp(join(tmpdir(), 'nexus-link-trae-'))
 }
 
-async function seedTraeCnSkill(
-  traeCnDir: string,
-  subdir: 'skills' | 'builtin_skills',
-  name: string,
-): Promise<string> {
-  const dir = join(traeCnDir, subdir, name)
+async function seedTraeCnSkill(traeCnDir: string, name: string): Promise<string> {
+  const dir = join(traeCnDir, 'skills', name)
   await mkdir(dir, { recursive: true })
   await writeFile(join(dir, 'SKILL.md'), skillMd(name))
   return dir
@@ -96,7 +92,7 @@ test('planLinkLocal constructs groupPath as [source, subdir, dirName]', async ()
   await clearManifest()
   const traeCnDir = await createTraeCnDir()
   try {
-    await seedTraeCnSkill(traeCnDir, 'skills', 'brainstorming')
+    await seedTraeCnSkill(traeCnDir, 'brainstorming')
 
     const plan = await external.planLinkLocal('trae-cn', { traeCnDir })
     assert.equal(plan.entries.length, 1)
@@ -112,7 +108,7 @@ test('planLinkLocal respects --group override for L1 name', async () => {
   await clearManifest()
   const traeCnDir = await createTraeCnDir()
   try {
-    await seedTraeCnSkill(traeCnDir, 'skills', 'my-skill')
+    await seedTraeCnSkill(traeCnDir, 'my-skill')
 
     const plan = await external.planLinkLocal('trae-cn', { traeCnDir, group: 'custom-group' })
     assert.equal(plan.entries.length, 1)
@@ -128,7 +124,7 @@ test('planLinkLocal reports conflict when entry already exists', async () => {
   await clearManifest()
   const traeCnDir = await createTraeCnDir()
   try {
-    await seedTraeCnSkill(traeCnDir, 'skills', 'conflict-skill')
+    await seedTraeCnSkill(traeCnDir, 'conflict-skill')
 
     // First plan: no conflict.
     const plan1 = await external.planLinkLocal('trae-cn', { traeCnDir })
@@ -161,7 +157,7 @@ test('planLinkLocal with --force bypasses conflict', async () => {
   await clearManifest()
   const traeCnDir = await createTraeCnDir()
   try {
-    await seedTraeCnSkill(traeCnDir, 'skills', 'force-skill')
+    await seedTraeCnSkill(traeCnDir, 'force-skill')
 
     // Add the entry to the manifest.
     await manifest.addEntry({
@@ -194,7 +190,7 @@ test('linkLocal creates manifest entries and symlinks', async () => {
   await clearManifest()
   const traeCnDir = await createTraeCnDir()
   try {
-    const skillDir = await seedTraeCnSkill(traeCnDir, 'skills', 'execute-skill')
+    const skillDir = await seedTraeCnSkill(traeCnDir, 'execute-skill')
 
     const io = {
       confirm: async () => true,
@@ -250,16 +246,20 @@ test('linkLocal reports not-found error for missing skill directory', async () =
 /* discoverTraeCnSkills                                                */
 /* ------------------------------------------------------------------ */
 
-test('discoverTraeCnSkills finds skills in both subdirs', async () => {
+test('discoverTraeCnSkills scans only the skills subdir and ignores builtin_skills', async () => {
   const traeCnDir = await createTraeCnDir()
   try {
-    await seedTraeCnSkill(traeCnDir, 'skills', 'skill-a')
-    await seedTraeCnSkill(traeCnDir, 'builtin_skills', 'skill-b')
+    await seedTraeCnSkill(traeCnDir, 'skill-a')
+    // Seed builtin_skills by hand (seedTraeCnSkill only writes under skills/):
+    // a valid skill there must be silently ignored — not discovered, not errored.
+    const builtinDir = join(traeCnDir, 'builtin_skills', 'skill-b')
+    await mkdir(builtinDir, { recursive: true })
+    await writeFile(join(builtinDir, 'SKILL.md'), skillMd('skill-b'))
 
     const discovered = await external.discoverTraeCnSkills(traeCnDir)
-    assert.equal(discovered.length, 2)
-    const names = discovered.map((d) => d.name).sort()
-    assert.deepEqual(names, ['skill-a', 'skill-b'])
+    assert.equal(discovered.length, 1)
+    assert.deepEqual(discovered.map((d) => d.name), ['skill-a'])
+    assert.ok(discovered.every((d) => d.subdir === 'skills'))
   } finally {
     await rm(traeCnDir, { recursive: true, force: true })
   }
