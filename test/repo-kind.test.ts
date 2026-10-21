@@ -1,9 +1,10 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { classifyRepo, detectDshPluginMarkers } from '../src/repo-kind.js'
+import { removeTree } from './fs-helpers.js'
 
 /**
  * classifyRepo — repo content → kind, on real temp dirs:
@@ -17,7 +18,7 @@ before(async () => {
 })
 
 after(async () => {
-  await rm(root, { recursive: true, force: true })
+  await removeTree(root)
 })
 
 async function repo(name: string, files: Record<string, string>): Promise<string> {

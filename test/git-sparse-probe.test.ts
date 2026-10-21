@@ -1,11 +1,12 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
-import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { sparseSetAdvertisesCone } from './sparse-capability.js'
+import { removeTree } from './fs-helpers.js'
 
 /**
  * Capability-probe and degradation branches of `cloneRepo`, driven through a
@@ -108,7 +109,7 @@ before(async () => {
 
 const tmpRoots: string[] = []
 after(async () => {
-  for (const dir of tmpRoots) await rm(dir, { recursive: true, force: true })
+  for (const dir of tmpRoots) await removeTree(dir)
 })
 
 async function tmpRoot(): Promise<string> {

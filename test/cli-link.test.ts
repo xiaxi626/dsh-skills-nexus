@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { OpsIO } from '../src/ops-io.js'
+import { removeTree } from './fs-helpers.js'
 
 /**
  * CLI tests for the `link` command.
@@ -37,7 +38,7 @@ before(async () => {
 })
 
 after(async () => {
-  await rm(home, { recursive: true, force: true })
+  await removeTree(home)
   delete process.env.DSH_HOME
 })
 

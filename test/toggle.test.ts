@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { OpsIO } from '../src/ops-io.js'
+import { removeTree } from './fs-helpers.js'
 
 /**
  * Integration tests for enable/disable (`toggle`) against multi-skill repos.
@@ -63,7 +64,7 @@ before(async () => {
 })
 
 after(async () => {
-  await rm(home, { recursive: true, force: true })
+  await removeTree(home)
   delete process.env.DSH_HOME
 })
 

@@ -1,9 +1,10 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { locateSkillFiles } from '../src/locator.js'
+import { removeTree } from './fs-helpers.js'
 
 /**
  * locateSkillFiles — the 3 discovery layouts, against real temp dirs:
@@ -19,7 +20,7 @@ before(async () => {
 })
 
 after(async () => {
-  await rm(root, { recursive: true, force: true })
+  await removeTree(root)
 })
 
 async function fixture(rel: string, content = 'body'): Promise<string> {

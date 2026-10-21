@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { RouteRequest, RouteResponse, RouteSpec } from '../src/http/types.js'
+import { removeTree } from './fs-helpers.js'
 
 /**
  * CLI ↔ plugin parity: one operation, one filesystem outcome.
@@ -98,7 +99,7 @@ before(async () => {
 })
 
 after(async () => {
-  await rm(home, { recursive: true, force: true })
+  await removeTree(home)
   delete process.env.DSH_HOME
 })
 

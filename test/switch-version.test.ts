@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { cloneRepo, getCurrentBranch, getHeadCommit, parseGitSpec } from '../src/git.js'
 import type { OpsIO } from '../src/ops-io.js'
+import { removeTree } from './fs-helpers.js'
 
 /**
  * End-to-end tests for `switch-version` (§8.2) against local `file://`
@@ -93,7 +94,7 @@ before(async () => {
 })
 
 after(async () => {
-  await rm(home, { recursive: true, force: true })
+  await removeTree(home)
   delete process.env.DSH_HOME
 })
 

@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import type { RouteRequest, RouteResponse, RouteSpec } from '../src/http/types.js'
 import type { Job } from '../src/http/jobs.js'
 import type { SkillEntry } from '../src/types.js'
+import { removeTree } from './fs-helpers.js'
 
 /**
  * Route-level tests for the §7.1 HTTP table (src/http/routes.ts).
@@ -65,7 +66,7 @@ before(async () => {
 })
 
 after(async () => {
-  await rm(home, { recursive: true, force: true })
+  await removeTree(home)
   delete process.env.DSH_HOME
 })
 

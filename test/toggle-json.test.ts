@@ -1,9 +1,10 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { OpsIO } from '../src/ops-io.js'
+import { removeTree } from './fs-helpers.js'
 
 /**
  * Tests for `enable` / `disable --json` (P0 §4.5) and the batch form of the
@@ -38,7 +39,7 @@ before(async () => {
 })
 
 after(async () => {
-  await rm(home, { recursive: true, force: true })
+  await removeTree(home)
   delete process.env.DSH_HOME
 })
 

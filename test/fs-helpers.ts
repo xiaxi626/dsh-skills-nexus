@@ -1,4 +1,4 @@
-﻿import { readdir, realpath, rm, rmdir } from 'node:fs/promises'
+import { readdir, realpath, rm, rmdir } from 'node:fs/promises'
 import {
   lstatSync,
   mkdtempSync,
@@ -46,7 +46,14 @@ import { join } from 'node:path'
  */
 export async function removeTree(dir: string): Promise<void> {
   await removeDanglingLinks(dir)
-  await rm(dir, { recursive: true, force: true })
+  // The second Windows-only quirk, and the reason every `after()` hook calls
+  // this instead of `rm` directly: a handle can still be open on the fixture
+  // when teardown runs — a git child that has only just exited, or an indexer
+  // or anti-virus scanning the fresh clone — and the delete fails with `EBUSY`.
+  // Node's own linear backoff covers exactly the retryable codes
+  // (`EBUSY`/`EMFILE`/`ENFILE`/`ENOTEMPTY`/`EPERM`), so a transient lock costs
+  // a few hundred milliseconds while a real permission error still surfaces.
+  await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 /** Remove every entry directly inside `dir` that resolves nowhere. */

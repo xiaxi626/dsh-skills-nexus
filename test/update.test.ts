@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { cloneRepo, getHeadCommit, isDetachedHead, parseGitSpec } from '../src/git.js'
 import { SPARSE_SKIP } from './sparse-capability.js'
+import { removeTree } from './fs-helpers.js'
 
 /**
  * Integration tests for the `update` command against local `file://` remotes
@@ -70,7 +71,7 @@ before(async () => {
 })
 
 after(async () => {
-  await rm(home, { recursive: true, force: true })
+  await removeTree(home)
   delete process.env.DSH_HOME
 })
 

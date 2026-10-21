@@ -1,9 +1,10 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, rm, writeFile, readdir, stat } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readdir, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { Manifest, SkillEntry } from '../src/types.js'
+import { removeTree } from './fs-helpers.js'
 
 /**
  * manifest round-trips against a real temp DSH_HOME.
@@ -38,7 +39,7 @@ before(async () => {
 })
 
 after(async () => {
-  await rm(home, { recursive: true, force: true })
+  await removeTree(home)
   delete process.env.DSH_HOME
 })
 

@@ -1,7 +1,7 @@
 import { after, before, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -9,6 +9,7 @@ import { promisify } from 'node:util'
 import { cloneRepo, getCurrentBranch, getHeadCommit } from '../src/git.js'
 import type { OpsIO } from '../src/ops-io.js'
 import type { SkillEntry } from '../src/types.js'
+import { removeTree } from './fs-helpers.js'
 
 const execFileAsync = promisify(execFile)
 let home: string
@@ -33,7 +34,7 @@ before(async () => {
 })
 
 after(async () => {
-  await rm(home, { recursive: true, force: true })
+  await removeTree(home)
   delete process.env.DSH_HOME
 })
 

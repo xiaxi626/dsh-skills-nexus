@@ -10,6 +10,7 @@ import { cloneRepo, discardLocalChanges, getHeadCommit, getCurrentBranch, rollba
 import type { OpsIO } from '../src/ops-io.js'
 import type { SkillEntry } from '../src/types.js'
 import type { RollbackJsonReport } from '../src/cli/json-types.js'
+import { removeTree } from './fs-helpers.js'
 
 const execFileAsync = promisify(execFile)
 const io: OpsIO = { emit() {}, error() {}, progress() {}, confirm: async () => false, interactive: false }
@@ -40,7 +41,7 @@ before(async () => {
   assert.ok(paths.REPOS_DIR.startsWith(home))
 })
 after(async () => {
-  await rm(home, { recursive: true, force: true })
+  await removeTree(home)
   delete process.env.DSH_HOME
 })
 

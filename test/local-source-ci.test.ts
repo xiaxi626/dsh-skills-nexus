@@ -1,11 +1,12 @@
 import { after, before, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
+import { removeTree } from './fs-helpers.js'
 
 const execFileAsync = promisify(execFile)
 const projectRoot = process.cwd()
@@ -24,7 +25,7 @@ before(async () => {
 })
 
 after(async () => {
-  await rm(scratch, { recursive: true, force: true })
+  await removeTree(scratch)
 })
 
 async function run(

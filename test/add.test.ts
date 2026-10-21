@@ -1,11 +1,12 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, lstat, readFile, readlink, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, lstat, readFile, readlink, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { SPARSE_SKIP } from './sparse-capability.js'
+import { removeTree } from './fs-helpers.js'
 
 /**
  * Integration tests for the `add` command against a local `file://` repo.
@@ -39,7 +40,7 @@ before(async () => {
 })
 
 after(async () => {
-  await rm(home, { recursive: true, force: true })
+  await removeTree(home)
   delete process.env.DSH_HOME
 })
 

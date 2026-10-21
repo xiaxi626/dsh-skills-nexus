@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -9,6 +9,7 @@ import type { SkillEntry } from '../src/types.js'
 import type { NexusPackage, PackageEntry } from '../src/export.js'
 import type { ImportDecision, ImportError, ImportOptions, ImportPlan } from '../src/import.js'
 import type { OpsIO } from '../src/ops-io.js'
+import { removeTree } from './fs-helpers.js'
 
 /**
  * Module-level tests for the `import` core — channel C of the sources &
@@ -111,8 +112,8 @@ before(async () => {
 })
 
 after(async () => {
-  await rm(home, { recursive: true, force: true })
-  await rm(work, { recursive: true, force: true })
+  await removeTree(home)
+  await removeTree(work)
   delete process.env.DSH_HOME
 })
 

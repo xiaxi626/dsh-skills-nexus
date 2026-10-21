@@ -1,9 +1,10 @@
-﻿import { test, before, after } from 'node:test'
+import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile, realpath } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SkillEntry } from '../src/types.js'
+import { removeTree } from './fs-helpers.js'
 
 /**
  * Integration tests for the link layer (`src/link.ts`).
@@ -44,7 +45,7 @@ before(async () => {
 })
 
 after(async () => {
-  await rm(home, { recursive: true, force: true })
+  await removeTree(home)
   delete process.env.DSH_HOME
 })
 
