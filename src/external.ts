@@ -53,7 +53,7 @@ export function entrySkillDir(entry: SkillEntry): string {
 /* ------------------------------------------------------------------ */
 
 /** Fixed subdirectories scanned under the trae-cn root. */
-export const TRAE_CN_SUBDIRS = ['skills', 'builtin_skills'] as const
+export const TRAE_CN_SUBDIRS = ['skills'] as const
 
 /* ------------------------------------------------------------------ */
 /* Error dialect                                                        */
@@ -93,7 +93,7 @@ export interface LinkOptions {
 
 /** One skill discovered under the trae-cn root. */
 export interface DiscoveredSkill {
-  /** Which fixed subdir it was found in ('skills' or 'builtin_skills'). */
+  /** Which fixed subdir it was found in (currently always 'skills'). */
   subdir: string
   /** Directory name within that subdir. */
   name: string
@@ -201,7 +201,8 @@ async function readSkillName(skillFile: string): Promise<string> {
 }
 
 /**
- * Discover every skill under the trae-cn root's fixed subdirectories.
+ * Discover every skill under the trae-cn root's fixed subdirectory
+ * (`TRAE_CN_SUBDIRS`, currently just `skills/`).
  *
  * For each subdir in `TRAE_CN_SUBDIRS`, scans one level deep for directories
  * containing a `SKILL.md` file. Returns a flat list of `DiscoveredSkill`
@@ -216,7 +217,7 @@ export async function discoverTraeCnSkills(root: string): Promise<DiscoveredSkil
     try {
       entries = await readdir(subdirPath, { withFileTypes: true })
     } catch {
-      // Subdir absent — skip silently (trae-cn may not have builtin_skills).
+      // Subdir absent — skip silently.
       continue
     }
     for (const entry of entries) {

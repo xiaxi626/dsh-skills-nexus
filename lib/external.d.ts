@@ -28,7 +28,7 @@ import type { OpsIO } from './ops-io.js';
  */
 export declare function entrySkillDir(entry: SkillEntry): string;
 /** Fixed subdirectories scanned under the trae-cn root. */
-export declare const TRAE_CN_SUBDIRS: readonly ["skills", "builtin_skills"];
+export declare const TRAE_CN_SUBDIRS: readonly ["skills"];
 /** Machine-readable codes for link-channel failures (§10.4 dialect). */
 export type LinkErrorCode = 'not-found' | 'not-a-skill-dir' | 'already-exists' | 'resolve-failed' | 'name-collision';
 /** A link-channel operation was refused or failed. */
@@ -47,7 +47,7 @@ export interface LinkOptions {
 }
 /** One skill discovered under the trae-cn root. */
 export interface DiscoveredSkill {
-    /** Which fixed subdir it was found in ('skills' or 'builtin_skills'). */
+    /** Which fixed subdir it was found in (currently always 'skills'). */
     subdir: string;
     /** Directory name within that subdir. */
     name: string;
@@ -97,7 +97,8 @@ export declare function assertTraeCnRoot(opts?: {
     traeCnDir?: string;
 }): Promise<string>;
 /**
- * Discover every skill under the trae-cn root's fixed subdirectories.
+ * Discover every skill under the trae-cn root's fixed subdirectory
+ * (`TRAE_CN_SUBDIRS`, currently just `skills/`).
  *
  * For each subdir in `TRAE_CN_SUBDIRS`, scans one level deep for directories
  * containing a `SKILL.md` file. Returns a flat list of `DiscoveredSkill`
