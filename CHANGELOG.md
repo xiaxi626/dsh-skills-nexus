@@ -24,6 +24,14 @@
 - **如何辨识改动**：`link trae --source-dir /custom/root --dry-run --json` 的 `plan.source` 为 `trae`，条目名形如 `trae.skills.demo`；不带 `--dry-run` 才注册和建链。`link trae-cn --trae-cn-dir /custom/root` 仍可用。默认组卸载用 `remove --group trae --yes`（自定义组用对应组名），只移除链接与注册，不删除外部目录。
 - **不做**：不启用 Claude Code、Windsurf、OpenClaw 或其他占位来源（待目录契约明确并单独授权后接入）；不扫描 `builtin_skills/` 或递归插件布局；不修改 managed 条目路径、manifest 格式或 groupPath 三段命名；不自动迁移、清理旧条目；不更改 CI 矩阵或将要求较新 Node 的 `build:client` 并入 Node 20 的默认构建；不推送。
 
+**2026-10-22 · Fixed · tsconfig 结构修复：给 src/client 一个专属 tsconfig**
+
+- **背景**：编辑器 TS Server 在改动 `src/client/panel.tsx`、重跑 `build:client` 或合并提交后漂回根 `tsconfig.json`（后者 exclude `src/client`），让 `panel.tsx` 与 `test/panel-render.test.tsx` 同时报 `ts(2307)` CSS modules 与 `ts(7016)` `react-dom/server` 找不到类型垫片。根因：TS Server 按就近向上找**名为 `tsconfig.json`** 的文件；此前 `src/client/` 没有，就命中根 `tsconfig.json` 并按其 `exclude` 判定 `panel.tsx` 不属于任何项目。
+- **变更**：
+  - 新增 `src/client/tsconfig.json`：让 TS Server 就近命中；include 覆盖 `src/client/**/*` 与两份 `.d.ts` 垫片（`../css-modules.d.ts`、`../../test/react-dom-server.d.ts`）+ 跨目录 `../filter.ts`/`../import-decision.ts`；lib 加 DOM、jsx 用 `react-jsx`；`noEmit: true` 只做诊断，不改变构建路径。
+  - `tsconfig.test.json`：include 显式补 `src/css-modules.d.ts` 和 `test/react-dom-server.d.ts`，让 `tsc -p tsconfig.test.json` / `npm run test:build` 独立可解析两份垫片。
+- **实测验证**：`tsc -p src/client/tsconfig.json` / `tsconfig.json` / `tsconfig.test.json` / `tsconfig.client-types.json` 全部 exit 0；`npm run build` / `build:client` / `typecheck` / `lint` / `test:build` 全部 exit 0；聚焦测试 250 项（247 通过、3 跳过、0 失败）；`git diff -- lib/` 无漂移。编辑器重启 TS Server 后 `panel.tsx`、`panel-render.test.tsx` 均不再报红。
+
 **2026-10-21 · Fixed · link trae-cn 只扫描 `skills/` 子目录，移除 builtin_skills**
 
 - **背景**：`~/.trae-cn/builtin_skills/` 装的是 TRAE 自带的官方技能（本机为 `TRAE-code-review`、`TRAE-debugger`、`TRAE-generate-mini-app`、`TRAE-security-review` 等），产品上决定不把它们纳入 link 通道——该通道只覆盖用户自有的 `skills/`，README/ARCHITECTURE/verify-* 也随之只描述 `skills/`。方案取舍：只收窄扫描列表，不收敛循环、不删 `DiscoveredSkill.subdir` 字段——多目录扫描是已知 roadmap（claude-code、qoder 等来源）的共同扩展点，删掉后第二个来源落地时需原样恢复，净收益为负；也暂不建 source→subdirs 注册表，其他来源的目录层级未定，建表等于猜。
