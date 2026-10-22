@@ -18,6 +18,11 @@ Everything below is safe: nothing touches your real `~/.dsh` or `~/.trae-cn`,
 no network is contacted, and all temporary state lives under dedicated temp
 dirs you delete at the end.
 
+For Trae / Trae CN source selection, generic root overrides, and panel acceptance,
+see [Verifying local source links](verify-link-sources.md). This group walkthrough
+retains `--trae-cn-dir` as a backward-compatibility example; new commands can use
+`--source-dir` with either source.
+
 ## Prerequisites
 
 - Node.js >= 18 and git on `PATH`
@@ -261,9 +266,10 @@ unset DSH_HOME
 
 1. **Run the compiled CLI** — the walkthrough uses `lib/`; after changing
    `src/`, rebuild with `npm run build` first.
-2. **`--trae-cn-dir` is required** — without it, `link trae-cn` looks at
-   `~/.trae-cn` (which may not exist on the test machine). The flag overrides
-   the default root.
+2. **Explicitly select the fixture root** — this walkthrough uses the compatible
+   `--trae-cn-dir "$TRAECN"`; `--source-dir "$TRAECN"` is equivalent and takes
+   precedence if both are supplied. Without an override, `link trae-cn` uses
+   `TRAE_CN_DIR` or `~/.trae-cn`. Do not omit the override in this walkthrough.
 3. **`link` only scans `skills/`** — a second sub-group (`vendor_skills/` here)
    is never picked up by `link`; it must be seeded by hand, as step `[a]` does —
    and that means **both** the manifest entry and the symlink. A hand-written

@@ -4,6 +4,26 @@
 
 ## [Unreleased]
 
+**2026-10-22 · Added · link 支持 Trae 国际版，来源注册表与通用根目录覆盖**
+
+- **背景与决策反转**：第二个真实来源 `trae` 已明确采用 `~/.trae/skills/`，现将此前「不新建 source→subdirs 注册表」的延后决策反转为参数化来源注册表；也启用此前留待第二来源的面板回调参数化。旧记录保留为当时的决策快照。
+- **变更**：
+  - `src/external.ts` 以 `SOURCE_CONFIGS` 配置环境变量、默认根或有序 `rootCandidates`、扫描子目录；新增 `trae`（`TRAE_DIR` / `.trae`），`trae-cn`（`TRAE_CN_DIR` / `.trae-cn`）保持原默认。`resolveSourceRoots` 收集存在的候选根，`discoverSkills` 按绝对路径去重；生成计划时跨根同名管理条目保留优先根第一项。只扫描 `skills/` 一层，`discoverTraeCnSkills` wrapper 保留，未被外部引用的旧根定位函数删除。
+  - CLI 新增 `--source-dir`（含等号写法），`--trae-cn-dir` 保留为兼容别名。优先级为新参数 > 旧别名 > 当前来源环境变量 > 默认根；覆盖仅扫描指定根，路径不存在时不回退。帮助与错误列出两种来源，四种 shell 补全均提供新参数。
+  - HTTP `POST /skills-nexus/link` 与客户端 options 新增 `sourceDir`，兼容 `traeCnDir`；预览与确认执行透传相同覆盖规则。面板启用 Trae 按钮、可选服务端根目录输入，以预览来源执行链接；切换来源或路径时清除旧预览。浏览器列表独立维护，避免引入 `external.ts` 的 Node 文件系统依赖。
+  - README、ARCHITECTURE、sources-and-packages 六份双语文档同步来源、优先级和卸载方法；源码阶段同步重编译 `lib/`，客户端阶段另跑 `build:client`，不手改构建产物。
+  - 补充双语 `docs/verify-link-sources` 验证指南：包含两步构建、聚焦测试、真实编译后 CLI 的临时目录演练、面板服务端路径/请求/旧预览失效验收及卸载清理；README 增加入口，组操作文档说明通用参数并保留旧别名示例。
+- **实测验证（Windows / Node 24.19.0）**：
+  - 基线全量 754 项（751 通过、3 跳过、0 失败）；新增 31 项回归，覆盖 Trae 预览/执行/JSON/冲突/force/group、覆盖优先级、别名兼容、独立环境变量、多根发现与去重、HTTP/client 透传及面板按钮。阶段 11 和最终阶段各跑一次全量，均为 785 项（783 通过、2 跳过、0 失败）。测试进程临时加入 Git Bash PATH，Bash 与 PowerShell 实际补全通过；zsh/fish 因本机未安装而跳过，四模板静态断言均通过。
+  - `npm run typecheck`、`npm run lint`、`npm run test:build`、`npm run build`、`npm run build:client` 全部通过；lint 仅有原有 2 条 unused-disable warning。`npm run test:local-source` 1/1 通过。最终重编译后 `git diff --exit-code --quiet -- lib/` 通过，构建产物无漂移。
+  - 六份双语文档结构检查通过；逐字抽取后 `bash -n` 校验 40 个代码块与 36 行具体 link 示例通过，另外 8 个含占位符的 Bash 块与基线一样不可直接执行。
+  - 面板浏览器隔离验证 5/5：两来源可用、Trae 预览/执行、自定义根目录透传、Trae CN 来源正确、编辑路径及失败后清除旧计划；使用真实 `lib/client.js`、测试 UI primitives 和内存 HTTP，不操作用户技能目录。验证服务已关闭，临时脚本已清理。
+  - 本地已覆盖 CI 的 typecheck/lint/test/build/local-source 门禁；未推送，未运行远端三平台 × Node 20/22/24 矩阵，也未验证真实 DSH 宿主的 UI 集成。
+  - 验证指南补充后逐字抽取两份文档：8 个 Bash 块语法检查通过，双语脚本一致；两次 CLI 演练各 5 个检查点通过，面板 fixture 生成与清理通过。文档中的聚焦测试 250 项（248 通过、2 跳过、0 失败），两步构建、typecheck/lint/test:build 通过。此次只改文档，未重跑全量测试或真实宿主面板验收。
+  - 文档标题与首段改为来源无关表述：`验证本地来源链接` / `Verifying local source links`，首段说明当前启用来源为 `trae-cn` 与 `trae`，并在来源契约表后注明随 `SOURCE_CONFIGS` 变化而更新；README 索引条目同步改写。
+- **如何辨识改动**：`link trae --source-dir /custom/root --dry-run --json` 的 `plan.source` 为 `trae`，条目名形如 `trae.skills.demo`；不带 `--dry-run` 才注册和建链。`link trae-cn --trae-cn-dir /custom/root` 仍可用。默认组卸载用 `remove --group trae --yes`（自定义组用对应组名），只移除链接与注册，不删除外部目录。
+- **不做**：不启用 Claude Code、Windsurf、OpenClaw 或其他占位来源（待目录契约明确并单独授权后接入）；不扫描 `builtin_skills/` 或递归插件布局；不修改 managed 条目路径、manifest 格式或 groupPath 三段命名；不自动迁移、清理旧条目；不更改 CI 矩阵或将要求较新 Node 的 `build:client` 并入 Node 20 的默认构建；不推送。
+
 **2026-10-21 · Fixed · link trae-cn 只扫描 `skills/` 子目录，移除 builtin_skills**
 
 - **背景**：`~/.trae-cn/builtin_skills/` 装的是 TRAE 自带的官方技能（本机为 `TRAE-code-review`、`TRAE-debugger`、`TRAE-generate-mini-app`、`TRAE-security-review` 等），产品上决定不把它们纳入 link 通道——该通道只覆盖用户自有的 `skills/`，README/ARCHITECTURE/verify-* 也随之只描述 `skills/`。方案取舍：只收窄扫描列表，不收敛循环、不删 `DiscoveredSkill.subdir` 字段——多目录扫描是已知 roadmap（claude-code、qoder 等来源）的共同扩展点，删掉后第二个来源落地时需原样恢复，净收益为负；也暂不建 source→subdirs 注册表，其他来源的目录层级未定，建表等于猜。

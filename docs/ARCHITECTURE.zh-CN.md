@@ -42,7 +42,7 @@ flowchart TD
 ```
 
 - **CLI 管写入**：`add` / `import` / `update` / `remove` 等命令操作 git、写 `manifest.json`，并在 `~/.dsh/skills/` 中创建/删除 symlink
-- **外部引用**：`link trae-cn` 创建外部条目，符号链接到用户已有的目录——nexus 不克隆、不删除那些目录
+- **外部引用**：`link trae-cn` / `link trae` 创建外部条目，符号链接到用户已有的目录——nexus 不克隆、不删除那些目录
 - **官方 provider 管读取**：DSH 内置的 filesystem provider 自动扫描 `~/.dsh/skills/`，发现 symlink 指向的 skill
 - **两边解耦**：CLI 只管克隆和 symlink；发现和加载完全交给官方 provider
 
@@ -63,8 +63,9 @@ dsh-skills-nexus import package.zip --locked
    └─ 以 locked: true 写入条目；仅当远端明确报告该 commit 不可获取时
       才使用包内载荷
 
-dsh-skills-nexus link trae-cn
-   └─ 扫描 ~/.trae-cn/skills/ 下的技能目录
+dsh-skills-nexus link <source>  # trae-cn 或 trae
+   └─ 从 SOURCE_CONFIGS 解析根目录（覆盖参数 > 环境变量 > 默认候选）
+   └─ 扫描 <root>/skills/ 的一层技能目录
    └─ 对每个发现的技能：
       └─ 创建 ownership: 'external' 的 manifest 条目
       └─ 创建 symlink → ~/.dsh/skills/<name>/ → 指向外部目录
@@ -126,7 +127,15 @@ DSH filesystem provider（官方内置）
 
 - `repos/` 是 nexus 的私有存储——所有 git 克隆都放在这里，保持原始结构不变。CLI 通过 git 对这些目录做 clone / pull / checkout 等操作。克隆由 nexus 管理：`add` / `update` 可能原地归一化 frontmatter（修正非法名称、补全缺失的 `description`），`update` 在拉取前会丢弃本地改动（有警告）——请勿手动编辑克隆。
 - `~/.dsh/skills/` 是 DSH 官方的 skills 根目录——官方 filesystem provider 只扫描这一层。nexus 在这里为每个 skill 创建一个 symlink，指向 `repos/` 中的实际目录。这样官方 provider 就能自动发现所有 skill，无需自定义 provider。
-- **外部条目**（由 `link trae-cn` 创建）符号链接到 nexus 控制范围之外的目录——通常是 `~/.trae-cn/skills/`。nexus 不克隆、不更新、不删除那些目录。`remove` 只删除链接和 manifest 条目。
+- **外部条目**（由 `link trae-cn` / `link trae` 创建）符号链接到 nexus 控制范围之外的目录——通常是 `~/.trae-cn/skills/` / `~/.trae/skills/`。nexus 不克隆、不更新、不删除那些目录。`remove` 只删除链接和 manifest 条目。
+
+`src/external.ts` 的来源注册表配置 `envVar`、`defaultDirName` 或有序 `rootCandidates`，以及 `subdirs`。
+`trae-cn` 使用 `TRAE_CN_DIR` / `.trae-cn`，`trae` 使用 `TRAE_DIR` / `.trae`，都只扫描 `skills/`。
+`--source-dir` 覆盖当前来源根目录，旧 `--trae-cn-dir` 是较低优先级的兼容别名。
+`resolveSourceRoots` 按顺序检查全部默认候选，显式参数或环境变量覆盖时只检查该路径。
+`discoverSkills` 按绝对目录去重，`planLinkLocal` 对跨根同名管理条目保留第一项。
+扫描仍限一层，不支持嵌套插件布局；不启用额外来源或内置技能。
+卸载默认组用 `remove --group trae` 或 `remove --group trae-cn`，外部目录保持不动。
 
 `enable` / `disable` 就是创建/删除 symlink——轻量且原子化，克隆数据始终保留在 `repos/` 中。`remove` 则同时删除 symlink 和克隆目录。
 

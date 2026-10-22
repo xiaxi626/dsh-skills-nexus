@@ -1002,11 +1002,11 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
             )}
           </div>
           <label className={css.fieldLabel}>
-            source root (optional, on the server)
+            source root (optional)
             <Input
               type="text"
               aria-label="link source directory"
-              placeholder="leave empty to use the source environment/default root"
+              placeholder="e.g. C:\Users\you\.trae-cn or /home/you/.trae"
               value={linkSourceDir}
               disabled={linkBusy}
               onChange={(e: ChangeEvent<HTMLInputElement>) => {
@@ -1016,7 +1016,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
             />
           </label>
           <p className={css.hint}>
-            trae-cn: ~/.trae-cn/skills/ · trae: ~/.trae/skills/ — override the root, not skills/
+            absolute path on the server; overrides the selected source's default root
           </p>
           {linkPlan !== null && (
             <div className={css.plan}>

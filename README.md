@@ -167,12 +167,24 @@ dsh-skills-nexus adopt <name> --url github:owner/repo   # give a source-less ent
 # link external skills (reference directories you already own — no clone)
 dsh-skills-nexus link trae-cn                       # discover skills under ~/.trae-cn/skills/
 dsh-skills-nexus link trae-cn --dry-run             # preview without creating entries
-dsh-skills-nexus link trae-cn --trae-cn-dir /path   # override the trae-cn root directory
+dsh-skills-nexus link trae                         # discover skills under ~/.trae/skills/
+dsh-skills-nexus link trae --source-dir /path       # override the source root (not skills/)
+dsh-skills-nexus remove --group trae --yes          # unlink the group; keep external directories
 dsh-skills-nexus link trae-cn --group custom        # override the L1 group name (default: trae-cn)
 dsh-skills-nexus link trae-cn --force               # replace existing entries on conflict
 ```
 
-Value options (`--name`, `--ref`, `--subdir`) also accept the `--flag=value` form (e.g. `--subdir=skills/foo`, `--name=owner-skills`); the boolean `--yes` takes no value.
+`link` supports `trae-cn` (`~/.trae-cn`, env `TRAE_CN_DIR`) and `trae`
+(`~/.trae`, env `TRAE_DIR`), scanning only `<root>/skills/` one level deep.
+Root precedence: `--source-dir` > legacy alias `--trae-cn-dir` > the selected
+source's environment variable > default. An override selects one root only;
+a nonexistent overridden directory does not fall back to the default. Unlink with
+`remove --group <source> --yes` (use your custom group if you set `--group`);
+this preserves the external directories. See [source details](docs/sources-and-packages.md#channel-e-external-reference-link).
+For isolated CLI checks and the panel acceptance checklist, see
+[Verifying local source links](docs/verify-link-sources.md).
+
+Value options (`--name`, `--ref`, `--subdir`, `--source-dir`) also accept the `--flag=value` form (e.g. `--subdir=skills/foo`, `--name=owner-skills`); the boolean `--yes` takes no value.
 
 For scripts, `--json` turns any of `add`, `list`, `update`, `remove`, `enable`
 and `disable` into a machine interface: a version-1 report on stdout and
@@ -288,7 +300,9 @@ From the panel you can:
 - browse entry cards — link names, enabled state, pinned commit, status tags
   like `no source` / `linked directory` / `disabled`, and an
   `update available` badge for branch-tracked entries;
-- manage **external entries** (created by CLI `link trae-cn`) alongside
+- preview and link **Trae CN** or **Trae** from the `link local skills` section,
+  with an optional server-side source root; changing the root clears the preview;
+- manage **external entries** (created by CLI `link trae-cn` / `link trae`) alongside
   git-managed ones — the panel displays them with a `linked directory` tag,
   shows their external path, and supports enable/disable and remove (which
   only deletes the link, never the user's directory);
@@ -649,8 +663,8 @@ ls -la ~/.dsh/skills/
   of real Cordis plugins. If a repo already ships a `dsh.bundle.patch`, install
   it the normal way — nexus is for repos that don't. See
   [nexus vs `dsh plugin`](docs/nexus-vs-plugin.md) for the full decision guide.
-- **External entries (`link` channel)**: `link trae-cn` creates *external* entries
-  that symlink to directories you already own (e.g. `~/.trae-cn/skills/`). Nexus
+- **External entries (`link` channel)**: `link trae-cn` / `link trae` creates *external* entries
+  that symlink to directories you already own (`~/.trae-cn/skills/` / `~/.trae/skills/`). Nexus
   never clones, updates or deletes those directories — `remove` only deletes the
   link and the manifest entry. External entries carry a `groupPath` (e.g.
   `['trae-cn', 'skills', 'brainstorming']`) for hierarchical grouping; `enable`
@@ -749,6 +763,7 @@ change to `src/client/**` or to the module table needs one manual pass:
 - [Verifying the plugin-load contract (plugin add → dsh web cold boot)](docs/verify-plugin-install.md)
 - [Verifying the `doctor` command (P0)](docs/verify-doctor.md)
 - [Verifying shell completion](docs/verify-completions.md)
+- [Verifying local source links — current sources, overrides and panel](docs/verify-link-sources.md)
 - [Building on nexus — machine interfaces for tool authors](docs/build-on-nexus.md)
 - [Contributing — project layout, testing & CI](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
