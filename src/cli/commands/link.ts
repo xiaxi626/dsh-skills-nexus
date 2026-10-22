@@ -8,10 +8,8 @@ import type { LinkPlan, LinkResult } from '../../external.js'
  * `link <source>` — register external skills as manifest entries and create
  * symlinks in the official DSH skills root.
  *
- * Currently only `trae-cn` is accepted as a source. The command discovers
- * skills under `~/.trae-cn/skills/`, creates manifest entries with
- * `ownership: 'external'`, and symlinks each skill into
- * `~/.dsh/skills/` under a flat name derived from its group path.
+ * 按来源配置扫描 trae-cn / trae 的用户技能，创建 ownership: 'external'
+ * 条目，并以 groupPath 派生的扁平名称链接到 `~/.dsh/skills/`。
  *
  * Semantics mirror `import`: source is required, `--dry-run` previews, without
  * it the command executes. `--json` emits a structured report.
@@ -29,6 +27,7 @@ export async function link(argv: string[], io: OpsIO = cliIO): Promise<number> {
   }
 
   const linkOpts = {
+    ...(opts.dirOverride !== undefined ? { dirOverride: opts.dirOverride } : {}),
     ...(opts.traeCnDir !== undefined ? { traeCnDir: opts.traeCnDir } : {}),
     ...(opts.group !== undefined ? { group: opts.group } : {}),
     ...(opts.force ? { force: true } : {}),
@@ -51,7 +50,7 @@ export async function link(argv: string[], io: OpsIO = cliIO): Promise<number> {
     }
 
     if (plan.entries.length === 0 && plan.conflicts.length === 0) {
-      io.emit(`No skills found under the trae-cn root.\n`)
+      io.emit(`No skills found under the ${opts.source} root.\n`)
       return 0
     }
 
@@ -107,7 +106,7 @@ export async function link(argv: string[], io: OpsIO = cliIO): Promise<number> {
   }
 
   if (res.added.length === 0 && res.skipped.length === 0) {
-    io.emit(`No skills found under the trae-cn root.\n`)
+    io.emit(`No skills found under the ${opts.source} root.\n`)
   }
 
   return 0
