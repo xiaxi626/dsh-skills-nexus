@@ -210,9 +210,11 @@ export interface AdoptOptions {
  */
 export declare function parseAdoptArgs(argv: string[]): AdoptOptions;
 export interface LinkCLIOptions {
-    /** Source identifier (positional, currently only 'trae-cn'). */
+    /** 来源标识，由位置参数指定。 */
     source: string;
-    /** Override trae-cn root directory. */
+    /** 覆盖当前来源的根目录。 */
+    dirOverride?: string;
+    /** dirOverride 的兼容别名。 */
     traeCnDir?: string;
     /** Override L1 group name (default = source value). */
     group?: string;
@@ -227,10 +229,8 @@ export interface LinkCLIOptions {
  * Parse `link` args: one source positional plus optional flags.
  *
  * Strict like `import`: the source is required and unknown flags are usage
- * errors. `--group <name>` sets the L1 group name (default = source value);
- * it is functionally effective but the multi-source use case it serves does
- * not yet exist (single source), so it is a "feature present, use case
- * awaited" flag.
+ * errors. `--group <name>` sets the L1 group name (default = source value).
+ * --source-dir 为源无关的根目录覆盖，--trae-cn-dir 保留兼容。
  */
 export declare function parseLinkArgs(argv: string[]): LinkCLIOptions;
 //# sourceMappingURL=args.d.ts.map
