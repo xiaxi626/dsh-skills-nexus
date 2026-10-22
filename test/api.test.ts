@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { lstat, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { RouteRequest, RouteResponse, RouteSpec } from '../src/http/types.js'
@@ -1427,6 +1427,61 @@ test('link with confirm creates entries and symlinks', async () => {
   } finally {
     await rm(traeCnDir, { recursive: true, force: true })
   }
+})
+
+for (const source of ['trae', 'trae-cn']) {
+  test(`link ${source} previews and executes sourceDir ahead of the legacy alias`, async (t) => {
+    await clearEntries()
+    const sourceDir = await mkdtemp(join(tmpdir(), 'nexus-api-link-source-'))
+    t.after(() => removeTree(sourceDir))
+    const skillDir = join(sourceDir, 'skills', 'source-override')
+    await mkdir(skillDir, { recursive: true })
+    await writeFile(join(skillDir, 'SKILL.md'), skillMd('source-override'))
+    const name = `${source}.skills.source-override`
+    const body = { source, sourceDir, traeCnDir: join(sourceDir, 'missing-alias') }
+    const preview = await call('/skills-nexus/link', {
+      method: 'POST', body: JSON.stringify(body),
+    })
+    assert.equal(preview.status, 200)
+    const { plan } = dataOf<{
+      plan: { source: string; entries: Array<{ name: string; externalDir: string }>; conflicts: string[] }
+    }>(preview)
+    assert.equal(plan.source, source)
+    assert.equal(plan.entries.length, 1)
+    assert.equal(plan.entries[0]!.name, name)
+    assert.equal(plan.entries[0]!.externalDir, skillDir)
+    assert.deepEqual(plan.conflicts, [])
+    assert.equal((await manifest.readManifest()).skills.length, 0)
+    assert.equal(await exists(paths.skillLinkPath(name)), false)
+
+    const execute = await call('/skills-nexus/link', {
+      method: 'POST', body: JSON.stringify({ ...body, confirm: true }),
+    })
+    assert.equal(execute.status, 202)
+    const job = await waitForJob(dataOf<{ jobId: string }>(execute).jobId)
+    assert.equal(job.status, 'done', job.error)
+    const entries = (await manifest.readManifest()).skills
+    assert.equal(entries.length, 1)
+    assert.equal(entries[0]!.name, name)
+    assert.equal(entries[0]!.ownership, 'external')
+    assert.equal(entries[0]!.externalDir, skillDir)
+    assert.equal(entries[0]!.url, `${source}:skills/source-override`)
+    assert.equal(await realpath(paths.skillLinkPath(name)), await realpath(skillDir))
+  })
+}
+
+test('link missing sourceDir never falls back to the valid alias or writes state', async (t) => {
+  await clearEntries()
+  const root = await mkdtemp(join(tmpdir(), 'nexus-api-link-missing-'))
+  t.after(() => removeTree(root))
+  const res = await call('/skills-nexus/link', {
+    method: 'POST',
+    body: JSON.stringify({ source: 'trae', sourceDir: join(root, 'missing'), traeCnDir: root }),
+  })
+  assert.equal(res.status, 400)
+  assert.equal(errorsOf(res).error, 'not-found')
+  assert.match(String(errorsOf(res).data.message), /--source-dir.*TRAE_DIR/)
+  assert.equal((await manifest.readManifest()).skills.length, 0)
 })
 
 test('link rejects unknown source', async () => {

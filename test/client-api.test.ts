@@ -151,6 +151,54 @@ test('add posts the url body as JSON with the content-type header', async () => 
   })
 })
 
+for (const source of ['trae', 'trae-cn']) {
+  test(`link API forwards ${source} and directory options in preview and execution`, async () => {
+    const plan = { source, entries: [], conflicts: [] }
+    const { fetchFn, calls } = fakeFetch([
+      ok({ plan }),
+      { status: 202, body: { data: { jobId: 'link-job' } } },
+    ])
+    const api = createApi(fetchFn)
+    const opts = { sourceDir: '/custom root', traeCnDir: '/legacy', group: 'custom', force: true }
+    assert.deepEqual((await api.linkPreview(source, opts)).data.plan, plan)
+    assert.deepEqual((await api.linkLocal(source, opts)).data, { jobId: 'link-job' })
+    assert.equal(calls.length, 2)
+    for (const [i, call] of calls.entries()) {
+      assert.equal(call.input, '/skills-nexus/link')
+      assert.equal(call.init?.method, 'POST')
+      assert.equal(call.init?.headers?.['content-type'], 'application/json')
+      assert.deepEqual(JSON.parse(call.init?.body as string), { source, ...opts, confirm: i === 1 })
+    }
+  })
+}
+
+test('link API omits directory overrides unless provided', async () => {
+  const { fetchFn, calls } = fakeFetch([
+    ok({ plan: { source: 'trae', entries: [], conflicts: [] } }),
+    { status: 202, body: { data: { jobId: 'j' } } },
+  ])
+  const api = createApi(fetchFn)
+  await api.linkPreview('trae')
+  await api.linkLocal('trae')
+  assert.deepEqual(JSON.parse(calls[0]!.init?.body as string), { source: 'trae', confirm: false })
+  assert.deepEqual(JSON.parse(calls[1]!.init?.body as string), { source: 'trae', confirm: true })
+})
+
+test('link API preserves legacy traeCnDir-only requests', async () => {
+  const { fetchFn, calls } = fakeFetch([
+    ok({ plan: { source: 'trae-cn', entries: [], conflicts: [] } }),
+    { status: 202, body: { data: { jobId: 'j' } } },
+  ])
+  const api = createApi(fetchFn)
+  await api.linkPreview('trae-cn', { traeCnDir: '/legacy' })
+  await api.linkLocal('trae-cn', { traeCnDir: '/legacy' })
+  for (const [i, call] of calls.entries()) {
+    assert.deepEqual(JSON.parse(call.init?.body as string), {
+      source: 'trae-cn', traeCnDir: '/legacy', confirm: i === 1,
+    })
+  }
+})
+
 test('export posts the body as JSON', async () => {
   const { fetchFn, calls } = fakeFetch([{
     status: 200,

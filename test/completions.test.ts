@@ -260,6 +260,15 @@ test('the remove branch offers --group in all four templates', () => {
   assert.match(powershellTemplate, /'rm'\s*\{[^}]*--group/)
 })
 
+test('the link branch offers source-dir and its legacy alias in all four templates', () => {
+  for (const flag of ['source-dir', 'trae-cn-dir']) {
+    assert.match(bashTemplate, new RegExp(`link\\)\\s+flags="[^"]*--${flag}`))
+    assert.match(zshTemplate, new RegExp(`link\\)\\s+compadd -- [^\\n]*--${flag}`))
+    assert.match(fishTemplate, new RegExp(`__fish_seen_subcommand_from link' -l ${flag} -r`))
+    assert.match(powershellTemplate, new RegExp(`'link'\\s*\\{[^}]*--${flag}`))
+  }
+})
+
 test('every template counts positionals, so flags do not consume the slot', () => {
   // `remove --yes <TAB>` must still offer names, because --yes is accepted
   // before the names. Every template counts the words that do not start with
@@ -407,7 +416,7 @@ test('PowerShell 实际补全 rollback/diff 的名字与 flags，且不补第二
     await writeFile(join(dir, 'dsh-skills-nexus.ps1'), "param([string]$action, [string]$option)\n'alpha'\n'beta'\n")
     const program = [
       'Invoke-Expression $env:DSH_TPL',
-      "$cases = @('dsh-skills-nexus roll', 'dsh-skills-nexus rollback --j', 'dsh-skills-nexus rollback --json ', 'dsh-skills-nexus rollback alpha ', 'dsh-skills-nexus diff --s', 'dsh-skills-nexus diff ', 'dsh-skills-nexus diff alpha ')",
+      "$cases = @('dsh-skills-nexus roll', 'dsh-skills-nexus rollback --j', 'dsh-skills-nexus rollback --json ', 'dsh-skills-nexus rollback alpha ', 'dsh-skills-nexus diff --s', 'dsh-skills-nexus diff ', 'dsh-skills-nexus diff alpha ', 'dsh-skills-nexus link trae --s', 'dsh-skills-nexus link trae-cn --trae')",
       '$result = @($cases | ForEach-Object {',
       '  $line = $_',
       '  $matches = [System.Management.Automation.CommandCompletion]::CompleteInput($line, $line.Length, $null).CompletionMatches',
@@ -425,6 +434,7 @@ test('PowerShell 实际补全 rollback/diff 的名字与 flags，且不补第二
     assert.ok(!values[3]?.split('|').some((s) => s === 'alpha' || s === 'beta'))
     assert.deepEqual(values.slice(4, 6), ['--stat', 'alpha|beta'])
     assert.ok(!values[6]?.split('|').some((s) => s === 'alpha' || s === 'beta'))
+    assert.deepEqual(values.slice(7), ['--source-dir', '--trae-cn-dir'])
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -471,6 +481,8 @@ test('the emitted bash template completes correctly in a real bash', { skip: !HA
         ['sub-prefix-d', 'dsh-skills-nexus', 'd'],
         ['add-flag', 'dsh-skills-nexus', 'add', '--n'],
         ['add-bare-dashes', 'dsh-skills-nexus', 'add', '--'],
+        ['link-source-dir', 'dsh-skills-nexus', 'link', 'trae', '--s'],
+        ['link-legacy-dir', 'dsh-skills-nexus', 'link', 'trae-cn', '--trae'],
         ['doctor-bare-dashes', 'dsh-skills-nexus', 'doctor', '--'],
         ['shell-bare', 'dsh-skills-nexus', 'completions', '--shell', ''],
         ['shell-b', 'dsh-skills-nexus', 'completions', '--shell', 'b'],
@@ -501,6 +513,8 @@ test('the emitted bash template completes correctly in a real bash', { skip: !HA
       // bash has no trouble with a bare `--`; PowerShell cannot reach its
       // completer at all there, which is why there is no mirror assertion.
       'add-bare-dashes|--name --ref --subdir --yes --json',
+      'link-source-dir|--source-dir',
+      'link-legacy-dir|--trae-cn-dir',
       'doctor-bare-dashes|--json --updates --quiet',
       'shell-bare|bash zsh fish powershell',
       'shell-b|bash',
@@ -578,6 +592,7 @@ test('the emitted zsh template completes correctly in a real zsh', { skip: !HAS_
       [
         ['sub', 'dsh-skills-nexus', ''],
         ['add-flags', 'dsh-skills-nexus', 'add', '--n'],
+        ['link-flags', 'dsh-skills-nexus', 'link', 'trae', '--'],
         ['doctor-bare-dashes', 'dsh-skills-nexus', 'doctor', '--'],
         ['shell-values', 'dsh-skills-nexus', 'completions', '--shell', ''],
         ['update-names', 'dsh-skills-nexus', 'update', ''],
@@ -606,6 +621,7 @@ test('the emitted zsh template completes correctly in a real zsh', { skip: !HAS_
 
     assert.deepEqual(rest, [
       'add-flags|-- --name --ref --subdir --yes --json',
+      'link-flags|-- --dry-run --group --source-dir --trae-cn-dir --force --json',
       'doctor-bare-dashes|-- --json --updates --quiet',
       'shell-values|-- bash zsh fish powershell',
       'update-names|alpha beta',
@@ -670,6 +686,8 @@ test('the emitted fish template completes correctly in a real fish', { skip: !HA
       ['sub', 'dsh-skills-nexus ', routed],
       ['sub-prefix-d', 'dsh-skills-nexus d', ['diff', 'disable', 'doctor']],
       ['add-flag', 'dsh-skills-nexus add --n', ['--name']],
+      ['link-source-dir', 'dsh-skills-nexus link trae --s', ['--source-dir']],
+      ['link-legacy-dir', 'dsh-skills-nexus link trae-cn --trae', ['--trae-cn-dir']],
       ['add-bare-dashes', 'dsh-skills-nexus add --', ['--name', '--ref', '--subdir', '--yes', '--json']],
       ['doctor-bare-dashes', 'dsh-skills-nexus doctor --', ['--json', '--quiet', '--updates']],
       ['shell-prefix', 'dsh-skills-nexus completions --shell b', ['bash']],

@@ -57,6 +57,8 @@ function mountApi(): NexusApi {
     job: notCalled('job'),
     cancelJob: notCalled('cancelJob'),
     export: notCalled('export'),
+    linkPreview: notCalled('linkPreview'),
+    linkLocal: notCalled('linkLocal'),
   } as unknown as NexusApi
 }
 
@@ -94,6 +96,30 @@ test('the panel renders the package import row (§10.3)', () => {
   // The locked checkbox is present in the import form area.
   assert.match(html, /type="checkbox"/)
   assert.match(html, /locked/)
+})
+
+test('the link panel enables both Trae variants and offers a server directory override', () => {
+  const html = renderToStaticMarkup(<NexusPanel api={mountApi()} />)
+  const buttons = [...html.matchAll(/<button\b([^>]*)>([^<]*)<\/button>/g)]
+  for (const label of ['Trae CN', 'Trae']) {
+    const button = buttons.find((m) => m[2] === label)
+    assert.ok(button, `${label} button exists`)
+    assert.doesNotMatch(button[1]!, /disabled/)
+  }
+  for (const label of ['Claude Code', 'WorkBuddy', 'Qoder', 'Qoder CN']) {
+    const button = buttons.find((m) => m[2] === label)
+    assert.ok(button, `${label} placeholder exists`)
+    assert.match(button[1]!, /disabled=""/)
+  }
+  const input = html.match(/<input\b[^>]*aria-label="link source directory"[^>]*>/)?.[0]
+  assert.ok(input)
+  assert.match(input, /value=""/)
+  assert.doesNotMatch(input, /disabled/)
+  assert.match(html, /source root \(optional\)/)
+  assert.doesNotMatch(html, /on the server\)/)
+  assert.match(html, /absolute path on the server/)
+  assert.match(html, /C:\\Users\\you\\\.trae-cn/)
+  assert.equal(buttons.some((m) => m[2] === 'link'), false)
 })
 
 test('the panel renders its empty state without inventing entries', () => {

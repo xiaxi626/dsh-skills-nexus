@@ -399,3 +399,25 @@ test('parseLinkArgs --trae-cn-dir without a value throws', () => {
 test('parseLinkArgs --group without a value throws', () => {
   assert.throws(() => parseLinkArgs(['trae-cn', '--group']), /--group requires a name/)
 })
+
+for (const source of ['trae', 'trae-cn']) {
+  test(`parseLinkArgs ${source} accepts source-dir in space and equals forms`, () => {
+    const path = 'C:/custom skills/root=one'
+    const expected = { source, dirOverride: path, force: false, dryRun: false, json: false }
+    assert.deepEqual(parseLinkArgs([source, '--source-dir', path]), expected)
+    assert.deepEqual(parseLinkArgs([`--source-dir=${path}`, source]), expected)
+  })
+}
+
+test('parseLinkArgs keeps the directory alias separately for core precedence', () => {
+  assert.deepEqual(parseLinkArgs(['trae-cn', '--source-dir', '/new', '--trae-cn-dir', '/old']), {
+    source: 'trae-cn', dirOverride: '/new', traeCnDir: '/old', force: false, dryRun: false, json: false,
+  })
+  assert.equal(parseLinkArgs(['trae', '--source-dir', '/first', '--source-dir=/last']).dirOverride, '/last')
+})
+
+test('parseLinkArgs rejects absent or empty source-dir without swallowing another flag', () => {
+  for (const flags of [['--source-dir'], ['--source-dir='], ['--source-dir', ''], ['--source-dir', '--json']]) {
+    assert.throws(() => parseLinkArgs(['trae', ...flags]), /--source-dir requires a path/)
+  }
+})

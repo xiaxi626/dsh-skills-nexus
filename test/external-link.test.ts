@@ -1,8 +1,8 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { join, relative } from 'node:path'
 import { removeTree } from './fs-helpers.js'
 
 /**
@@ -246,6 +246,125 @@ test('linkLocal reports not-found error for missing skill directory', async () =
 /* ------------------------------------------------------------------ */
 /* discoverTraeCnSkills                                                */
 /* ------------------------------------------------------------------ */
+
+test('source registry enables only the two Trae variants with independent defaults', () => {
+  assert.deepEqual(external.SUPPORTED_SOURCES, ['trae-cn', 'trae'])
+  assert.deepEqual(external.SOURCE_CONFIGS.trae, {
+    envVar: 'TRAE_DIR', defaultDirName: '.trae', subdirs: ['skills'],
+  })
+  assert.deepEqual(external.SOURCE_CONFIGS['trae-cn'], {
+    envVar: 'TRAE_CN_DIR', defaultDirName: '.trae-cn', subdirs: ['skills'],
+  })
+})
+
+for (const source of ['trae-cn', 'trae']) {
+  test(`resolveSourceRoots ${source}: override > own environment, missing override never falls back`, async () => {
+    const root = await createTraeCnDir()
+    const envVar = external.SOURCE_CONFIGS[source]!.envVar
+    const previous = process.env[envVar]
+    try {
+      const override = join(root, 'override')
+      await mkdir(override)
+      process.env[envVar] = root
+      assert.deepEqual(await external.resolveSourceRoots(source), [root])
+      assert.deepEqual(await external.resolveSourceRoots(source, { dirOverride: override }), [override])
+      const missing = join(root, 'missing')
+      await assert.rejects(external.resolveSourceRoots(source, { dirOverride: missing }), (err: unknown) => {
+        assert.ok(err instanceof external.LinkError)
+        assert.equal(err.code, 'not-found')
+        assert.ok(err.message.includes('--source-dir') && err.message.includes(envVar))
+        return true
+      })
+      const file = join(root, 'file')
+      await writeFile(file, '')
+      await assert.rejects(external.resolveSourceRoots(source, { dirOverride: file }), { code: 'not-found' })
+    } finally {
+      if (previous === undefined) delete process.env[envVar]
+      else process.env[envVar] = previous
+      await removeTree(root)
+    }
+  })
+}
+
+for (const source of ['__proto__', 'constructor', 'toString']) {
+  test(`prototype property ${source} is not a supported source`, async () => {
+    await assert.rejects(external.planLinkLocal(source), (err: unknown) => {
+      assert.ok(err instanceof external.LinkError)
+      assert.equal(err.code, 'resolve-failed')
+      assert.match(err.message, /supported sources: trae-cn, trae/)
+      return true
+    })
+  })
+}
+
+test('multiple roots preserve priority, deduplicate paths and keep the first management name', async () => {
+  await clearManifest()
+  const base = await createTraeCnDir()
+  const source = 'test-multiple-roots'
+  const envVar = 'NEXUS_TEST_LINK_ROOT'
+  const previous = process.env[envVar]
+  delete process.env[envVar]
+  try {
+    const first = join(base, 'first'), second = join(base, 'second'), fallback = join(base, 'fallback')
+    const firstSkill = await seedTraeCnSkill(first, 'shared')
+    await seedTraeCnSkill(second, 'shared')
+    await seedTraeCnSkill(second, 'second-only')
+    await seedTraeCnSkill(fallback, 'fallback-only')
+    external.SOURCE_CONFIGS[source] = {
+      envVar,
+      defaultDirName: relative(homedir(), fallback),
+      rootCandidates: [join(relative(homedir(), base), 'missing'), relative(homedir(), first), relative(homedir(), second), relative(homedir(), first)],
+      subdirs: ['skills'],
+    }
+    assert.deepEqual(await external.resolveSourceRoots(source), [first, second])
+    const discovered = await external.discoverSkills([first, second, first], ['skills', 'skills'])
+    assert.equal(discovered.length, 3)
+    assert.equal(new Set(discovered.map((d) => d.dir)).size, 3)
+    const plan = await external.planLinkLocal(source)
+    assert.equal(plan.entries.length, 2)
+    assert.equal(plan.entries.find((e) => e.name.endsWith('.shared'))!.externalDir, firstSkill)
+    assert.ok(plan.entries.every((e) => !e.name.endsWith('.fallback-only')))
+    await external.linkLocal(source)
+    const conflict = await external.planLinkLocal(source)
+    assert.equal(conflict.entries.length, 0)
+    assert.equal(conflict.conflicts.length, 2)
+    const forced = await external.linkLocal(source, { force: true })
+    assert.equal(forced.result.added.length, 2)
+    assert.equal((await manifest.readManifest()).skills.find((e) => e.name.endsWith('.shared'))!.externalDir, firstSkill)
+    assert.deepEqual(await external.resolveSourceRoots(source, { dirOverride: fallback }), [fallback])
+    process.env[envVar] = fallback
+    assert.deepEqual(await external.resolveSourceRoots(source), [fallback])
+    delete process.env[envVar]
+    external.SOURCE_CONFIGS[source]!.rootCandidates = [relative(homedir(), join(base, 'missing'))]
+    await assert.rejects(external.resolveSourceRoots(source), { code: 'not-found' })
+    delete external.SOURCE_CONFIGS[source]!.rootCandidates
+    assert.deepEqual(await external.resolveSourceRoots(source), [fallback])
+  } finally {
+    delete external.SOURCE_CONFIGS[source]
+    if (previous === undefined) delete process.env[envVar]
+    else process.env[envVar] = previous
+    await removeTree(base)
+  }
+})
+
+test('generic discovery supports subdirs but ignores hidden, nested and builtin skills', async () => {
+  const root = await createTraeCnDir()
+  try {
+    await seedTraeCnSkill(root, 'visible')
+    await seedTraeCnSkill(root, '.hidden')
+    for (const sub of ['vendor', 'builtin_skills', 'skills/nested']) {
+      const dir = join(root, sub, 'demo')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'SKILL.md'), skillMd('demo'))
+    }
+    await mkdir(join(root, 'skills', 'no-skill'))
+    const discovered = await external.discoverSkills([root], ['skills', 'vendor', 'absent'])
+    assert.deepEqual(discovered.map((d) => [d.subdir, d.name]), [['skills', 'visible'], ['vendor', 'demo']])
+    assert.deepEqual(await external.discoverTraeCnSkills(root), await external.discoverSkills([root], ['skills']))
+  } finally {
+    await removeTree(root)
+  }
+})
 
 test('discoverTraeCnSkills scans only the skills subdir and ignores builtin_skills', async () => {
   const traeCnDir = await createTraeCnDir()
