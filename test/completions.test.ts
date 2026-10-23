@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import type { SpawnSyncReturns } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
@@ -381,6 +382,10 @@ test('every template offers exactly the shells --shell accepts', () => {
  * has bash and zsh on Linux and macOS. A missing shell skips its test, which is
  * why the CI workflow installs zsh and fish on the Linux job — a skipped test
  * on every runner would mean the template ships unexecuted.
+ *
+ * `hasShell` below only answers "is the binary there". A shell that is present
+ * but dies before running the script is a different failure, and it is handled
+ * by `spawnShell` rather than by the probe.
  */
 function hasShell(shell: string, args: string[]): boolean {
   try {
@@ -395,6 +400,52 @@ const HAS_ZSH = hasShell('zsh', ['-f', '-c', 'exit 0'])
 const HAS_FISH = hasShell('fish', ['-c', 'exit 0'])
 const PS_SHELL = process.platform === 'win32' ? 'powershell' : 'pwsh'
 const HAS_POWERSHELL = hasShell(PS_SHELL, ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'])
+
+/**
+ * 子进程是否在跑到脚本之前就死了？
+ *
+ * Windows runner 上的 MSYS bash 偶发启动即 abort：实测到的一次是 status
+ * 2147483652（0x80000004，一个 NTSTATUS）且 stderr 为空。shell 只能退出
+ * 0..255，所以超出该区间 / 被信号杀死 / spawn 本身报错，都是「子进程死了」，
+ * 不是「模板答错」。模板真错保留自己的形状——1..255 的退出码加 stderr 上有
+ * 话——因此故意不被本函数匹配，否则重试会把真 bug 洗绿。
+ *
+ * 导出仅为下方那条判据用例服务，不属于任何公共 API。
+ */
+export function diedAbnormally(res: SpawnSyncReturns<string>): boolean {
+  if (res.error !== undefined) return true      // ENOENT / EACCES / spawn 失败
+  if (res.status === null) return true          // 被信号杀死，res.signal 有值
+  return res.status > 255                       // NTSTATUS 漏成了退出码
+}
+
+/** 子进程死亡签名，用于 stderr 为空时也能读懂的断言消息。 */
+function childDeath(res: SpawnSyncReturns<string>): string {
+  return `status=${String(res.status)} signal=${res.signal ?? '-'} error=${res.error?.message ?? '-'}`
+}
+
+type ShellSpawnOptions = {
+  encoding: 'utf8'
+  cwd?: string
+  env: Record<string, string | undefined>
+}
+
+/**
+ * 跑一个 shell 子进程，仅在「异常死亡」时重试一次。
+ *
+ * 重试吸收的是基础设施抖动，不是别的：确定性的模板失败不被 `diedAbnormally`
+ * 匹配，因此第一次就照原样失败。两次都死时把首次签名并入 stderr，让 CI 日志
+ * 说得出「child died」，而不是留一个裸数字给读日志的人。
+ */
+function spawnShell(cmd: string, args: string[], opts: ShellSpawnOptions): SpawnSyncReturns<string> {
+  const first = spawnSync(cmd, args, opts)
+  if (!diedAbnormally(first)) return first
+  const second = spawnSync(cmd, args, opts)
+  if (!diedAbnormally(second)) return second
+  return {
+    ...second,
+    stderr: `${cmd} died abnormally twice: ${childDeath(second)} (first: ${childDeath(first)})\n${second.stderr ?? ''}`,
+  }
+}
 
 /**
  * A temp directory holding an executable stub `dsh-skills-nexus` that answers
@@ -461,7 +512,7 @@ function runInBash(cases: string[][], stubDir: string): string[] {
     '}',
     ...cases.map((c) => `run ${c.map((w) => `'${w}'`).join(' ')}`),
   ].join('\n')
-  const res = spawnSync('bash', ['-c', program], {
+  const res = spawnShell('bash', ['-c', program], {
     encoding: 'utf8',
     // `delimiter`, not ':', or Windows cannot find bash in the child at all.
     env: { ...process.env, PATH: [stubDir, process.env.PATH ?? ''].join(delimiter), DSH_TPL: bashTemplate },
@@ -574,7 +625,7 @@ function runInZsh(cases: string[][], stubDir: string): string[] {
     '}',
     ...cases.map((c) => `run ${c.map((w) => `'${w}'`).join(' ')}`),
   ].join('\n')
-  const res = spawnSync('zsh', ['-f', '-c', program], {
+  const res = spawnShell('zsh', ['-f', '-c', program], {
     encoding: 'utf8',
     // `delimiter`, not ':', or Windows cannot find the shell in the child.
     env: { ...process.env, PATH: [stubDir, process.env.PATH ?? ''].join(delimiter), DSH_TPL: zshTemplate },
@@ -657,7 +708,7 @@ test('the emitted zsh template completes correctly in a real zsh', { skip: !HAS_
  */
 function runInFish(cmdline: string, stubDir: string, emptyDir: string, templatePath: string): string[] {
   const program = `source '${templatePath}'\ncomplete -C '${cmdline}'\n`
-  const res = spawnSync('fish', ['-c', program], {
+  const res = spawnShell('fish', ['-c', program], {
     encoding: 'utf8',
     cwd: emptyDir,
     env: { ...process.env, PATH: [stubDir, process.env.PATH ?? ''].join(delimiter) },
@@ -730,4 +781,35 @@ test('the emitted fish template completes correctly in a real fish', { skip: !HA
   } finally {
     await rm(stubDir, { recursive: true, force: true })
   }
+})
+
+/* ------------------------------------------------------------------ */
+/* 工装判据 — spawnShell 的重试只吞环内抖动                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `spawnShell` 的重试判据是整套工装里唯一「判错就会把真 bug 洗绿」的地方，
+ * 而它在正常运行时无法被确定性地触发（异常死亡本身就是偶发的），所以这里直接
+ * 对判据函数造反数据，而不是去赌一次真实的子进程死亡。
+ */
+test('diedAbnormally 只认子进程异常死亡的签名，不吞模板真错', () => {
+  const mk = (over: Partial<SpawnSyncReturns<string>>): SpawnSyncReturns<string> => ({
+    pid: 1,
+    output: [],
+    status: 0,
+    signal: null,
+    stdout: '',
+    stderr: '',
+    ...over,
+  })
+
+  // 模板真错的形状：1..255 的退出码 + stderr 上有话 —— 一律不重跑。
+  assert.equal(diedAbnormally(mk({ status: 1, stderr: 'bash: line 3: syntax error: unexpected end of file' })), false)
+  assert.equal(diedAbnormally(mk({ status: 127, stderr: 'dsh-skills-nexus: command not found' })), false)
+  assert.equal(diedAbnormally(mk({ status: 255 })), false, '255 is still a real shell exit code')
+
+  // 子进程根本没跑起来的形状：CI 上 windows Node 20 腿实测到的那一次属于这类。
+  assert.equal(diedAbnormally(mk({ status: 2147483652 })), true, 'an NTSTATUS is not a shell exit code')
+  assert.equal(diedAbnormally(mk({ status: null, signal: 'SIGKILL' })), true, 'killed by a signal')
+  assert.equal(diedAbnormally(mk({ status: null, error: new Error('spawn bash ENOENT') })), true, 'spawn itself failed')
 })

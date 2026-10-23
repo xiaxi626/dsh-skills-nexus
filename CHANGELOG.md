@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+**2026-10-23 · Fixed · 补全真 shell 测试的工装判据：区分「子进程异常死亡」与「模板真错」**
+
+- **背景**：CI 一次全矩阵运行中，`windows-latest / Node 20` 腿唯一失败是 `the emitted bash template completes correctly in a real bash`，断言点在 `runInBash` 的子进程退出码上（尚未走到任何补全内容断言），报错为 `bash exited with 2147483652:` 且冒号后为空。2147483652 = 0x80000004 是 NTSTATUS 形态的异常终止，shell 自身只能退出 0..255，故 child bash 在跑到脚本前就死了。同一腿相邻的 pwsh 用例通过；同镜像同 runner 版本的 Node 22 / 24 腿该用例分别以 438ms / 606ms 通过；重跑该腿后 785 项 0 失败（该用例 592ms 通过）。结论：抖动来自 runner，与本分支功能改动无因果关系，也不是 Node 20 的语义差异。
+- **缺陷分层**：产品代码无缺陷；缺陷在测试工装的两处。其一，诊断信息归零：报错消息只取 `res.error?.message ?? res.stderr`，而「启动即死」这一支 stderr 恒空，唯一能区分环境与模板的 status / signal / error 全被丢弃，日志里零线索、必须重跑一次才拿到结论。其二，探针与真实调用不同形：`hasShell` 用 `stdio: 'ignore'` 加默认 env，真实调用用管道加覆写 PATH 的 env，所以 `HAS_BASH` 为真也挡不住这类失败，表现为红而不是 skip。
+- **变更**（仅 `test/completions.test.ts`，不触碰 `src/`）：新增导出判据 `diedAbnormally`（`res.error` 存在、`status === null`、`status > 255` 三种形状算异常死亡；1..255 的退出码一律不算）与签名串 `childDeath`；新增 `spawnShell` 包装，仅在命中异常死亡时立即重试一次，两次都死则把首次签名并入 stderr；`runInBash` / `runInZsh` / `runInFish` 三处的 `spawnSync` 改走 `spawnShell`，三处断言行本身不改（签名经 stderr 自动进入报错消息）；`hasShell` 的注释补一句它只回答「二进制在不在」。
+- **实测验证（Windows / Node 24.19.0）**：聚焦跑 `node --import tsx --test test/completions.test.ts`（勿用 `npm test -- <file>`——会追加到硬编码全量列表），该文件由 27 项增至 28 项、0 失败；把 Git Bash 追加到测试进程 PATH 后，`real bash` 用例经 `spawnShell` 实际执行 600ms 通过（与 CI 上 438–606ms 同区间），zsh / fish 因本机未装仍 skip。`npm run test:build`、`npm run lint`（0 error，仍为原有 2 条 unused-disable warning）、`npm test` 全量 786 项均 0 失败。未改 `src/`，`git status -- lib/` 无漂移，无需 `npm run build`。
+- **如何辨识改动**：真错不被吞——把 `diedAbnormally` 的 `return res.status > 255` 一行删掉，新增用例中「an NTSTATUS is not a shell exit code」那条转红；把 `status === null` 那行删掉，「killed by a signal」转红；把函数改成恒 `true`，前三条（status 1 / 127 / 255）全部转红，即「模板真错不重跑」这条护栏可独立判别。环境抖动被吸收——单次重试命中时日志无感，两次都死时消息形如 `bash died abnormally twice: status=2147483652 signal=- error=-`，不再是一个裸数字。
+- **不做**：不给 Windows 加 skip（`ci.yml` 的矩阵注释明确写了 skip 会让坏模板绿灯出货）；不改 `hasShell` 探针语义与 `HAS_BASH` 判据；不改 PowerShell 那条用例（调用形态不同、无同类实测症状，出现证据再统一）；不改 CI 矩阵、不加 `continue-on-error` 或 job 级自动重跑；不引入 sleep——重试是立即的，本次证据显示死因与耗时无关。
+
 **2026-10-22 · Added · link 支持 Trae 国际版，来源注册表与通用根目录覆盖**
 
 - **背景与决策反转**：第二个真实来源 `trae` 已明确采用 `~/.trae/skills/`，现将此前「不新建 source→subdirs 注册表」的延后决策反转为参数化来源注册表；也启用此前留待第二来源的面板回调参数化。旧记录保留为当时的决策快照。
