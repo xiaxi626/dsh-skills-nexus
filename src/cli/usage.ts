@@ -17,6 +17,7 @@
  * text, not on how the text is printed.
  */
 
+import { SUPPORTED_SOURCES } from '../external.js'
 import { cliIO } from '../ops-io.js'
 import type { OpsIO } from '../ops-io.js'
 
@@ -72,7 +73,7 @@ Usage:
   dsh-skills-nexus switch-version <name> <ref> [--type <branch|tag|commit>]
                                             # move a clone to another version
   dsh-skills-nexus link   <source> [--dry-run] [--group <name>] [--force] [--json]
-                                            # register external skills (e.g. trae-cn)
+                                            # register external skills (${SUPPORTED_SOURCES.join(', ')})
   dsh-skills-nexus remove <name-or-pattern>... [--group <path>] [--yes] [--json]
   dsh-skills-nexus enable  <name>... [--group <path>] [--json]
   dsh-skills-nexus disable <name>... [--group <path>] [--json]
@@ -172,12 +173,13 @@ Options:
                     offline fallback and is never persisted.
 
   link options:
-  <source>          external source identifier (currently only 'trae-cn')
+  <source>          external source identifier (${SUPPORTED_SOURCES.join(', ')})
   --dry-run         preview what would be linked without creating anything
-  --group <name>    set the L1 group name (default: the source value). Functionally
-                    effective but the multi-source use case it serves does not yet
-                    exist (single source); the default is usually sufficient
-  --trae-cn-dir <d> override the trae-cn root directory (default: ~/.trae-cn)
+  --group <name>    set the L1 group name (default: the source value)
+  --source-dir <d> override the selected source root (not its skills/ subdirectory)
+                    defaults: trae-cn uses ~/.trae-cn; trae uses ~/.trae
+                    precedence: --source-dir > alias > TRAE_CN_DIR / TRAE_DIR > default
+  --trae-cn-dir <d> backward-compatible alias for --source-dir
   --force           bypass name-collision checks and overwrite existing entries
 
   enable/disable options:

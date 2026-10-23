@@ -9,6 +9,8 @@
 
 以下操作均安全：不会触碰你的真实 `~/.dsh` 或 `~/.trae-cn`，不联系任何网络，所有临时状态位于专用临时目录中，最后删除。
 
+Trae / Trae CN 来源选择、通用根目录覆盖与面板验收见[验证本地来源链接](verify-link-sources.zh-CN.md)。本组操作演练保留 `--trae-cn-dir` 作为兼容示例；新命令可对两个来源统一使用 `--source-dir`。
+
 ## 前置条件
 
 - Node.js >= 18，git 在 `PATH` 中
@@ -244,7 +246,7 @@ unset DSH_HOME
 ## 实践中遇到的坑
 
 1. **使用编译后的 CLI** — 演练使用 `lib/`；修改 `src/` 后先执行 `npm run build`。
-2. **`--trae-cn-dir` 必须指定** — 不指定时 `link trae-cn` 查找 `~/.trae-cn`（测试机器上可能不存在）。该 flag 覆盖默认根目录。
+2. **必须显式选择 fixture 根目录** — 本演练使用兼容参数 `--trae-cn-dir "$TRAECN"`；也可用 `--source-dir "$TRAECN"`，两者同时提供时新参数优先。不覆盖时 `link trae-cn` 使用 `TRAE_CN_DIR` 或 `~/.trae-cn`，因此演练中不要省略目录参数。
 3. **`link` 只扫描 `skills/`** — 第二子组（此处为 `vendor_skills/`）永远不会被 `link` 发现，必须像步骤 `[a]` 那样手工写入，而且要 **manifest 条目 + 符号链接两样齐**。只写 manifest 的条目没有链接，`list` 会显示 `off`，步骤 `[b]` 就分不出两个子组了。如果步骤 `[a]` 的 list 只有 4 个名字，说明写入片段未执行。
 4. **段级精确 vs 字符串前缀** — 旧的 `startsWith` bug 会让 `trae-cn/skill` 匹配 `trae-cn/skills/*`。步骤 `[d]` 验证此问题不会复现。如果在步骤 `[d]` 看到全部 6 个条目被切换，说明修复未生效。
 5. **外部条目不删除用户目录** — 步骤 `[f]` 验证了这一点。`remove --group` 只取消 manifest 注册并删除 symlink；用户源目录保留。

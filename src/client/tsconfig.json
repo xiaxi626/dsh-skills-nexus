@@ -1,0 +1,34 @@
+{
+  // Standalone tsconfig for the browser half. The editor's TS Server picks it
+  // by proximity when `src/client/panel.tsx` is opened, because the root
+  // `tsconfig.json` excludes `src/client` — leaving the panel without a
+  // project and its `*.module.css` import (and, via `test/panel-render.test.tsx`,
+  // `react-dom/server`) without their declaration shims. This file is not
+  // invoked by `npm run build` / `build:client` / `typecheck` / `test:build`
+  // (they all pass an explicit `-p tsconfig.*.json` from the repo root), so
+  // it only affects editor diagnostics.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "allowJs": false,
+    "noEmit": true
+  },
+  "include": [
+    "./**/*",
+    "../filter.ts",
+    "../import-decision.ts",
+    "../css-modules.d.ts",
+    "../../test/react-dom-server.d.ts"
+  ],
+  "exclude": ["../../node_modules", "../../lib", "../../test-dist"]
+}

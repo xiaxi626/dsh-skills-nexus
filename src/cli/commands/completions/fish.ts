@@ -62,6 +62,7 @@ export const fishTemplate = [
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from enable disable' -l json",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from link' -l dry-run",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from link' -l group -r",
+  "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from link' -l source-dir -r",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from link' -l trae-cn-dir -r",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from link' -l force",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from link' -l json",

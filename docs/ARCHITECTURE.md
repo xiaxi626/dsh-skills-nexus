@@ -43,7 +43,7 @@ flowchart TD
 ```
 
 - **CLI writes**: `add` / `import` / `update` / `remove` commands operate git, update `manifest.json`, and create/remove symlinks in `~/.dsh/skills/`
-- **External references**: `link trae-cn` creates external entries that symlink to directories the user already owns — nexus never clones or deletes those directories
+- **External references**: `link trae-cn` / `link trae` creates external entries that symlink to directories the user already owns — nexus never clones or deletes those directories
 - **Official provider reads**: the built-in filesystem provider scans `~/.dsh/skills/` and discovers skills through symlinks
 - **Decoupled**: CLI only manages clones and symlinks; discovery and serving are entirely handled by the official provider
 
@@ -64,8 +64,9 @@ dsh-skills-nexus import package.zip --locked
    └─ append entry with locked: true; use payload only when the remote
       explicitly reports that commit unavailable
 
-dsh-skills-nexus link trae-cn
-   └─ scan ~/.trae-cn/skills/ for skill directories
+dsh-skills-nexus link <source>  # trae-cn or trae
+   └─ resolve roots from SOURCE_CONFIGS (override > env > defaults)
+   └─ scan <root>/skills/ one level deep for skill directories
    └─ for each discovered skill:
       └─ create manifest entry with ownership: 'external'
       └─ create symlink → ~/.dsh/skills/<name>/ → points to external dir
@@ -146,7 +147,19 @@ Required: `name`, `description`. Optional, respected by the provider:
 
 - `repos/` is nexus's private storage — all git clones live here, keeping their original structure intact. The CLI uses git to clone / pull / checkout these directories. Clones are nexus-managed: `add` / `update` may normalize frontmatter in place (fix invalid names, add missing `description`), and `update` discards local changes before pulling (with a warning) — do not edit clones by hand.
 - `~/.dsh/skills/` is the official DSH skills root — the official filesystem provider only scans this level. Nexus creates one symlink per skill here, pointing to the actual directory in `repos/`. This way the official provider discovers all skills automatically, with no custom provider needed.
-- **External entries** (created by `link trae-cn`) symlink to directories outside nexus's control — typically `~/.trae-cn/skills/`. Nexus never clones, updates, or deletes those directories. `remove` only deletes the link and the manifest entry.
+- **External entries** (created by `link trae-cn` / `link trae`) symlink to directories outside nexus's control — typically `~/.trae-cn/skills/` / `~/.trae/skills/`. Nexus never clones, updates, or deletes those directories. `remove` only deletes the link and the manifest entry.
+
+The local source registry in `src/external.ts` configures `envVar`,
+`defaultDirName` or ordered `rootCandidates`, and `subdirs`. `trae-cn` uses
+`TRAE_CN_DIR` / `.trae-cn`; `trae` uses `TRAE_DIR` / `.trae`. Both scan only
+`skills/`. `--source-dir` overrides the selected source root; `--trae-cn-dir`
+remains an alias with lower precedence. `resolveSourceRoots` checks every
+default candidate in order, or only the explicit/environment override.
+`discoverSkills` deduplicates absolute directories; `planLinkLocal` keeps the
+first entry for each management name across roots. Scanning stays one level
+deep (nested plugin layouts are not supported). No additional sources or
+builtin skills are enabled. Unlink a default group with `remove --group trae`
+or `remove --group trae-cn`; external directories remain untouched.
 
 `enable` / `disable` simply create/remove symlinks — lightweight and atomic, clone data always stays in `repos/`. `remove` deletes both the symlink and the clone directory.
 

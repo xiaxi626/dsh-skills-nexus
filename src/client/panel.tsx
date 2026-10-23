@@ -225,16 +225,12 @@ function stillListed(name: string): (entries: ListEntry[]) => boolean {
 export { matchesQuery }
 
 /**
- * External agent sources for the link panel.
- * Only `trae-cn` is wired today; the rest are disabled placeholders.
- * The backend (`planLinkLocal`) rejects unknown sources with `LinkError`,
- * so disabled buttons never reach any API path.
- *
- * Future: when enabling a second source, `onPreviewLink` / `onLink` must
- * be parameterised to accept `src.id` — they currently hard-code 'trae-cn'.
+ * 浏览器侧来源展示列表；不导入含 Node 文件系统依赖的 external.ts。
+ * 与后端支持源保持一致，其余来源继续作为禁用占位。
  */
 const LINK_SOURCES = [
   { id: 'trae-cn',     label: 'Trae CN',     enabled: true  },
+  { id: 'trae',        label: 'Trae',        enabled: true  },
   { id: 'claude-code', label: 'Claude Code',  enabled: false },
   { id: 'workbuddy',   label: 'WorkBuddy',    enabled: false },
   { id: 'qoder',       label: 'Qoder',        enabled: false },
@@ -280,6 +276,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   /** Link channel state: preview plan and busy flag. */
   const [linkPlan, setLinkPlan] = useState<LinkPlan | null>(null)
   const [linkBusy, setLinkBusy] = useState(false)
+  const [linkSourceDir, setLinkSourceDir] = useState('')
   /** Collapsed link-sources disclosure. Default open — the only live action lives here. */
   const [linkOpen, setLinkOpen] = useState(true)
   /** Name/url filter over the rendered rows (client-side; touches no state). */
@@ -576,14 +573,16 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     })
   }
 
-  /* ---------------- link trae-cn skills ---------------- */
+  /* ---------------- 本地来源技能 ---------------- */
 
-  /** Preview what `link trae-cn` would create. */
-  const onPreviewLink = (): void => {
+  /** 预览所选来源；切换来源先丢弃旧计划，失败时也不能执行旧计划。 */
+  const onPreviewLink = (source: string): void => {
+    setLinkPlan(null)
     void run('link', async () => {
       setLinkBusy(true)
       try {
-        const env = await api.linkPreview('trae-cn')
+        const sourceDir = linkSourceDir.trim()
+        const env = await api.linkPreview(source, sourceDir ? { sourceDir } : {})
         if (alive.current) setLinkPlan(env.data.plan)
       } finally {
         setLinkBusy(false)
@@ -591,16 +590,17 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     })
   }
 
-  /** Execute the link: create manifest entries and symlinks. */
-  const onLink = (): void => {
+  /** 使用预览的来源与路径执行，不回退到任何默认来源。 */
+  const onLink = (source: string): void => {
+    if (linkPlan === null || linkPlan.source !== source) return
+    const plan = linkPlan
     void run('link', async () => {
       setLinkBusy(true)
       try {
-        const env = await api.linkLocal('trae-cn')
+        const sourceDir = linkSourceDir.trim()
+        const env = await api.linkLocal(source, sourceDir ? { sourceDir } : {})
         setLinkPlan(null)
-        await track('link trae-cn', env.data, linkedAll(
-          linkPlan ?? { source: 'trae-cn', entries: [], conflicts: [] },
-        ))
+        await track(`link ${source}`, env.data, linkedAll(plan))
       } finally {
         setLinkBusy(false)
       }
@@ -981,7 +981,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
                   key={src.id}
                   type="button"
                   icon={<IconLinkOutlineRegular />}
-                  onClick={onPreviewLink}
+                  onClick={() => onPreviewLink(src.id)}
                   disabled={linkBusy}
                 >
                   {src.label}
@@ -1001,8 +1001,22 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
               ),
             )}
           </div>
+          <label className={css.fieldLabel}>
+            source root (optional)
+            <Input
+              type="text"
+              aria-label="link source directory"
+              placeholder="e.g. C:\Users\you\.trae-cn or /home/you/.trae"
+              value={linkSourceDir}
+              disabled={linkBusy}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                setLinkSourceDir(e.target.value)
+                setLinkPlan(null)
+              }}
+            />
+          </label>
           <p className={css.hint}>
-            trae-cn reads ~/.trae-cn/ — other agents will light up as support lands
+            absolute path on the server; overrides the selected source's default root
           </p>
           {linkPlan !== null && (
             <div className={css.plan}>
@@ -1028,7 +1042,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
                 <Button
                   type="button"
                   variant="primary"
-                  onClick={onLink}
+                  onClick={() => onLink(linkPlan.source)}
                   disabled={linkBusy || linkPlan.entries.length === 0}
                 >
                   link

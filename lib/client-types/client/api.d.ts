@@ -246,9 +246,11 @@ export interface ImportBody {
 }
 /** Body of `POST /link`: register external skills as manifest entries. */
 export interface LinkBody {
-    /** Source identifier (currently only 'trae-cn'). */
+    /** 已配置的来源标识，例如 trae-cn 或 trae。 */
     source: string;
-    /** Override the trae-cn root directory. */
+    /** 覆盖当前来源在服务端的根目录。 */
+    sourceDir?: string;
+    /** sourceDir 的兼容别名。 */
     traeCnDir?: string;
     /** Override the L1 group name (default: the source value). */
     group?: string;

@@ -18,7 +18,10 @@
   },
   // `test/**/*`, not `test/**/*.ts`: the `react-dom/server` declaration shim that
   // lets `test/panel-render.test.ts` render without a new @types dependency is a
-  // `.d.ts`, and a `.ts`-only glob silently skips it.
-  "include": ["src/**/*.ts", "src/client/**/*.tsx", "test/**/*"],
+  // `.d.ts`, and a `.ts`-only glob silently skips it. `src/css-modules.d.ts` is
+  // listed explicitly for the same reason — the program covers `src/client/*.tsx`
+  // (test files import the panel), and each declaration shim lives outside its
+  // own directory's default glob.
+  "include": ["src/**/*.ts", "src/client/**/*.tsx", "src/css-modules.d.ts", "test/react-dom-server.d.ts", "test/**/*"],
   "exclude": ["node_modules", "lib", "test-dist"]
 }

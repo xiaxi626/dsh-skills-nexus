@@ -4,6 +4,43 @@
 
 ## [Unreleased]
 
+**2026-10-23 · Fixed · 补全真 shell 测试的工装判据：区分「子进程异常死亡」与「模板真错」**
+
+- **背景**：CI 一次全矩阵运行中，`windows-latest / Node 20` 腿唯一失败是 `the emitted bash template completes correctly in a real bash`，断言点在 `runInBash` 的子进程退出码上（尚未走到任何补全内容断言），报错为 `bash exited with 2147483652:` 且冒号后为空。2147483652 = 0x80000004 是 NTSTATUS 形态的异常终止，shell 自身只能退出 0..255，故 child bash 在跑到脚本前就死了。同一腿相邻的 pwsh 用例通过；同镜像同 runner 版本的 Node 22 / 24 腿该用例分别以 438ms / 606ms 通过；重跑该腿后 785 项 0 失败（该用例 592ms 通过）。结论：抖动来自 runner，与本分支功能改动无因果关系，也不是 Node 20 的语义差异。
+- **缺陷分层**：产品代码无缺陷；缺陷在测试工装的两处。其一，诊断信息归零：报错消息只取 `res.error?.message ?? res.stderr`，而「启动即死」这一支 stderr 恒空，唯一能区分环境与模板的 status / signal / error 全被丢弃，日志里零线索、必须重跑一次才拿到结论。其二，探针与真实调用不同形：`hasShell` 用 `stdio: 'ignore'` 加默认 env，真实调用用管道加覆写 PATH 的 env，所以 `HAS_BASH` 为真也挡不住这类失败，表现为红而不是 skip。
+- **变更**（仅 `test/completions.test.ts`，不触碰 `src/`）：新增导出判据 `diedAbnormally`（`res.error` 存在、`status === null`、`status > 255` 三种形状算异常死亡；1..255 的退出码一律不算）与签名串 `childDeath`；新增 `spawnShell` 包装，仅在命中异常死亡时立即重试一次，两次都死则把首次签名并入 stderr；`runInBash` / `runInZsh` / `runInFish` 三处的 `spawnSync` 改走 `spawnShell`，三处断言行本身不改（签名经 stderr 自动进入报错消息）；`hasShell` 的注释补一句它只回答「二进制在不在」。
+- **实测验证（Windows / Node 24.19.0）**：聚焦跑 `node --import tsx --test test/completions.test.ts`（勿用 `npm test -- <file>`——会追加到硬编码全量列表），该文件由 27 项增至 28 项、0 失败；把 Git Bash 追加到测试进程 PATH 后，`real bash` 用例经 `spawnShell` 实际执行 600ms 通过（与 CI 上 438–606ms 同区间），zsh / fish 因本机未装仍 skip。`npm run test:build`、`npm run lint`（0 error，仍为原有 2 条 unused-disable warning）、`npm test` 全量 786 项均 0 失败。未改 `src/`，`git status -- lib/` 无漂移，无需 `npm run build`。
+- **如何辨识改动**：真错不被吞——把 `diedAbnormally` 的 `return res.status > 255` 一行删掉，新增用例中「an NTSTATUS is not a shell exit code」那条转红；把 `status === null` 那行删掉，「killed by a signal」转红；把函数改成恒 `true`，前三条（status 1 / 127 / 255）全部转红，即「模板真错不重跑」这条护栏可独立判别。环境抖动被吸收——单次重试命中时日志无感，两次都死时消息形如 `bash died abnormally twice: status=2147483652 signal=- error=-`，不再是一个裸数字。
+- **不做**：不给 Windows 加 skip（`ci.yml` 的矩阵注释明确写了 skip 会让坏模板绿灯出货）；不改 `hasShell` 探针语义与 `HAS_BASH` 判据；不改 PowerShell 那条用例（调用形态不同、无同类实测症状，出现证据再统一）；不改 CI 矩阵、不加 `continue-on-error` 或 job 级自动重跑；不引入 sleep——重试是立即的，本次证据显示死因与耗时无关。
+
+**2026-10-22 · Added · link 支持 Trae 国际版，来源注册表与通用根目录覆盖**
+
+- **背景与决策反转**：第二个真实来源 `trae` 已明确采用 `~/.trae/skills/`，现将此前「不新建 source→subdirs 注册表」的延后决策反转为参数化来源注册表；也启用此前留待第二来源的面板回调参数化。旧记录保留为当时的决策快照。
+- **变更**：
+  - `src/external.ts` 以 `SOURCE_CONFIGS` 配置环境变量、默认根或有序 `rootCandidates`、扫描子目录；新增 `trae`（`TRAE_DIR` / `.trae`），`trae-cn`（`TRAE_CN_DIR` / `.trae-cn`）保持原默认。`resolveSourceRoots` 收集存在的候选根，`discoverSkills` 按绝对路径去重；生成计划时跨根同名管理条目保留优先根第一项。只扫描 `skills/` 一层，`discoverTraeCnSkills` wrapper 保留，未被外部引用的旧根定位函数删除。
+  - CLI 新增 `--source-dir`（含等号写法），`--trae-cn-dir` 保留为兼容别名。优先级为新参数 > 旧别名 > 当前来源环境变量 > 默认根；覆盖仅扫描指定根，路径不存在时不回退。帮助与错误列出两种来源，四种 shell 补全均提供新参数。
+  - HTTP `POST /skills-nexus/link` 与客户端 options 新增 `sourceDir`，兼容 `traeCnDir`；预览与确认执行透传相同覆盖规则。面板启用 Trae 按钮、可选服务端根目录输入，以预览来源执行链接；切换来源或路径时清除旧预览。浏览器列表独立维护，避免引入 `external.ts` 的 Node 文件系统依赖。
+  - README、ARCHITECTURE、sources-and-packages 六份双语文档同步来源、优先级和卸载方法；源码阶段同步重编译 `lib/`，客户端阶段另跑 `build:client`，不手改构建产物。
+  - 补充双语 `docs/verify-link-sources` 验证指南：包含两步构建、聚焦测试、真实编译后 CLI 的临时目录演练、面板服务端路径/请求/旧预览失效验收及卸载清理；README 增加入口，组操作文档说明通用参数并保留旧别名示例。
+- **实测验证（Windows / Node 24.19.0）**：
+  - 基线全量 754 项（751 通过、3 跳过、0 失败）；新增 31 项回归，覆盖 Trae 预览/执行/JSON/冲突/force/group、覆盖优先级、别名兼容、独立环境变量、多根发现与去重、HTTP/client 透传及面板按钮。阶段 11 和最终阶段各跑一次全量，均为 785 项（783 通过、2 跳过、0 失败）。测试进程临时加入 Git Bash PATH，Bash 与 PowerShell 实际补全通过；zsh/fish 因本机未安装而跳过，四模板静态断言均通过。
+  - `npm run typecheck`、`npm run lint`、`npm run test:build`、`npm run build`、`npm run build:client` 全部通过；lint 仅有原有 2 条 unused-disable warning。`npm run test:local-source` 1/1 通过。最终重编译后 `git diff --exit-code --quiet -- lib/` 通过，构建产物无漂移。
+  - 六份双语文档结构检查通过；逐字抽取后 `bash -n` 校验 40 个代码块与 36 行具体 link 示例通过，另外 8 个含占位符的 Bash 块与基线一样不可直接执行。
+  - 面板浏览器隔离验证 5/5：两来源可用、Trae 预览/执行、自定义根目录透传、Trae CN 来源正确、编辑路径及失败后清除旧计划；使用真实 `lib/client.js`、测试 UI primitives 和内存 HTTP，不操作用户技能目录。验证服务已关闭，临时脚本已清理。
+  - 本地已覆盖 CI 的 typecheck/lint/test/build/local-source 门禁；未推送，未运行远端三平台 × Node 20/22/24 矩阵，也未验证真实 DSH 宿主的 UI 集成。
+  - 验证指南补充后逐字抽取两份文档：8 个 Bash 块语法检查通过，双语脚本一致；两次 CLI 演练各 5 个检查点通过，面板 fixture 生成与清理通过。文档中的聚焦测试 250 项（248 通过、2 跳过、0 失败），两步构建、typecheck/lint/test:build 通过。此次只改文档，未重跑全量测试或真实宿主面板验收。
+  - 文档标题与首段改为来源无关表述：`验证本地来源链接` / `Verifying local source links`，首段说明当前启用来源为 `trae-cn` 与 `trae`，并在来源契约表后注明随 `SOURCE_CONFIGS` 变化而更新；README 索引条目同步改写。
+- **如何辨识改动**：`link trae --source-dir /custom/root --dry-run --json` 的 `plan.source` 为 `trae`，条目名形如 `trae.skills.demo`；不带 `--dry-run` 才注册和建链。`link trae-cn --trae-cn-dir /custom/root` 仍可用。默认组卸载用 `remove --group trae --yes`（自定义组用对应组名），只移除链接与注册，不删除外部目录。
+- **不做**：不启用 Claude Code、Windsurf、OpenClaw 或其他占位来源（待目录契约明确并单独授权后接入）；不扫描 `builtin_skills/` 或递归插件布局；不修改 managed 条目路径、manifest 格式或 groupPath 三段命名；不自动迁移、清理旧条目；不更改 CI 矩阵或将要求较新 Node 的 `build:client` 并入 Node 20 的默认构建；不推送。
+
+**2026-10-22 · Fixed · tsconfig 结构修复：给 src/client 一个专属 tsconfig**
+
+- **背景**：编辑器 TS Server 在改动 `src/client/panel.tsx`、重跑 `build:client` 或合并提交后漂回根 `tsconfig.json`（后者 exclude `src/client`），让 `panel.tsx` 与 `test/panel-render.test.tsx` 同时报 `ts(2307)` CSS modules 与 `ts(7016)` `react-dom/server` 找不到类型垫片。根因：TS Server 按就近向上找**名为 `tsconfig.json`** 的文件；此前 `src/client/` 没有，就命中根 `tsconfig.json` 并按其 `exclude` 判定 `panel.tsx` 不属于任何项目。
+- **变更**：
+  - 新增 `src/client/tsconfig.json`：让 TS Server 就近命中；include 覆盖 `src/client/**/*` 与两份 `.d.ts` 垫片（`../css-modules.d.ts`、`../../test/react-dom-server.d.ts`）+ 跨目录 `../filter.ts`/`../import-decision.ts`；lib 加 DOM、jsx 用 `react-jsx`；`noEmit: true` 只做诊断，不改变构建路径。
+  - `tsconfig.test.json`：include 显式补 `src/css-modules.d.ts` 和 `test/react-dom-server.d.ts`，让 `tsc -p tsconfig.test.json` / `npm run test:build` 独立可解析两份垫片。
+- **实测验证**：`tsc -p src/client/tsconfig.json` / `tsconfig.json` / `tsconfig.test.json` / `tsconfig.client-types.json` 全部 exit 0；`npm run build` / `build:client` / `typecheck` / `lint` / `test:build` 全部 exit 0；聚焦测试 250 项（247 通过、3 跳过、0 失败）；`git diff -- lib/` 无漂移。编辑器重启 TS Server 后 `panel.tsx`、`panel-render.test.tsx` 均不再报红。
+
 **2026-10-21 · Fixed · link trae-cn 只扫描 `skills/` 子目录，移除 builtin_skills**
 
 - **背景**：`~/.trae-cn/builtin_skills/` 装的是 TRAE 自带的官方技能（本机为 `TRAE-code-review`、`TRAE-debugger`、`TRAE-generate-mini-app`、`TRAE-security-review` 等），产品上决定不把它们纳入 link 通道——该通道只覆盖用户自有的 `skills/`，README/ARCHITECTURE/verify-* 也随之只描述 `skills/`。方案取舍：只收窄扫描列表，不收敛循环、不删 `DiscoveredSkill.subdir` 字段——多目录扫描是已知 roadmap（claude-code、qoder 等来源）的共同扩展点，删掉后第二个来源落地时需原样恢复，净收益为负；也暂不建 source→subdirs 注册表，其他来源的目录层级未定，建表等于猜。

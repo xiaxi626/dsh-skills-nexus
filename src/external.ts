@@ -1,11 +1,9 @@
 /**
- * Channel E — external entry core for the trae-cn link channel.
+ * 通道 E：trae-cn / trae 等本地来源的外部条目核心。
  *
- * Provides the ability to discover skills from external sources (currently
- * trae-cn's local skill directories) and register them as manifest entries
- * that merely symlink to directories the user already owns. Nexus never
- * clones, fetches, updates or deletes those directories — it only manages
- * the manifest records and the symlinks in `~/.dsh/skills/`.
+ * 从已配置的本地来源发现技能，注册为 manifest 条目，
+ * 并通过 symlink 引用用户自有目录。Nexus 不克隆、拉取、更新或删除
+ * 这些目录，只管理 manifest 记录与 `~/.dsh/skills/` 中的链接。
  *
  * The key abstraction is `entrySkillDir`: every read path that used to
  * compute `entry.subdir ? join(repoDir(entry.path), entry.subdir) : repoDir(entry.path)`
@@ -52,8 +50,38 @@ export function entrySkillDir(entry: SkillEntry): string {
 /* Constants                                                           */
 /* ------------------------------------------------------------------ */
 
-/** Fixed subdirectories scanned under the trae-cn root. */
+/** Trae 两个版本均只扫描用户技能，不包含 builtin_skills。 */
 export const TRAE_CN_SUBDIRS = ['skills'] as const
+export const TRAE_SUBDIRS = ['skills'] as const
+
+export interface SourceConfig {
+  /** 根目录覆盖使用的环境变量名。 */
+  envVar: string
+  /** 相对于 homedir 的默认根目录；rootCandidates 优先。 */
+  defaultDirName?: string
+  /** 按优先级排列的候选根目录，相对于 homedir。 */
+  rootCandidates?: readonly string[]
+  /** 相对于每个根目录的技能子目录。 */
+  subdirs: readonly string[]
+}
+
+export const SOURCE_CONFIGS: Record<string, SourceConfig> = {
+  'trae-cn': { envVar: 'TRAE_CN_DIR', defaultDirName: '.trae-cn', subdirs: TRAE_CN_SUBDIRS },
+  trae: { envVar: 'TRAE_DIR', defaultDirName: '.trae', subdirs: TRAE_SUBDIRS },
+}
+
+/** 已支持的来源标识，用于帮助、错误提示和补全。 */
+export const SUPPORTED_SOURCES = Object.keys(SOURCE_CONFIGS)
+
+function sourceConfig(source: string): SourceConfig {
+  if (!Object.hasOwn(SOURCE_CONFIGS, source)) {
+    throw new LinkError(
+      'resolve-failed',
+      `unknown link source "${source}" — supported sources: ${SUPPORTED_SOURCES.join(', ')}.`,
+    )
+  }
+  return SOURCE_CONFIGS[source]!
+}
 
 /* ------------------------------------------------------------------ */
 /* Error dialect                                                        */
@@ -83,15 +111,17 @@ export class LinkError extends Error {
 
 /** Options accepted by `planLinkLocal` and `linkLocal`. */
 export interface LinkOptions {
-  /** Override the trae-cn root directory (env TRAE_CN_DIR takes precedence). */
+  /** 覆盖来源根目录；优先于兼容别名和环境变量。 */
+  dirOverride?: string
+  /** dirOverride 的兼容别名，保留已有调用方式。 */
   traeCnDir?: string
-  /** Override the L1 group name (default = source value, currently 'trae-cn'). */
+  /** 覆盖 L1 组名，默认使用来源标识。 */
   group?: string
   /** Bypass name-collision checks and overwrite existing entries. */
   force?: boolean
 }
 
-/** One skill discovered under the trae-cn root. */
+/** 从任意已配置来源发现的技能。 */
 export interface DiscoveredSkill {
   /** Which fixed subdir it was found in (currently always 'skills'). */
   subdir: string
@@ -117,7 +147,7 @@ export interface LinkPlanEntry {
 
 /** The full preview — every planned entry plus any name collisions. */
 export interface LinkPlan {
-  /** Source identifier (currently always 'trae-cn'). */
+  /** 来源标识。 */
   source: string
   /** Entries that would be (or were) created. */
   entries: LinkPlanEntry[]
@@ -134,40 +164,40 @@ export interface LinkResult {
 }
 
 /* ------------------------------------------------------------------ */
-/* resolveTraeCnRoot                                                   */
+/* resolveSourceRoots                                                 */
 /* ------------------------------------------------------------------ */
 
 /**
- * Locate the trae-cn skills root.
- *
- * Priority: `opts.traeCnDir` > `TRAE_CN_DIR` env > `~/.trae-cn`.
- * Throws `LinkError('not-found')` when the resolved directory does not exist.
+ * 返回所有存在的候选根目录，保持配置顺序。
+ * 优先级：dirOverride > 来源环境变量 > rootCandidates/defaultDirName。
+ * 显式覆盖只检查该路径，不回退到默认目录；全部不存在时报 not-found。
  */
-export function resolveTraeCnRoot(opts?: { traeCnDir?: string }): string {
-  const root = resolve(
-    opts?.traeCnDir ?? process.env.TRAE_CN_DIR ?? join(homedir(), '.trae-cn'),
-  )
-  // Synchronous existence check via stat would require await; callers handle
-  // the async version. This function is intentionally sync so it can be used
-  // in argument-validation positions; the async `assertTraeCnRoot` below
-  // performs the actual filesystem check.
-  return root
-}
-
-/** Async variant that verifies the directory exists. */
-export async function assertTraeCnRoot(opts?: { traeCnDir?: string }): Promise<string> {
-  const root = resolveTraeCnRoot(opts)
-  try {
-    const st = await stat(root)
-    if (!st.isDirectory()) throw new Error('not a directory')
-  } catch {
+export async function resolveSourceRoots(
+  source: string,
+  opts: { dirOverride?: string } = {},
+): Promise<string[]> {
+  const config = sourceConfig(source)
+  const override = opts.dirOverride ?? process.env[config.envVar]
+  const defaults = config.rootCandidates ?? (config.defaultDirName ? [config.defaultDirName] : [])
+  const candidates = override !== undefined
+    ? [resolve(override)]
+    : defaults.map((dir) => resolve(homedir(), dir))
+  const roots: string[] = []
+  for (const root of new Set(candidates)) {
+    try {
+      if ((await stat(root)).isDirectory()) roots.push(root)
+    } catch {
+      // 候选根不存在或不可访问时继续检查后续根。
+    }
+  }
+  if (roots.length === 0) {
     throw new LinkError(
       'not-found',
-      `trae-cn root not found at ${root}. ` +
-        `Pass --trae-cn-dir <dir> or set TRAE_CN_DIR to override.`,
+      `${source} root not found at ${candidates.join(', ')}. ` +
+        `Pass --source-dir <dir> or set ${config.envVar} to override.`,
     )
   }
-  return root
+  return roots
 }
 
 /* ------------------------------------------------------------------ */
@@ -201,40 +231,48 @@ async function readSkillName(skillFile: string): Promise<string> {
 }
 
 /**
- * Discover every skill under the trae-cn root's fixed subdirectory
- * (`TRAE_CN_SUBDIRS`, currently just `skills/`).
- *
- * For each subdir in `TRAE_CN_SUBDIRS`, scans one level deep for directories
- * containing a `SKILL.md` file. Returns a flat list of `DiscoveredSkill`
- * records with the frontmatter name (used for display and conflict
- * diagnostics).
+ * 按根目录优先级扫描各子目录，仅发现一层包含 SKILL.md 的目录。
+ * 相同绝对路径只返回一次；不递归扫描嵌套插件布局。
  */
-export async function discoverTraeCnSkills(root: string): Promise<DiscoveredSkill[]> {
+export async function discoverSkills(
+  roots: string[],
+  subdirs: readonly string[],
+): Promise<DiscoveredSkill[]> {
   const out: DiscoveredSkill[] = []
-  for (const subdir of TRAE_CN_SUBDIRS) {
-    const subdirPath = join(root, subdir)
-    let entries: import('node:fs').Dirent[]
-    try {
-      entries = await readdir(subdirPath, { withFileTypes: true })
-    } catch {
-      // Subdir absent — skip silently.
-      continue
-    }
-    for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name.startsWith('.')) continue
-      const dir = join(subdirPath, entry.name)
-      const skillFile = join(dir, 'SKILL.md')
-      const skillName = await readSkillName(skillFile)
-      // Only directories with a SKILL.md count as skills.
+  const seen = new Set<string>()
+  for (const root of roots) {
+    for (const subdir of subdirs) {
+      const subdirPath = resolve(root, subdir)
+      let entries: import('node:fs').Dirent[]
       try {
-        await stat(skillFile)
+        entries = await readdir(subdirPath, { withFileTypes: true })
       } catch {
+        // 子目录不存在时静默跳过。
         continue
       }
-      out.push({ subdir, name: entry.name, dir, skillName })
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name.startsWith('.')) continue
+        const dir = join(subdirPath, entry.name)
+        if (seen.has(dir)) continue
+        const skillFile = join(dir, 'SKILL.md')
+        const skillName = await readSkillName(skillFile)
+        // 保持原有 SKILL.md 存在性判据。
+        try {
+          await stat(skillFile)
+        } catch {
+          continue
+        }
+        seen.add(dir)
+        out.push({ subdir, name: entry.name, dir, skillName })
+      }
     }
   }
   return out
+}
+
+/** 兼容现有测试和调用者。 */
+export async function discoverTraeCnSkills(root: string): Promise<DiscoveredSkill[]> {
+  return discoverSkills([root], TRAE_CN_SUBDIRS)
 }
 
 /* ------------------------------------------------------------------ */
@@ -244,9 +282,8 @@ export async function discoverTraeCnSkills(root: string): Promise<DiscoveredSkil
 /**
  * Build a link plan without creating anything.
  *
- * `source` identifies the external source — currently only `'trae-cn'` is
- * accepted; any other value throws a `LinkError` (reserved for future
- * extension to qoder and other sources).
+ * source 必须存在于 SOURCE_CONFIGS，否则抛出 LinkError。
+ * 多根下生成同一管理名称时，优先根中的技能胜出。
  *
  * The plan contains one entry per discovered skill, with:
  *   - `groupPath` = `[group ?? source, subdir, dirName]`
@@ -259,24 +296,21 @@ export async function planLinkLocal(
   source: string,
   opts: LinkOptions = {},
 ): Promise<LinkPlan> {
-  if (source !== 'trae-cn') {
-    throw new LinkError(
-      'resolve-failed',
-      `unknown link source "${source}" — currently only "trae-cn" is supported.`,
-    )
-  }
-
-  const root = await assertTraeCnRoot(opts)
-  const discovered = await discoverTraeCnSkills(root)
+  const config = sourceConfig(source)
+  const roots = await resolveSourceRoots(source, { dirOverride: opts.dirOverride ?? opts.traeCnDir })
+  const discovered = await discoverSkills(roots, config.subdirs)
   const manifest = await readManifest()
   const group = opts.group ?? source
 
   const entries: LinkPlanEntry[] = []
   const conflicts: string[] = []
+  const seenNames = new Set<string>()
 
   for (const d of discovered) {
     const groupPath = [group, d.subdir, d.name]
     const name = groupPath.join('.')
+    if (seenNames.has(name)) continue
+    seenNames.add(name)
     if (manifest.skills.some((s) => s.name === name) && !opts.force) {
       conflicts.push(name)
       continue

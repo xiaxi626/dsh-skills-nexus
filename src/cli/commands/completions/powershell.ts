@@ -89,7 +89,7 @@ export const powershellTemplate = [
   "        'import'      { '--dry-run','--subdir','--each','--force','--locked','--no-remote','--no-net-check','--name','--yes' }",
   "        'adopt'       { '--url','--ref','--subdir','--force','--prune' }",
   "        'switch-version' { '--type' }",
-  "        'link'        { '--dry-run','--group','--trae-cn-dir','--force','--json' }",
+  "        'link'        { '--dry-run','--group','--source-dir','--trae-cn-dir','--force','--json' }",
   "        'doctor'      { '--json','--updates','--quiet' }",
   "        'purge'       { '--yes','--json' }",
   "        'completions' { '--shell' }",

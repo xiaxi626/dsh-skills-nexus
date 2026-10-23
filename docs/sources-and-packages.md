@@ -229,8 +229,10 @@ must provide it explicitly.
 ## Channel E: external reference (`link`)
 
 ```bash
-dsh-skills-nexus link trae-cn                       # discover skills under ~/.trae-cn/
-dsh-skills-nexus link trae-cn --trae-cn-dir /path   # override the root directory
+dsh-skills-nexus link trae-cn                       # discover skills under ~/.trae-cn/skills/
+dsh-skills-nexus link trae                          # discover skills under ~/.trae/skills/
+dsh-skills-nexus link trae --source-dir /path        # override the source root, not skills/
+dsh-skills-nexus remove --group trae --yes           # unlink; keep the external directories
 dsh-skills-nexus link trae-cn --dry-run             # preview without creating entries
 dsh-skills-nexus link trae-cn --group custom        # override the L1 group name
 dsh-skills-nexus link trae-cn --force               # replace existing entries on conflict
@@ -242,12 +244,26 @@ that symlink to those directories. Nexus never clones, updates, or deletes
 the target directories. `remove` only deletes the link and the manifest
 entry, never the directory.
 
-Currently the only accepted source is `trae-cn`, which scans
-`<root>/skills/` for skill directories.
+Supported sources (both scan `<root>/skills/` one level deep):
+
+| Source | Default root | Environment override |
+|---|---|---|
+| `trae-cn` | `~/.trae-cn` | `TRAE_CN_DIR` |
+| `trae` | `~/.trae` | `TRAE_DIR` |
+
+Precedence: `--source-dir` > `--trae-cn-dir` (legacy alias) > the selected
+source's environment variable > configured defaults. Overrides select a
+single root, not its `skills/` child; a nonexistent override is an error,
+not a request to fall back. The generic registry supports ordered
+`rootCandidates`: all existing roots are scanned, absolute directories are
+deduplicated, and the first occurrence of each management name wins across
+roots. Current sources each have just one default root. `builtin_skills/`
+and nested plugin layouts remain outside discovery.
 
 | Flag | Effect |
 |---|---|
-| `--trae-cn-dir <path>` | Override the trae-cn root directory (default: `~/.trae-cn`) |
+| `--source-dir <path>` | Override the selected source root (space or `--source-dir=<path>` form) |
+| `--trae-cn-dir <path>` | Backward-compatible alias; `--source-dir` wins if both are given |
 | `--group <name>` | Override the L1 group name (default: the source value) |
 | `--dry-run` | Preview the plan without creating entries or symlinks |
 | `--force` | Replace existing manifest entries on name conflict |
@@ -284,8 +300,17 @@ dsh-skills-nexus remove --group trae-cn/skills     # delete every trae-cn skill
 dsh-skills-nexus remove --group trae-cn --yes      # ...without the confirmation prompt
 ```
 
-The web panel renders grouped entries under L1 group headers with a
-group-level Switch (✓/○/◐ for on/off/mixed).
+Use `trae` instead of `trae-cn` in group commands for the international
+source; use your custom L1 group if you supplied `--group` when linking.
+The web panel offers Trae CN / Trae previews and an optional server-side root,
+then links the previewed source. It renders grouped entries under L1 group
+headers with a group-level Switch (✓/○/◐ for on/off/mixed).
+
+HTTP `POST /skills-nexus/link` accepts `{ source, sourceDir?, traeCnDir?,
+group?, force?, confirm? }`. `sourceDir` takes precedence over the legacy
+`traeCnDir`; omit `confirm` (or pass `false`) to preview, and pass `true` to
+execute as a job. The client `linkPreview` / `linkLocal` methods forward
+`sourceDir` in their options.
 
 ### External entries vs managed entries
 

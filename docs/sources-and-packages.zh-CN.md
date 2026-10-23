@@ -186,8 +186,10 @@ dsh-skills-nexus adopt <name> --url <git-url> [--ref <r>] [--subdir <p>] [--forc
 ## 通道 E：外部引用（`link`）
 
 ```bash
-dsh-skills-nexus link trae-cn                       # 发现 ~/.trae-cn/ 下的技能
-dsh-skills-nexus link trae-cn --trae-cn-dir /path   # 覆盖根目录
+dsh-skills-nexus link trae-cn                       # 发现 ~/.trae-cn/skills/ 下的技能
+dsh-skills-nexus link trae                          # 发现 ~/.trae/skills/ 下的技能
+dsh-skills-nexus link trae --source-dir /path        # 覆盖来源根目录，不是 skills/
+dsh-skills-nexus remove --group trae --yes           # 卸载链接，保留外部目录
 dsh-skills-nexus link trae-cn --dry-run             # 预览但不创建条目
 dsh-skills-nexus link trae-cn --group custom        # 覆盖 L1 组名
 dsh-skills-nexus link trae-cn --force               # 冲突时替换已有条目
@@ -195,11 +197,22 @@ dsh-skills-nexus link trae-cn --force               # 冲突时替换已有条�
 
 `link` 从用户已有的外部目录中发现技能，创建*外部条目*——`ownership: 'external'` 的 manifest 记录，符号链接到那些目录。nexus 不克隆、不更新、不删除目标目录。`remove` 只删除链接和 manifest 条目，不删除目录。
 
-目前唯一接受的来源是 `trae-cn`，扫描 `<root>/skills/` 下的技能目录。
+支持的来源（都只扫描 `<root>/skills/` 的一层目录）：
+
+| 来源 | 默认根目录 | 环境变量覆盖 |
+|---|---|---|
+| `trae-cn` | `~/.trae-cn` | `TRAE_CN_DIR` |
+| `trae` | `~/.trae` | `TRAE_DIR` |
+
+优先级：`--source-dir` > `--trae-cn-dir`（兼容别名）> 当前来源环境变量 > 配置默认值。
+覆盖指定的是单个根目录，而非 `skills/` 子目录；覆盖路径不存在时报错，不回退默认目录。
+通用注册表支持有序 `rootCandidates`：扫描全部存在的根，按绝对目录去重，跨根同名管理条目保留第一项。
+当前两个来源均只有一个默认根；`builtin_skills/` 和嵌套插件布局仍不在发现范围内。
 
 | 参数 | 作用 |
 |---|---|
-| `--trae-cn-dir <path>` | 覆盖 trae-cn 根目录（默认：`~/.trae-cn`） |
+| `--source-dir <path>` | 覆盖当前来源根目录（支持空格及 `--source-dir=<path>` 写法） |
+| `--trae-cn-dir <path>` | 向后兼容别名；两者同时提供时 `--source-dir` 优先 |
 | `--group <name>` | 覆盖 L1 组名（默认：来源值） |
 | `--dry-run` | 预览计划但不创建条目或 symlink |
 | `--force` | 名称冲突时替换已有 manifest 条目 |
@@ -230,7 +243,12 @@ dsh-skills-nexus remove --group trae-cn/skills     # 删除所有 trae-cn 技能
 dsh-skills-nexus remove --group trae-cn --yes      # ……跳过确认提示
 ```
 
-Web 面板将分组条目渲染在 L1 组头下，带组级 Switch（✓/○/◐ 表示 on/off/mixed）。
+国际版来源的组操作将 `trae-cn` 换成 `trae`；link 时指定过 `--group` 则使用自定义 L1 组名。
+Web 面板提供 Trae CN / Trae 预览及可选的服务端根目录输入，随后对预览的来源执行链接；分组条目渲染在 L1 组头下，带组级 Switch（✓/○/◐ 表示 on/off/mixed）。
+
+HTTP `POST /skills-nexus/link` 接受 `{ source, sourceDir?, traeCnDir?, group?, force?, confirm? }`。
+`sourceDir` 优先于旧 `traeCnDir`；省略 `confirm`（或传 `false`）进行预览，传 `true` 则作为任务执行。
+客户端 `linkPreview` / `linkLocal` 通过 options 透传 `sourceDir`。
 
 ### 外部条目 vs 管理条目
 

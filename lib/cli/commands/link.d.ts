@@ -3,10 +3,8 @@ import type { OpsIO } from '../../ops-io.js';
  * `link <source>` — register external skills as manifest entries and create
  * symlinks in the official DSH skills root.
  *
- * Currently only `trae-cn` is accepted as a source. The command discovers
- * skills under `~/.trae-cn/skills/`, creates manifest entries with
- * `ownership: 'external'`, and symlinks each skill into
- * `~/.dsh/skills/` under a flat name derived from its group path.
+ * 按来源配置扫描 trae-cn / trae 的用户技能，创建 ownership: 'external'
+ * 条目，并以 groupPath 派生的扁平名称链接到 `~/.dsh/skills/`。
  *
  * Semantics mirror `import`: source is required, `--dry-run` previews, without
  * it the command executes. `--json` emits a structured report.
