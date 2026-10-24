@@ -28,6 +28,11 @@ export declare function entrySkillDir(entry: SkillEntry): string;
 /** Trae 两个版本均只扫描用户技能，不包含 builtin_skills。 */
 export declare const TRAE_CN_SUBDIRS: readonly ["skills"];
 export declare const TRAE_SUBDIRS: readonly ["skills"];
+/**
+ * 从**单个**来源根目录发现技能。各来源自带发现逻辑：布局差异较大时
+ * （插件式来源一个根下挂多个插件）不必把分支写进 `planLinkLocal`。
+ */
+export type DiscoverFn = (root: string) => Promise<DiscoveredSkill[]>;
 export interface SourceConfig {
     /** 根目录覆盖使用的环境变量名。 */
     envVar: string;
@@ -35,9 +40,11 @@ export interface SourceConfig {
     defaultDirName?: string;
     /** 按优先级排列的候选根目录，相对于 homedir。 */
     rootCandidates?: readonly string[];
-    /** 相对于每个根目录的技能子目录。 */
-    subdirs: readonly string[];
+    /** 单个根目录的技能发现逻辑。 */
+    discover: DiscoverFn;
 }
+/** 固定子目录布局（trae-cn / trae）：逐个子目录扫描一层。 */
+export declare function plainDiscovery(subdirs: readonly string[]): DiscoverFn;
 export declare const SOURCE_CONFIGS: Record<string, SourceConfig>;
 /** 已支持的来源标识，用于帮助、错误提示和补全。 */
 export declare const SUPPORTED_SOURCES: string[];
@@ -61,9 +68,12 @@ export interface LinkOptions {
 }
 /** 从任意已配置来源发现的技能。 */
 export interface DiscoveredSkill {
-    /** Which fixed subdir it was found in (currently always 'skills'). */
-    subdir: string;
-    /** Directory name within that subdir. */
+    /**
+     * 来源内的分组段，构成 `groupPath` 的第二段：固定子目录布局下是子目录名
+     * （`skills`），插件式布局下是插件名。
+     */
+    segment: string;
+    /** Directory name within that segment. */
     name: string;
     /** Absolute path to the skill directory. */
     dir: string;
@@ -119,7 +129,7 @@ export declare function discoverTraeCnSkills(root: string): Promise<DiscoveredSk
  * 多根下生成同一管理名称时，优先根中的技能胜出。
  *
  * The plan contains one entry per discovered skill, with:
- *   - `groupPath` = `[group ?? source, subdir, dirName]`
+ *   - `groupPath` = `[group ?? source, segment, dirName]`
  *   - `name` = `groupPath.join('.')`
  *   - `externalDir` = absolute path to the skill directory
  *

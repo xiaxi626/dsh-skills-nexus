@@ -249,12 +249,17 @@ test('linkLocal reports not-found error for missing skill directory', async () =
 
 test('source registry enables only the two Trae variants with independent defaults', () => {
   assert.deepEqual(external.SUPPORTED_SOURCES, ['trae-cn', 'trae'])
-  assert.deepEqual(external.SOURCE_CONFIGS.trae, {
-    envVar: 'TRAE_DIR', defaultDirName: '.trae', subdirs: ['skills'],
-  })
-  assert.deepEqual(external.SOURCE_CONFIGS['trae-cn'], {
-    envVar: 'TRAE_CN_DIR', defaultDirName: '.trae-cn', subdirs: ['skills'],
-  })
+  // `discover` 是函数，不能整体 deepEqual：逐字段比对，顺带钉住“没有多余字段”。
+  for (const [source, envVar, defaultDirName] of [
+    ['trae', 'TRAE_DIR', '.trae'],
+    ['trae-cn', 'TRAE_CN_DIR', '.trae-cn'],
+  ] as const) {
+    const config = external.SOURCE_CONFIGS[source]!
+    assert.deepEqual(Object.keys(config).sort(), ['defaultDirName', 'discover', 'envVar'], source)
+    assert.equal(config.envVar, envVar, source)
+    assert.equal(config.defaultDirName, defaultDirName, source)
+    assert.equal(typeof config.discover, 'function', source)
+  }
 })
 
 for (const source of ['trae-cn', 'trae']) {
@@ -314,7 +319,7 @@ test('multiple roots preserve priority, deduplicate paths and keep the first man
       envVar,
       defaultDirName: relative(homedir(), fallback),
       rootCandidates: [join(relative(homedir(), base), 'missing'), relative(homedir(), first), relative(homedir(), second), relative(homedir(), first)],
-      subdirs: ['skills'],
+      discover: external.plainDiscovery(['skills']),
     }
     assert.deepEqual(await external.resolveSourceRoots(source), [first, second])
     const discovered = await external.discoverSkills([first, second, first], ['skills', 'skills'])
@@ -359,7 +364,7 @@ test('generic discovery supports subdirs but ignores hidden, nested and builtin 
     }
     await mkdir(join(root, 'skills', 'no-skill'))
     const discovered = await external.discoverSkills([root], ['skills', 'vendor', 'absent'])
-    assert.deepEqual(discovered.map((d) => [d.subdir, d.name]), [['skills', 'visible'], ['vendor', 'demo']])
+    assert.deepEqual(discovered.map((d) => [d.segment, d.name]), [['skills', 'visible'], ['vendor', 'demo']])
     assert.deepEqual(await external.discoverTraeCnSkills(root), await external.discoverSkills([root], ['skills']))
   } finally {
     await removeTree(root)
@@ -379,7 +384,7 @@ test('discoverTraeCnSkills scans only the skills subdir and ignores builtin_skil
     const discovered = await external.discoverTraeCnSkills(traeCnDir)
     assert.equal(discovered.length, 1)
     assert.deepEqual(discovered.map((d) => d.name), ['skill-a'])
-    assert.ok(discovered.every((d) => d.subdir === 'skills'))
+    assert.ok(discovered.every((d) => d.segment === 'skills'))
   } finally {
     await rm(traeCnDir, { recursive: true, force: true })
   }

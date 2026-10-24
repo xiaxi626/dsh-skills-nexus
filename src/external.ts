@@ -54,6 +54,12 @@ export function entrySkillDir(entry: SkillEntry): string {
 export const TRAE_CN_SUBDIRS = ['skills'] as const
 export const TRAE_SUBDIRS = ['skills'] as const
 
+/**
+ * 从**单个**来源根目录发现技能。各来源自带发现逻辑：布局差异较大时
+ * （插件式来源一个根下挂多个插件）不必把分支写进 `planLinkLocal`。
+ */
+export type DiscoverFn = (root: string) => Promise<DiscoveredSkill[]>
+
 export interface SourceConfig {
   /** 根目录覆盖使用的环境变量名。 */
   envVar: string
@@ -61,13 +67,18 @@ export interface SourceConfig {
   defaultDirName?: string
   /** 按优先级排列的候选根目录，相对于 homedir。 */
   rootCandidates?: readonly string[]
-  /** 相对于每个根目录的技能子目录。 */
-  subdirs: readonly string[]
+  /** 单个根目录的技能发现逻辑。 */
+  discover: DiscoverFn
+}
+
+/** 固定子目录布局（trae-cn / trae）：逐个子目录扫描一层。 */
+export function plainDiscovery(subdirs: readonly string[]): DiscoverFn {
+  return (root) => discoverSkills([root], subdirs)
 }
 
 export const SOURCE_CONFIGS: Record<string, SourceConfig> = {
-  'trae-cn': { envVar: 'TRAE_CN_DIR', defaultDirName: '.trae-cn', subdirs: TRAE_CN_SUBDIRS },
-  trae: { envVar: 'TRAE_DIR', defaultDirName: '.trae', subdirs: TRAE_SUBDIRS },
+  'trae-cn': { envVar: 'TRAE_CN_DIR', defaultDirName: '.trae-cn', discover: plainDiscovery(TRAE_CN_SUBDIRS) },
+  trae: { envVar: 'TRAE_DIR', defaultDirName: '.trae', discover: plainDiscovery(TRAE_SUBDIRS) },
 }
 
 /** 已支持的来源标识，用于帮助、错误提示和补全。 */
@@ -123,9 +134,12 @@ export interface LinkOptions {
 
 /** 从任意已配置来源发现的技能。 */
 export interface DiscoveredSkill {
-  /** Which fixed subdir it was found in (currently always 'skills'). */
-  subdir: string
-  /** Directory name within that subdir. */
+  /**
+   * 来源内的分组段，构成 `groupPath` 的第二段：固定子目录布局下是子目录名
+   * （`skills`），插件式布局下是插件名。
+   */
+  segment: string
+  /** Directory name within that segment. */
   name: string
   /** Absolute path to the skill directory. */
   dir: string
@@ -263,7 +277,7 @@ export async function discoverSkills(
           continue
         }
         seen.add(dir)
-        out.push({ subdir, name: entry.name, dir, skillName })
+        out.push({ segment: subdir, name: entry.name, dir, skillName })
       }
     }
   }
@@ -286,7 +300,7 @@ export async function discoverTraeCnSkills(root: string): Promise<DiscoveredSkil
  * 多根下生成同一管理名称时，优先根中的技能胜出。
  *
  * The plan contains one entry per discovered skill, with:
- *   - `groupPath` = `[group ?? source, subdir, dirName]`
+ *   - `groupPath` = `[group ?? source, segment, dirName]`
  *   - `name` = `groupPath.join('.')`
  *   - `externalDir` = absolute path to the skill directory
  *
@@ -298,7 +312,8 @@ export async function planLinkLocal(
 ): Promise<LinkPlan> {
   const config = sourceConfig(source)
   const roots = await resolveSourceRoots(source, { dirOverride: opts.dirOverride ?? opts.traeCnDir })
-  const discovered = await discoverSkills(roots, config.subdirs)
+  const discovered: DiscoveredSkill[] = []
+  for (const root of roots) discovered.push(...(await config.discover(root)))
   const manifest = await readManifest()
   const group = opts.group ?? source
 
@@ -307,7 +322,7 @@ export async function planLinkLocal(
   const seenNames = new Set<string>()
 
   for (const d of discovered) {
-    const groupPath = [group, d.subdir, d.name]
+    const groupPath = [group, d.segment, d.name]
     const name = groupPath.join('.')
     if (seenNames.has(name)) continue
     seenNames.add(name)
