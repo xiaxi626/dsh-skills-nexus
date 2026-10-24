@@ -177,8 +177,9 @@ Options:
   --dry-run         preview what would be linked without creating anything
   --group <name>    set the L1 group name (default: the source value)
   --source-dir <d> override the selected source root (not its skills/ subdirectory)
-                    defaults: trae-cn uses ~/.trae-cn; trae uses ~/.trae
-                    precedence: --source-dir > alias > TRAE_CN_DIR / TRAE_DIR > default
+                    defaults: trae-cn uses ~/.trae-cn; trae uses ~/.trae;
+                    qoder uses ~/.qoder (user-level skills + marketplace plugins)
+                    precedence: --source-dir > alias > TRAE_CN_DIR / TRAE_DIR / QODER_DIR > default
   --trae-cn-dir <d> backward-compatible alias for --source-dir
   --force           bypass name-collision checks and overwrite existing entries
 

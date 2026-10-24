@@ -247,12 +247,13 @@ test('linkLocal reports not-found error for missing skill directory', async () =
 /* discoverTraeCnSkills                                                */
 /* ------------------------------------------------------------------ */
 
-test('source registry enables only the two Trae variants with independent defaults', () => {
-  assert.deepEqual(external.SUPPORTED_SOURCES, ['trae-cn', 'trae'])
+test('source registry enables the Trae variants and qoder with independent defaults', () => {
+  assert.deepEqual(external.SUPPORTED_SOURCES, ['trae-cn', 'trae', 'qoder'])
   // `discover` 是函数，不能整体 deepEqual：逐字段比对，顺带钉住“没有多余字段”。
   for (const [source, envVar, defaultDirName] of [
     ['trae', 'TRAE_DIR', '.trae'],
     ['trae-cn', 'TRAE_CN_DIR', '.trae-cn'],
+    ['qoder', 'QODER_DIR', '.qoder'],
   ] as const) {
     const config = external.SOURCE_CONFIGS[source]!
     assert.deepEqual(Object.keys(config).sort(), ['defaultDirName', 'discover', 'envVar'], source)
