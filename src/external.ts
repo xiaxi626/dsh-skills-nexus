@@ -1,5 +1,5 @@
 /**
- * 通道 E：trae-cn / trae 等本地来源的外部条目核心。
+ * 通道 E：trae-cn / trae / qoder 等本地来源的外部条目核心。
  *
  * 从已配置的本地来源发现技能，注册为 manifest 条目，
  * 并通过 symlink 引用用户自有目录。Nexus 不克隆、拉取、更新或删除
@@ -19,6 +19,9 @@ import { parse as parseYaml } from 'yaml'
 import { repoDir } from './paths.js'
 import { addEntry, readManifest, removeEntry } from './manifest.js'
 import { hasCollision, linkSkill } from './link.js'
+// qoder.ts 反向 import 本模块的 readSkillName，构成 ESM 函数级循环：两侧只在
+// 函数体内互相调用，模块求值期不触达对方，因此不存在 TDZ 问题。
+import { discoverQoder } from './qoder.js'
 import type { SkillEntry } from './types.js'
 import type { OpsIO } from './ops-io.js'
 
@@ -54,6 +57,12 @@ export function entrySkillDir(entry: SkillEntry): string {
 export const TRAE_CN_SUBDIRS = ['skills'] as const
 export const TRAE_SUBDIRS = ['skills'] as const
 
+/**
+ * 从**单个**来源根目录发现技能。各来源自带发现逻辑：布局差异较大时
+ * （插件式来源一个根下挂多个插件）不必把分支写进 `planLinkLocal`。
+ */
+export type DiscoverFn = (root: string) => Promise<DiscoveredSkill[]>
+
 export interface SourceConfig {
   /** 根目录覆盖使用的环境变量名。 */
   envVar: string
@@ -61,13 +70,20 @@ export interface SourceConfig {
   defaultDirName?: string
   /** 按优先级排列的候选根目录，相对于 homedir。 */
   rootCandidates?: readonly string[]
-  /** 相对于每个根目录的技能子目录。 */
-  subdirs: readonly string[]
+  /** 单个根目录的技能发现逻辑。 */
+  discover: DiscoverFn
+}
+
+/** 固定子目录布局（trae-cn / trae）：逐个子目录扫描一层。 */
+export function plainDiscovery(subdirs: readonly string[]): DiscoverFn {
+  return (root) => discoverSkills([root], subdirs)
 }
 
 export const SOURCE_CONFIGS: Record<string, SourceConfig> = {
-  'trae-cn': { envVar: 'TRAE_CN_DIR', defaultDirName: '.trae-cn', subdirs: TRAE_CN_SUBDIRS },
-  trae: { envVar: 'TRAE_DIR', defaultDirName: '.trae', subdirs: TRAE_SUBDIRS },
+  'trae-cn': { envVar: 'TRAE_CN_DIR', defaultDirName: '.trae-cn', discover: plainDiscovery(TRAE_CN_SUBDIRS) },
+  trae: { envVar: 'TRAE_DIR', defaultDirName: '.trae', discover: plainDiscovery(TRAE_SUBDIRS) },
+  // qoder 一个根下挂着用户级 skills 与市场插件两套命名空间，发现逻辑在 qoder.ts。
+  qoder: { envVar: 'QODER_DIR', defaultDirName: '.qoder', discover: discoverQoder },
 }
 
 /** 已支持的来源标识，用于帮助、错误提示和补全。 */
@@ -123,9 +139,12 @@ export interface LinkOptions {
 
 /** 从任意已配置来源发现的技能。 */
 export interface DiscoveredSkill {
-  /** Which fixed subdir it was found in (currently always 'skills'). */
-  subdir: string
-  /** Directory name within that subdir. */
+  /**
+   * 来源内的分组段，构成 `groupPath` 的第二段：固定子目录布局下是子目录名
+   * （`skills`），插件式布局下是插件名。
+   */
+  segment: string
+  /** Directory name within that segment. */
   name: string
   /** Absolute path to the skill directory. */
   dir: string
@@ -209,8 +228,11 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/
 /**
  * Read the frontmatter `name` from a SKILL.md file. Returns '' when the file
  * is absent, has no frontmatter, or the name field is missing/empty.
+ *
+ * Exported for other source modules (`qoder.ts`) so their own layouts can reuse
+ * the one frontmatter reader instead of duplicating the regex + YAML handling.
  */
-async function readSkillName(skillFile: string): Promise<string> {
+export async function readSkillName(skillFile: string): Promise<string> {
   let raw: string
   try {
     raw = await readFile(skillFile, 'utf8')
@@ -263,7 +285,7 @@ export async function discoverSkills(
           continue
         }
         seen.add(dir)
-        out.push({ subdir, name: entry.name, dir, skillName })
+        out.push({ segment: subdir, name: entry.name, dir, skillName })
       }
     }
   }
@@ -286,7 +308,7 @@ export async function discoverTraeCnSkills(root: string): Promise<DiscoveredSkil
  * 多根下生成同一管理名称时，优先根中的技能胜出。
  *
  * The plan contains one entry per discovered skill, with:
- *   - `groupPath` = `[group ?? source, subdir, dirName]`
+ *   - `groupPath` = `[group ?? source, segment, dirName]`
  *   - `name` = `groupPath.join('.')`
  *   - `externalDir` = absolute path to the skill directory
  *
@@ -298,7 +320,8 @@ export async function planLinkLocal(
 ): Promise<LinkPlan> {
   const config = sourceConfig(source)
   const roots = await resolveSourceRoots(source, { dirOverride: opts.dirOverride ?? opts.traeCnDir })
-  const discovered = await discoverSkills(roots, config.subdirs)
+  const discovered: DiscoveredSkill[] = []
+  for (const root of roots) discovered.push(...(await config.discover(root)))
   const manifest = await readManifest()
   const group = opts.group ?? source
 
@@ -307,7 +330,7 @@ export async function planLinkLocal(
   const seenNames = new Set<string>()
 
   for (const d of discovered) {
-    const groupPath = [group, d.subdir, d.name]
+    const groupPath = [group, d.segment, d.name]
     const name = groupPath.join('.')
     if (seenNames.has(name)) continue
     seenNames.add(name)

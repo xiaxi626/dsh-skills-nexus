@@ -43,7 +43,7 @@ flowchart TD
 ```
 
 - **CLI writes**: `add` / `import` / `update` / `remove` commands operate git, update `manifest.json`, and create/remove symlinks in `~/.dsh/skills/`
-- **External references**: `link trae-cn` / `link trae` creates external entries that symlink to directories the user already owns — nexus never clones or deletes those directories
+- **External references**: `link trae-cn` / `link trae` / `link qoder` creates external entries that symlink to directories the user already owns — nexus never clones or deletes those directories
 - **Official provider reads**: the built-in filesystem provider scans `~/.dsh/skills/` and discovers skills through symlinks
 - **Decoupled**: CLI only manages clones and symlinks; discovery and serving are entirely handled by the official provider
 
@@ -147,19 +147,29 @@ Required: `name`, `description`. Optional, respected by the provider:
 
 - `repos/` is nexus's private storage — all git clones live here, keeping their original structure intact. The CLI uses git to clone / pull / checkout these directories. Clones are nexus-managed: `add` / `update` may normalize frontmatter in place (fix invalid names, add missing `description`), and `update` discards local changes before pulling (with a warning) — do not edit clones by hand.
 - `~/.dsh/skills/` is the official DSH skills root — the official filesystem provider only scans this level. Nexus creates one symlink per skill here, pointing to the actual directory in `repos/`. This way the official provider discovers all skills automatically, with no custom provider needed.
-- **External entries** (created by `link trae-cn` / `link trae`) symlink to directories outside nexus's control — typically `~/.trae-cn/skills/` / `~/.trae/skills/`. Nexus never clones, updates, or deletes those directories. `remove` only deletes the link and the manifest entry.
+- **External entries** (created by `link trae-cn` / `link trae` / `link qoder`) symlink to directories outside nexus's control — typically `~/.trae-cn/skills/`, `~/.trae/skills/`, or a Qoder skill under `~/.qoder/` (user-level `skills/`, or a marketplace plugin's declared skill directory). Nexus never clones, updates, or deletes those directories. `remove` only deletes the link and the manifest entry.
 
 The local source registry in `src/external.ts` configures `envVar`,
-`defaultDirName` or ordered `rootCandidates`, and `subdirs`. `trae-cn` uses
-`TRAE_CN_DIR` / `.trae-cn`; `trae` uses `TRAE_DIR` / `.trae`. Both scan only
-`skills/`. `--source-dir` overrides the selected source root; `--trae-cn-dir`
+`defaultDirName` or ordered `rootCandidates`, and one `discover` function per
+source — `(root) => DiscoveredSkill[]`. `trae-cn` uses `TRAE_CN_DIR` /
+`.trae-cn` and `trae` uses `TRAE_DIR` / `.trae`; both go through
+`plainDiscovery(['skills'])`. `qoder` uses `QODER_DIR` / `.qoder` and keeps its
+layout in `src/qoder.ts`: user-level `<root>/skills/` plus the marketplace
+plugins listed in `<root>/plugins/installed_plugins_v2.json`, read through each
+plugin's `plugin.json`. The `qoder-bundler` publisher is excluded — those
+plugins ship with the client and need the Qoder host runtime.
+`--source-dir` overrides the selected source root; `--trae-cn-dir`
 remains an alias with lower precedence. `resolveSourceRoots` checks every
 default candidate in order, or only the explicit/environment override.
 `discoverSkills` deduplicates absolute directories; `planLinkLocal` keeps the
-first entry for each management name across roots. Scanning stays one level
-deep (nested plugin layouts are not supported). No additional sources or
-builtin skills are enabled. Unlink a default group with `remove --group trae`
-or `remove --group trae-cn`; external directories remain untouched.
+first entry for each management name across roots and derives the flat name
+from the discovered `segment` (the fixed subdirectory, or the plugin name):
+`['trae-cn', 'skills', 'brainstorming']` vs.
+`['qoder', 'superpowers', 'brainstorming']`. Each declared directory is scanned
+one level deep (nested layouts are not supported), and builtin skills are never
+included. Unlink a default group with `remove --group trae`,
+`remove --group trae-cn` or `remove --group qoder`; external directories remain
+untouched.
 
 `enable` / `disable` simply create/remove symlinks — lightweight and atomic, clone data always stays in `repos/`. `remove` deletes both the symlink and the clone directory.
 

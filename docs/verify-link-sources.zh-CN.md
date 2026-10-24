@@ -4,7 +4,7 @@
 
 > **Shell 警告**：本页 `bash` 代码块用于 Windows Git Bash 或 Linux/macOS Bash，不要粘贴到 PowerShell/cmd。请在本仓库根目录打开终端，整体执行代码块。脚本不切换目录、不执行 Git 写操作，也不需要全局 `npm link`。
 
-本指南验证 [通道 E](sources-and-packages.zh-CN.md#通道-e外部引用link) 当前启用来源（撰写时为 `trae-cn` 与 `trae`）、目录覆盖与面板流程。启用来源由 `src/external.ts` 中的 `SOURCE_CONFIGS` 决定；新增来源时请同步更新契约表与演练覆盖。CLI 演练使用编译后的 `lib/cli/index.js`，临时状态完全隔离；面板验收需要另行启动测试宿主，不能把 CLI 成功等同于 UI 集成成功。
+本指南验证 [通道 E](sources-and-packages.zh-CN.md#通道-e外部引用link) 当前启用来源（撰写时为 `trae-cn`、`trae` 与 `qoder`）、目录覆盖与面板流程。启用来源由 `src/external.ts` 中的 `SOURCE_CONFIGS` 决定；新增来源时请同步更新契约表与演练覆盖。CLI 演练使用编译后的 `lib/cli/index.js`，临时状态完全隔离；面板验收需要另行启动测试宿主，不能把 CLI 成功等同于 UI 集成成功。
 
 ## 前置条件与两步构建
 
@@ -33,7 +33,8 @@
   set -e
   node -e "require('node:assert/strict').equal(require('./package.json').name, 'dsh-skills-nexus')"
   node --import tsx --import ./test/register-css.mjs --test \
-    test/external-link.test.ts test/cli-link.test.ts test/args.test.ts \
+    test/external-link.test.ts test/external-qoder.test.ts \
+    test/cli-link.test.ts test/args.test.ts \
     test/api.test.ts test/client-api.test.ts \
     test/completions.test.ts test/panel-render.test.tsx
 )
@@ -41,11 +42,12 @@
 
 | 测试文件 | 验证内容 |
 |---|---|
-| `external-link.test.ts` | 两来源配置、环境变量、覆盖不回退、多候选根顺序、目录去重及同名管理条目优先根胜出、一层扫描边界 |
+| `external-link.test.ts` | 三种来源配置、环境变量、覆盖不回退、多候选根顺序、目录去重及同名管理条目优先根胜出、一层扫描边界 |
+| `external-qoder.test.ts` | qoder 布局：带/不带版本层的安装、`skills` 为字符串或数组、`./skills/` 兜底、一层边界、禁用与缺失安装、`qoder-bundler` 整组排除、用户级优先 |
 | `cli-link.test.ts` / `args.test.ts` | 预览/执行、JSON、冲突与 force、group、新旧参数及空值拒绝 |
 | `api.test.ts` / `client-api.test.ts` | `sourceDir` 的预览/确认执行透传、旧 `traeCnDir` 兼容、错误响应 |
 | `completions.test.ts` | 四模板 link 分支提供新旧目录参数；已安装的 shell 另跑实际补全 |
-| `panel-render.test.tsx` | 两个启用按钮、四个禁用占位、路径输入框；仅静态渲染，不模拟点击 |
+| `panel-render.test.tsx` | 三个启用按钮、三个禁用占位、路径输入框；仅静态渲染，不模拟点击 |
 
 发布前另跑 `npm test` 和 `npm run test:local-source`。缺少 shell 导致的 skip 必须单独记录，不能算通过；全量测试和远端跨平台 CI 也不能由聚焦测试代替。
 
@@ -57,12 +59,13 @@
 |---|---|---|
 | `trae-cn` | `~/.trae-cn/skills/` | `TRAE_CN_DIR` |
 | `trae` | `~/.trae/skills/` | `TRAE_DIR` |
+| `qoder` | `~/.qoder/skills/` + 每个市场插件声明的目录 | `QODER_DIR` |
 
 上表反映当前 `SOURCE_CONFIGS`。新增来源登记时，同步扩展表格与演练覆盖。
 
-优先级：`--source-dir` > `--trae-cn-dir`（兼容别名）> 当前来源环境变量 > 默认根。参数传**根目录**，不是它下面的 `skills/`。覆盖无效时失败，不回退。默认路径和多根候选逻辑由上面的核心测试覆盖；下面演练只扫描临时目录。
+优先级：`--source-dir` > `--trae-cn-dir`（兼容别名）> 当前来源环境变量 > 默认根。参数传**根目录**，不是它下面的 `skills/`——`qoder` 即 `~/.qoder`。覆盖无效时失败，不回退。默认路径和多根候选逻辑由上面的核心测试覆盖；下面演练只扫描临时目录。
 
-整体运行以下代码块。Node 驱动真实编译后 CLI，每个子进程显式设置 `DSH_HOME`、`DSH_SKILLS_NEXUS_HOME` 和两个来源环境变量，不改变当前终端的环境。成功或断言失败都会在 `finally` 清理此次创建的临时目录；强制结束进程导致残留时，只清理输出的 `fixture:` 路径。
+整体运行以下代码块。Node 驱动真实编译后 CLI，每个子进程显式设置 `DSH_HOME`、`DSH_SKILLS_NEXUS_HOME` 和三个来源环境变量，不改变当前终端的环境。成功或断言失败都会在 `finally` 清理此次创建的临时目录；强制结束进程导致残留时，只清理输出的 `fixture:` 路径。
 
 ```bash
 node --input-type=module <<'NODE'
@@ -76,15 +79,17 @@ const cli = resolve('lib/cli/index.js')
 await access(cli)
 const base = await mkdtemp(join(tmpdir(), 'nexus-verify-link-'))
 console.log(`fixture: ${base}`)
-const roots = Object.fromEntries(['trae', 'trae-cn', 'alias', 'override'].map(k => [k, join(base, k)]))
+const roots = Object.fromEntries(['trae', 'trae-cn', 'qoder', 'alias', 'override'].map(k => [k, join(base, k)]))
 const env = {
   ...process.env,
   DSH_HOME: join(base, 'home'),
   DSH_SKILLS_NEXUS_HOME: join(base, 'nexus'),
   TRAE_DIR: roots.trae,
   TRAE_CN_DIR: roots['trae-cn'],
+  QODER_DIR: roots.qoder,
 }
 const md = '---\nname: demo\ndescription: isolated link verification\n---\nBody\n'
+const pluginMd = '---\nname: plugin-demo\ndescription: isolated plugin link verification\n---\nBody\n'
 function run(args, expected = 0) {
   const result = spawnSync(process.execPath, [cli, ...args], { env, encoding: 'utf8' })
   assert.ifError(result.error)
@@ -106,6 +111,16 @@ try {
     await mkdir(dir, { recursive: true })
     await writeFile(join(dir, 'SKILL.md'), md)
   }
+  const qoderPlugin = join(roots.qoder, 'plugins', 'cache', 'qoder-marketplace', 'demo-plugin', '1.0.0')
+  await mkdir(join(qoderPlugin, '.qoder-plugin'), { recursive: true })
+  await writeFile(join(qoderPlugin, '.qoder-plugin', 'plugin.json'), JSON.stringify({ name: 'demo-plugin', skills: './skills/' }))
+  await mkdir(join(qoderPlugin, 'skills', 'plugin-demo'), { recursive: true })
+  // 独立的 frontmatter name：同名技能会按名去重，插件条目就会被吞掉。
+  await writeFile(join(qoderPlugin, 'skills', 'plugin-demo', 'SKILL.md'), pluginMd)
+  await writeFile(join(roots.qoder, 'plugins', 'installed_plugins_v2.json'), JSON.stringify({
+    plugins: { 'demo-plugin@qoder-marketplace': [{ enabled: true, installPath: qoderPlugin }] },
+    version: 2,
+  }))
   for (const source of ['trae', 'trae-cn']) {
     const plan = preview(source)
     assert.equal(plan.source, source)
@@ -117,6 +132,12 @@ try {
   assert.equal(names(), '')
   assert.match(run(['link', 'trae', '--dry-run']).stdout, /Would create 1 entry/)
   console.log('PASS preview: two independent sources, JSON, no writes, one-level scan')
+
+  const qoder = preview('qoder')
+  assert.equal(qoder.source, 'qoder')
+  assert.deepEqual(qoder.entries.map(e => e.name).sort(), ['qoder.demo-plugin.plugin-demo', 'qoder.skills.demo'])
+  assert.equal(preview('qoder', '--source-dir', roots.qoder).entries.length, 2)
+  console.log('PASS qoder: user-level skills plus marketplace plugin skills, one level each')
 
   assert.equal(preview('trae-cn', '--trae-cn-dir', roots.alias).entries[0].externalDir, skillDir(roots.alias))
   for (const source of ['trae', 'trae-cn']) {
@@ -171,7 +192,11 @@ try {
 NODE
 ```
 
-通过标准：5 行 `PASS`、一行 `cleaned:`，进程退出 0。不能只看最后的清理输出；断言失败时同样会清理。卸载与 fixture 删除是两件事：先断言 `remove --group` 保留源文件，最后才由测试脚本删除它自己创建的临时文件。
+通过标准：6 行 `PASS`、一行 `cleaned:`，进程退出 0。不能只看最后的清理输出；断言失败时同样会清理。卸载与 fixture 删除是两件事：先断言 `remove --group` 保留源文件，最后才由测试脚本删除它自己创建的临时文件。
+
+### 插件升级后怎么办
+
+qoder 的 `installPath` 通常带版本层（`…/superpowers/6.3.0`），插件一升级，该目录就被换掉，指向它的链接全部悬空。此时 `doctor` 会报 `missing-target`——外部来源创建的链接不参与 orphan 扫描——但它给出的修复提示是 `update <name>`，只对 git 条目有效。正确处置是重新链接：`link qoder --force` 会把已有扁平名重新指向新的安装目录，名字不变。
 
 ## 面板真实宿主验收（手动）
 
@@ -211,7 +236,7 @@ NODE
 
 | 操作 | 预期 UI / 请求 |
 |---|---|
-| 查看来源按钮 | Trae CN、Trae 可用；Claude Code、WorkBuddy、Qoder、Qoder CN 禁用 |
+| 查看来源按钮 | Trae CN、Trae、Qoder 可用；Claude Code、WorkBuddy、Qoder CN 禁用 |
 | 输入留空，点击 Trae | `source: "trae"`、`confirm: false`，不发送 `sourceDir`；预览 `trae.skills.panel-demo`，列表仍为空 |
 | 在预览后点击 `link` | `source: "trae"`、`confirm: true`；受理 202，任务完成后出现 external 条目 |
 | 移除这次新建的 Trae 组 | 确认后条目消失；`TRAE_DIR/skills/panel-demo/SKILL.md` 仍在 |

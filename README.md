@@ -168,16 +168,21 @@ dsh-skills-nexus adopt <name> --url github:owner/repo   # give a source-less ent
 dsh-skills-nexus link trae-cn                       # discover skills under ~/.trae-cn/skills/
 dsh-skills-nexus link trae-cn --dry-run             # preview without creating entries
 dsh-skills-nexus link trae                         # discover skills under ~/.trae/skills/
+dsh-skills-nexus link qoder                        # user-level skills + marketplace plugins under ~/.qoder
 dsh-skills-nexus link trae --source-dir /path       # override the source root (not skills/)
 dsh-skills-nexus remove --group trae --yes          # unlink the group; keep external directories
 dsh-skills-nexus link trae-cn --group custom        # override the L1 group name (default: trae-cn)
 dsh-skills-nexus link trae-cn --force               # replace existing entries on conflict
 ```
 
-`link` supports `trae-cn` (`~/.trae-cn`, env `TRAE_CN_DIR`) and `trae`
-(`~/.trae`, env `TRAE_DIR`), scanning only `<root>/skills/` one level deep.
+`link` supports `trae-cn` (`~/.trae-cn`, env `TRAE_CN_DIR`), `trae` (`~/.trae`,
+env `TRAE_DIR`) and `qoder` (`~/.qoder`, env `QODER_DIR`). The Trae variants scan
+only `<root>/skills/` one level deep; `qoder` adds the skill directories declared
+by the plugins installed from its marketplace, and leaves out the plugins Qoder
+ships itself (`qoder-bundler`), which need the Qoder host runtime.
 Root precedence: `--source-dir` > legacy alias `--trae-cn-dir` > the selected
-source's environment variable > default. An override selects one root only;
+source's environment variable > default. An override selects one root only — for
+`qoder` that is the agent root (`~/.qoder`), not its `skills/` child;
 a nonexistent overridden directory does not fall back to the default. Unlink with
 `remove --group <source> --yes` (use your custom group if you set `--group`);
 this preserves the external directories. See [source details](docs/sources-and-packages.md#channel-e-external-reference-link).
@@ -300,9 +305,9 @@ From the panel you can:
 - browse entry cards — link names, enabled state, pinned commit, status tags
   like `no source` / `linked directory` / `disabled`, and an
   `update available` badge for branch-tracked entries;
-- preview and link **Trae CN** or **Trae** from the `link local skills` section,
+- preview and link **Trae CN**, **Trae** or **Qoder** from the `link local skills` section,
   with an optional server-side source root; changing the root clears the preview;
-- manage **external entries** (created by CLI `link trae-cn` / `link trae`) alongside
+- manage **external entries** (created by CLI `link trae-cn` / `link trae` / `link qoder`) alongside
   git-managed ones — the panel displays them with a `linked directory` tag,
   shows their external path, and supports enable/disable and remove (which
   only deletes the link, never the user's directory);
@@ -663,8 +668,9 @@ ls -la ~/.dsh/skills/
   of real Cordis plugins. If a repo already ships a `dsh.bundle.patch`, install
   it the normal way — nexus is for repos that don't. See
   [nexus vs `dsh plugin`](docs/nexus-vs-plugin.md) for the full decision guide.
-- **External entries (`link` channel)**: `link trae-cn` / `link trae` creates *external* entries
-  that symlink to directories you already own (`~/.trae-cn/skills/` / `~/.trae/skills/`). Nexus
+- **External entries (`link` channel)**: `link trae-cn` / `link trae` / `link qoder` creates *external* entries
+  that symlink to directories you already own (`~/.trae-cn/skills/`, `~/.trae/skills/`, or the
+  user-level and marketplace-plugin skill directories under `~/.qoder`). Nexus
   never clones, updates or deletes those directories — `remove` only deletes the
   link and the manifest entry. External entries carry a `groupPath` (e.g.
   `['trae-cn', 'skills', 'brainstorming']`) for hierarchical grouping; `enable`

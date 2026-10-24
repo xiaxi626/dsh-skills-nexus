@@ -1,5 +1,5 @@
 /**
- * 通道 E：trae-cn / trae 等本地来源的外部条目核心。
+ * 通道 E：trae-cn / trae / qoder 等本地来源的外部条目核心。
  *
  * 从已配置的本地来源发现技能，注册为 manifest 条目，
  * 并通过 symlink 引用用户自有目录。Nexus 不克隆、拉取、更新或删除
@@ -28,6 +28,11 @@ export declare function entrySkillDir(entry: SkillEntry): string;
 /** Trae 两个版本均只扫描用户技能，不包含 builtin_skills。 */
 export declare const TRAE_CN_SUBDIRS: readonly ["skills"];
 export declare const TRAE_SUBDIRS: readonly ["skills"];
+/**
+ * 从**单个**来源根目录发现技能。各来源自带发现逻辑：布局差异较大时
+ * （插件式来源一个根下挂多个插件）不必把分支写进 `planLinkLocal`。
+ */
+export type DiscoverFn = (root: string) => Promise<DiscoveredSkill[]>;
 export interface SourceConfig {
     /** 根目录覆盖使用的环境变量名。 */
     envVar: string;
@@ -35,9 +40,11 @@ export interface SourceConfig {
     defaultDirName?: string;
     /** 按优先级排列的候选根目录，相对于 homedir。 */
     rootCandidates?: readonly string[];
-    /** 相对于每个根目录的技能子目录。 */
-    subdirs: readonly string[];
+    /** 单个根目录的技能发现逻辑。 */
+    discover: DiscoverFn;
 }
+/** 固定子目录布局（trae-cn / trae）：逐个子目录扫描一层。 */
+export declare function plainDiscovery(subdirs: readonly string[]): DiscoverFn;
 export declare const SOURCE_CONFIGS: Record<string, SourceConfig>;
 /** 已支持的来源标识，用于帮助、错误提示和补全。 */
 export declare const SUPPORTED_SOURCES: string[];
@@ -61,9 +68,12 @@ export interface LinkOptions {
 }
 /** 从任意已配置来源发现的技能。 */
 export interface DiscoveredSkill {
-    /** Which fixed subdir it was found in (currently always 'skills'). */
-    subdir: string;
-    /** Directory name within that subdir. */
+    /**
+     * 来源内的分组段，构成 `groupPath` 的第二段：固定子目录布局下是子目录名
+     * （`skills`），插件式布局下是插件名。
+     */
+    segment: string;
+    /** Directory name within that segment. */
     name: string;
     /** Absolute path to the skill directory. */
     dir: string;
@@ -106,6 +116,14 @@ export declare function resolveSourceRoots(source: string, opts?: {
     dirOverride?: string;
 }): Promise<string[]>;
 /**
+ * Read the frontmatter `name` from a SKILL.md file. Returns '' when the file
+ * is absent, has no frontmatter, or the name field is missing/empty.
+ *
+ * Exported for other source modules (`qoder.ts`) so their own layouts can reuse
+ * the one frontmatter reader instead of duplicating the regex + YAML handling.
+ */
+export declare function readSkillName(skillFile: string): Promise<string>;
+/**
  * 按根目录优先级扫描各子目录，仅发现一层包含 SKILL.md 的目录。
  * 相同绝对路径只返回一次；不递归扫描嵌套插件布局。
  */
@@ -119,7 +137,7 @@ export declare function discoverTraeCnSkills(root: string): Promise<DiscoveredSk
  * 多根下生成同一管理名称时，优先根中的技能胜出。
  *
  * The plan contains one entry per discovered skill, with:
- *   - `groupPath` = `[group ?? source, subdir, dirName]`
+ *   - `groupPath` = `[group ?? source, segment, dirName]`
  *   - `name` = `groupPath.join('.')`
  *   - `externalDir` = absolute path to the skill directory
  *

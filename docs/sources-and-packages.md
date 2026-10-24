@@ -231,8 +231,10 @@ must provide it explicitly.
 ```bash
 dsh-skills-nexus link trae-cn                       # discover skills under ~/.trae-cn/skills/
 dsh-skills-nexus link trae                          # discover skills under ~/.trae/skills/
+dsh-skills-nexus link qoder                         # user-level skills + marketplace plugins under ~/.qoder
 dsh-skills-nexus link trae --source-dir /path        # override the source root, not skills/
 dsh-skills-nexus remove --group trae --yes           # unlink; keep the external directories
+dsh-skills-nexus remove --group qoder --yes          # same for every qoder entry
 dsh-skills-nexus link trae-cn --dry-run             # preview without creating entries
 dsh-skills-nexus link trae-cn --group custom        # override the L1 group name
 dsh-skills-nexus link trae-cn --force               # replace existing entries on conflict
@@ -244,21 +246,23 @@ that symlink to those directories. Nexus never clones, updates, or deletes
 the target directories. `remove` only deletes the link and the manifest
 entry, never the directory.
 
-Supported sources (both scan `<root>/skills/` one level deep):
+Supported sources:
 
-| Source | Default root | Environment override |
-|---|---|---|
-| `trae-cn` | `~/.trae-cn` | `TRAE_CN_DIR` |
-| `trae` | `~/.trae` | `TRAE_DIR` |
+| Source | Default root | Environment override | What is discovered |
+|---|---|---|---|
+| `trae-cn` | `~/.trae-cn` | `TRAE_CN_DIR` | one level under `<root>/skills/` |
+| `trae` | `~/.trae` | `TRAE_DIR` | one level under `<root>/skills/` |
+| `qoder` | `~/.qoder` | `QODER_DIR` | one level under `<root>/skills/`, plus the skill directories each marketplace plugin declares |
 
 Precedence: `--source-dir` > `--trae-cn-dir` (legacy alias) > the selected
 source's environment variable > configured defaults. Overrides select a
-single root, not its `skills/` child; a nonexistent override is an error,
-not a request to fall back. The generic registry supports ordered
-`rootCandidates`: all existing roots are scanned, absolute directories are
-deduplicated, and the first occurrence of each management name wins across
-roots. Current sources each have just one default root. `builtin_skills/`
-and nested plugin layouts remain outside discovery.
+single root — for `qoder` that is the agent root (`~/.qoder`), never its
+`skills/` child; a nonexistent override is an error, not a request to fall
+back. The generic registry supports ordered `rootCandidates`: all existing
+roots are scanned, absolute directories are deduplicated, and the first
+occurrence of each management name wins across roots. Current sources each
+have just one default root. Built-in skills and nested layouts stay outside
+discovery.
 
 | Flag | Effect |
 |---|---|
@@ -269,12 +273,66 @@ and nested plugin layouts remain outside discovery.
 | `--force` | Replace existing manifest entries on name conflict |
 | `--json` | Emit a machine-readable report |
 
+### How `qoder` is scanned
+
+A Qoder root holds two different layouts, so `qoder` brings its own discovery
+function (`src/qoder.ts`) instead of the fixed-subdirectory scanner:
+
+1. **User-level skills** — one level under `<root>/skills/`; segment `skills`.
+2. **Marketplace plugins** — the plugin inventory is read, never written:
+   `<root>/plugins/installed_plugins_v2.json`. For each record that is enabled
+   and still on disk, the declared skill directories come from
+   `<installPath>/.qoder-plugin/plugin.json`, then `<installPath>/plugin.json`,
+   then the `./skills/` convention. `skills` may be a string or an array and is
+   resolved against `installPath`. A declared directory that carries its own
+   `SKILL.md` counts as one skill; otherwise the directory is read one level
+   deep.
+3. The plugin name — the inventory key before the last `@` (`superpowers` in
+   `superpowers@qoder-marketplace`) — becomes the middle `groupPath` segment.
+
+When two discovered skills share a name, the user-level one wins; between
+plugins, the first in inventory order wins. A missing inventory, a missing
+`installPath`, an install directory that no longer exists and `enabled: false`
+are all skipped silently.
+
+### Why the built-in plugins are excluded
+
+`qoder-bundler` publishes the plugins that ship with the Qoder client. Their
+`SKILL.md` files assume the plugin root and the Qoder host runtime: they locate
+the root with `../..`, read `${QODER_PLUGIN_ROOT}` and call `~/.qodersec/bin`.
+Linked on their own they do not work, and their cache contents are rewritten on
+every client update. This is the rule the Trae sources already follow — only the
+user-owned `skills/` is in scope, `builtin_skills/` is not: whatever ships with
+the client belongs to the client.
+
+### After a plugin update
+
+`installPath` usually contains a version layer (`…/superpowers/6.3.0`), so an
+update moves the directory and leaves the existing symlink dangling. `doctor`
+reports such an entry as `missing-target` (links created from external sources
+are not part of the orphan scan), but the fix it suggests is `update <name>`,
+which does not apply to external entries. Re-run the link instead:
+
+```bash
+dsh-skills-nexus link qoder --force
+```
+
+`--force` replaces the existing entries in place. The flat names stay the same,
+so `list`, `enable`/`disable` and `remove` keep working.
+
+### One skill, several sources
+
+`link trae` and `link qoder` both expose the superpowers collection on a machine
+that has it installed twice. With both linked, the same `SKILL.md` (same
+frontmatter `name`) enters DSH twice under two flat names. Keep one source per
+skill collection.
+
 ### Naming convention
 
 Each discovered skill becomes an entry with:
 
-- `groupPath = [group ?? source, subdir, dirName]` — e.g. `['trae-cn', 'skills', 'brainstorming']`
-- `name = groupPath.join('.')` — e.g. `trae-cn.skills.brainstorming`
+- `groupPath = [group ?? source, segment, dirName]` — e.g. `['trae-cn', 'skills', 'brainstorming']` for a fixed-subdirectory source, `['qoder', 'superpowers', 'brainstorming']` for a plugin skill
+- `name = groupPath.join('.')` — e.g. `trae-cn.skills.brainstorming`, `qoder.superpowers.brainstorming`
 - `externalDir` — absolute path to the skill directory
 - `ownership: 'external'`
 
@@ -287,6 +345,7 @@ commands accept `--group <path>` to batch-toggle every entry whose
 ```bash
 dsh-skills-nexus enable --group trae-cn/skills     # enable all trae-cn skills
 dsh-skills-nexus disable --group trae-cn            # disable everything under trae-cn
+dsh-skills-nexus disable --group qoder/superpowers  # one plugin, not the whole source
 ```
 
 `remove` takes the same prefix to batch-delete a group. The prefix is
@@ -302,9 +361,11 @@ dsh-skills-nexus remove --group trae-cn --yes      # ...without the confirmation
 
 Use `trae` instead of `trae-cn` in group commands for the international
 source; use your custom L1 group if you supplied `--group` when linking.
-The web panel offers Trae CN / Trae previews and an optional server-side root,
-then links the previewed source. It renders grouped entries under L1 group
-headers with a group-level Switch (✓/○/◐ for on/off/mixed).
+For qoder the second segment is the plugin name, so `--group qoder` covers the
+whole source and `--group qoder/<plugin>` one plugin.
+The web panel offers Trae CN / Trae / Qoder previews and an optional
+server-side root, then links the previewed source. It renders grouped entries
+under L1 group headers with a group-level Switch (✓/○/◐ for on/off/mixed).
 
 HTTP `POST /skills-nexus/link` accepts `{ source, sourceDir?, traeCnDir?,
 group?, force?, confirm? }`. `sourceDir` takes precedence over the legacy
