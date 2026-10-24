@@ -232,6 +232,7 @@ must provide it explicitly.
 dsh-skills-nexus link trae-cn                       # discover skills under ~/.trae-cn/skills/
 dsh-skills-nexus link trae                          # discover skills under ~/.trae/skills/
 dsh-skills-nexus link qoder                         # user-level skills + marketplace plugins under ~/.qoder
+dsh-skills-nexus link qoder-cn                      # same layout for Qoder CN, under ~/.qoder-cn
 dsh-skills-nexus link trae --source-dir /path        # override the source root, not skills/
 dsh-skills-nexus remove --group trae --yes           # unlink; keep the external directories
 dsh-skills-nexus remove --group qoder --yes          # same for every qoder entry
@@ -253,16 +254,17 @@ Supported sources:
 | `trae-cn` | `~/.trae-cn` | `TRAE_CN_DIR` | one level under `<root>/skills/` |
 | `trae` | `~/.trae` | `TRAE_DIR` | one level under `<root>/skills/` |
 | `qoder` | `~/.qoder` | `QODER_DIR` | one level under `<root>/skills/`, plus the skill directories each marketplace plugin declares |
+| `qoder-cn` | `~/.qoder-cn` | `QODER_CN_DIR` | same as `qoder`: user-level `<root>/skills/` plus each marketplace plugin's declared skill directories |
 
 Precedence: `--source-dir` > `--trae-cn-dir` (legacy alias) > the selected
 source's environment variable > configured defaults. Overrides select a
-single root — for `qoder` that is the agent root (`~/.qoder`), never its
-`skills/` child; a nonexistent override is an error, not a request to fall
-back. The generic registry supports ordered `rootCandidates`: all existing
-roots are scanned, absolute directories are deduplicated, and the first
-occurrence of each management name wins across roots. Current sources each
-have just one default root. Built-in skills and nested layouts stay outside
-discovery.
+single root — for `qoder` / `qoder-cn` that is the agent root (`~/.qoder` /
+`~/.qoder-cn`), never its `skills/` child; a nonexistent override is an error,
+not a request to fall back. The generic registry supports ordered
+`rootCandidates`: all existing roots are scanned, absolute directories are
+deduplicated, and the first occurrence of each management name wins across
+roots. Current sources each have just one default root. Built-in skills and
+nested layouts stay outside discovery.
 
 | Flag | Effect |
 |---|---|
@@ -273,10 +275,12 @@ discovery.
 | `--force` | Replace existing manifest entries on name conflict |
 | `--json` | Emit a machine-readable report |
 
-### How `qoder` is scanned
+### How the Qoder sources are scanned
 
-A Qoder root holds two different layouts, so `qoder` brings its own discovery
-function (`src/qoder.ts`) instead of the fixed-subdirectory scanner:
+A Qoder root holds two different layouts, so `qoder` and `qoder-cn` share one
+discovery function (`src/qoder.ts`) instead of the fixed-subdirectory scanner.
+Both clients use the same layout — only the root differs (`~/.qoder` vs.
+`~/.qoder-cn`):
 
 1. **User-level skills** — one level under `<root>/skills/`; segment `skills`.
 2. **Marketplace plugins** — the plugin inventory is read, never written:
@@ -301,7 +305,9 @@ are all skipped silently.
 `SKILL.md` files assume the plugin root and the Qoder host runtime: they locate
 the root with `../..`, read `${QODER_PLUGIN_ROOT}` and call `~/.qodersec/bin`.
 Linked on their own they do not work, and their cache contents are rewritten on
-every client update. This is the rule the Trae sources already follow — only the
+every client update. The same publisher is what `~/.qoder-cn` ships: all four
+bundled plugins there are `@qoder-bundler` too, so one exclusion rule covers
+both roots. This is the rule the Trae sources already follow — only the
 user-owned `skills/` is in scope, `builtin_skills/` is not: whatever ships with
 the client belongs to the client.
 
@@ -315,6 +321,7 @@ which does not apply to external entries. Re-run the link instead:
 
 ```bash
 dsh-skills-nexus link qoder --force
+dsh-skills-nexus link qoder-cn --force
 ```
 
 `--force` replaces the existing entries in place. The flat names stay the same,
@@ -326,6 +333,11 @@ so `list`, `enable`/`disable` and `remove` keep working.
 that has it installed twice. With both linked, the same `SKILL.md` (same
 frontmatter `name`) enters DSH twice under two flat names. Keep one source per
 skill collection.
+
+The same skill installed in both Qoder clients is the expected case rather than
+a mistake: `qoder` and `qoder-cn` are separate sources, so the two copies become
+`qoder.*` and `qoder-cn.*` entries and neither shadows the other. Pick one with
+`disable` if you only want a single copy active.
 
 ### Naming convention
 
@@ -346,6 +358,7 @@ commands accept `--group <path>` to batch-toggle every entry whose
 dsh-skills-nexus enable --group trae-cn/skills     # enable all trae-cn skills
 dsh-skills-nexus disable --group trae-cn            # disable everything under trae-cn
 dsh-skills-nexus disable --group qoder/superpowers  # one plugin, not the whole source
+dsh-skills-nexus disable --group qoder-cn           # the CN client, leave qoder alone
 ```
 
 `remove` takes the same prefix to batch-delete a group. The prefix is
@@ -361,9 +374,10 @@ dsh-skills-nexus remove --group trae-cn --yes      # ...without the confirmation
 
 Use `trae` instead of `trae-cn` in group commands for the international
 source; use your custom L1 group if you supplied `--group` when linking.
-For qoder the second segment is the plugin name, so `--group qoder` covers the
-whole source and `--group qoder/<plugin>` one plugin.
-The web panel offers Trae CN / Trae / Qoder previews and an optional
+For the Qoder sources the second segment is the plugin name, so `--group qoder`
+(or `--group qoder-cn`) covers the whole source and `--group qoder/<plugin>`
+one plugin.
+The web panel offers Trae CN / Trae / Qoder / Qoder CN previews and an optional
 server-side root, then links the previewed source. It renders grouped entries
 under L1 group headers with a group-level Switch (✓/○/◐ for on/off/mixed).
 

@@ -4,7 +4,7 @@
 
 > **Shell warning:** the `bash` blocks below are for Windows Git Bash or Linux/macOS Bash, not PowerShell/cmd. Open a terminal at this checkout's root and run each block as a whole. The scripts do not change directories, perform Git writes, or require a global `npm link`.
 
-This guide verifies [channel E](sources-and-packages.md#channel-e-external-reference-link) for the currently enabled sources — at the time of writing, `trae-cn`, `trae` and `qoder` — plus root overrides and the panel workflow. The enabled set is driven by `SOURCE_CONFIGS` in `src/external.ts`; when a new source is added, update the contract table and walkthrough coverage accordingly. The CLI walkthrough runs the compiled `lib/cli/index.js` with isolated temporary state. Panel acceptance requires a separate test host; CLI success does not establish UI integration success.
+This guide verifies [channel E](sources-and-packages.md#channel-e-external-reference-link) for the currently enabled sources — at the time of writing, `trae-cn`, `trae`, `qoder` and `qoder-cn` — plus root overrides and the panel workflow. The enabled set is driven by `SOURCE_CONFIGS` in `src/external.ts`; when a new source is added, update the contract table and walkthrough coverage accordingly. The CLI walkthrough runs the compiled `lib/cli/index.js` with isolated temporary state. Panel acceptance requires a separate test host; CLI success does not establish UI integration success.
 
 ## Prerequisites and the two builds
 
@@ -34,7 +34,7 @@ Every command should exit 0. To check committed artifact freshness, run `git dif
   node -e "require('node:assert/strict').equal(require('./package.json').name, 'dsh-skills-nexus')"
   node --import tsx --import ./test/register-css.mjs --test \
     test/external-link.test.ts test/external-qoder.test.ts \
-    test/cli-link.test.ts test/args.test.ts \
+    test/external-qoder-cn.test.ts test/cli-link.test.ts test/args.test.ts \
     test/api.test.ts test/client-api.test.ts \
     test/completions.test.ts test/panel-render.test.tsx
 )
@@ -42,12 +42,13 @@ Every command should exit 0. To check committed artifact freshness, run `git dif
 
 | Test file | Coverage |
 |---|---|
-| `external-link.test.ts` | Three source configurations, environment variables, overrides without fallback, candidate-root ordering, directory deduplication and first-root wins for management names, one-level scan boundaries |
+| `external-link.test.ts` | Four source configurations, environment variables, overrides without fallback, candidate-root ordering, directory deduplication and first-root wins for management names, one-level scan boundaries |
 | `external-qoder.test.ts` | Qoder layouts: versioned and unversioned installs, `skills` as string/array, the `./skills/` fallback, the one-level boundary, disabled/missing installs, full `qoder-bundler` exclusion, user-level precedence |
+| `external-qoder-cn.test.ts` | The second Qoder root: `QODER_CN_DIR` and `--source-dir` resolution with no fallback, `qoder-cn.*` naming and `qoder-cn:` urls, the `--group` override, and separate entries when both clients hold the same skill |
 | `cli-link.test.ts` / `args.test.ts` | Preview/execution, JSON, conflicts and force, groups, new/legacy flags and empty-value rejection |
 | `api.test.ts` / `client-api.test.ts` | `sourceDir` forwarding for preview/confirmed execution, legacy `traeCnDir`, error responses |
 | `completions.test.ts` | New and legacy root flags in all four link branches; actual completion in installed shells |
-| `panel-render.test.tsx` | Three enabled buttons, three disabled placeholders, directory input; static rendering only, no simulated clicks |
+| `panel-render.test.tsx` | Four enabled buttons, two disabled placeholders, directory input; static rendering only, no simulated clicks |
 
 Before release also run `npm test` and `npm run test:local-source`. Record missing-shell skips separately, not as passes. Focused tests do not replace the full suite or remote cross-platform CI.
 
@@ -60,12 +61,13 @@ The table defines the contract; do not create or modify real user directories to
 | `trae-cn` | `~/.trae-cn/skills/` | `TRAE_CN_DIR` |
 | `trae` | `~/.trae/skills/` | `TRAE_DIR` |
 | `qoder` | `~/.qoder/skills/` + each marketplace plugin's declared directory | `QODER_DIR` |
+| `qoder-cn` | `~/.qoder-cn/skills/` + each marketplace plugin's declared directory | `QODER_CN_DIR` |
 
 The table reflects the current `SOURCE_CONFIGS`. When a new source is registered, extend the table and the walkthrough coverage.
 
-Precedence: `--source-dir` > `--trae-cn-dir` (legacy alias) > selected source's environment variable > default root. Pass the **root**, not its `skills/` child — for `qoder` that is `~/.qoder`. An invalid override fails without fallback. The core tests above cover default resolution and multiple candidate roots; the walkthrough below scans only temporary directories.
+Precedence: `--source-dir` > `--trae-cn-dir` (legacy alias) > selected source's environment variable > default root. Pass the **root**, not its `skills/` child — for `qoder` / `qoder-cn` that is `~/.qoder` / `~/.qoder-cn`. An invalid override fails without fallback. The core tests above cover default resolution and multiple candidate roots; the walkthrough below scans only temporary directories.
 
-Run the following block as a whole. Node drives the real compiled CLI, explicitly setting `DSH_HOME`, `DSH_SKILLS_NEXUS_HOME`, and all three source environment variables for every child process without changing your terminal environment. A `finally` block cleans the generated directory on success or assertion failure. If forcibly terminated, clean only the printed `fixture:` path.
+Run the following block as a whole. Node drives the real compiled CLI, explicitly setting `DSH_HOME`, `DSH_SKILLS_NEXUS_HOME`, and all four source environment variables for every child process without changing your terminal environment. A `finally` block cleans the generated directory on success or assertion failure. If forcibly terminated, clean only the printed `fixture:` path.
 
 ```bash
 node --input-type=module <<'NODE'
@@ -79,7 +81,7 @@ const cli = resolve('lib/cli/index.js')
 await access(cli)
 const base = await mkdtemp(join(tmpdir(), 'nexus-verify-link-'))
 console.log(`fixture: ${base}`)
-const roots = Object.fromEntries(['trae', 'trae-cn', 'qoder', 'alias', 'override'].map(k => [k, join(base, k)]))
+const roots = Object.fromEntries(['trae', 'trae-cn', 'qoder', 'qoder-cn', 'alias', 'override'].map(k => [k, join(base, k)]))
 const env = {
   ...process.env,
   DSH_HOME: join(base, 'home'),
@@ -87,9 +89,11 @@ const env = {
   TRAE_DIR: roots.trae,
   TRAE_CN_DIR: roots['trae-cn'],
   QODER_DIR: roots.qoder,
+  QODER_CN_DIR: roots['qoder-cn'],
 }
 const md = '---\nname: demo\ndescription: isolated link verification\n---\nBody\n'
 const pluginMd = '---\nname: plugin-demo\ndescription: isolated plugin link verification\n---\nBody\n'
+const cnPluginMd = '---\nname: cn-plugin-demo\ndescription: isolated Qoder CN plugin link verification\n---\nBody\n'
 function run(args, expected = 0) {
   const result = spawnSync(process.execPath, [cli, ...args], { env, encoding: 'utf8' })
   assert.ifError(result.error)
@@ -121,6 +125,15 @@ try {
     plugins: { 'demo-plugin@qoder-marketplace': [{ enabled: true, installPath: qoderPlugin }] },
     version: 2,
   }))
+  const cnPlugin = join(roots['qoder-cn'], 'plugins', 'cache', 'qoder-marketplace', 'cn-plugin', '1.0.0')
+  await mkdir(join(cnPlugin, '.qoder-plugin'), { recursive: true })
+  await writeFile(join(cnPlugin, '.qoder-plugin', 'plugin.json'), JSON.stringify({ name: 'cn-plugin', skills: './skills/' }))
+  await mkdir(join(cnPlugin, 'skills', 'cn-plugin-demo'), { recursive: true })
+  await writeFile(join(cnPlugin, 'skills', 'cn-plugin-demo', 'SKILL.md'), cnPluginMd)
+  await writeFile(join(roots['qoder-cn'], 'plugins', 'installed_plugins_v2.json'), JSON.stringify({
+    plugins: { 'cn-plugin@qoder-marketplace': [{ enabled: true, installPath: cnPlugin }] },
+    version: 2,
+  }))
   for (const source of ['trae', 'trae-cn']) {
     const plan = preview(source)
     assert.equal(plan.source, source)
@@ -138,6 +151,15 @@ try {
   assert.deepEqual(qoder.entries.map(e => e.name).sort(), ['qoder.demo-plugin.plugin-demo', 'qoder.skills.demo'])
   assert.equal(preview('qoder', '--source-dir', roots.qoder).entries.length, 2)
   console.log('PASS qoder: user-level skills plus marketplace plugin skills, one level each')
+
+  const cn = preview('qoder-cn')
+  assert.equal(cn.source, 'qoder-cn')
+  assert.deepEqual(cn.entries.map(e => e.name).sort(), ['qoder-cn.cn-plugin.cn-plugin-demo', 'qoder-cn.skills.demo'])
+  assert.ok(cn.entries.every(e => e.groupPath[0] === 'qoder-cn'))
+  assert.equal(preview('qoder-cn', '--source-dir', roots['qoder-cn']).entries.length, 2)
+  // The CN root is a separate source: linking or previewing one never reaches the other.
+  assert.deepEqual(preview('qoder').entries.map(e => e.name).sort(), ['qoder.demo-plugin.plugin-demo', 'qoder.skills.demo'])
+  console.log('PASS qoder-cn: same layout under a second root, independent of qoder')
 
   assert.equal(preview('trae-cn', '--trae-cn-dir', roots.alias).entries[0].externalDir, skillDir(roots.alias))
   for (const source of ['trae', 'trae-cn']) {
@@ -192,7 +214,7 @@ try {
 NODE
 ```
 
-Pass criteria: six `PASS` lines, one `cleaned:` line, and exit 0. Cleanup alone is not success: it also runs after failed assertions. Unlinking and deleting the fixture are separate operations: first prove that `remove --group` preserves the source files, then let the script delete only the temporary files it created.
+Pass criteria: seven `PASS` lines, one `cleaned:` line, and exit 0. Cleanup alone is not success: it also runs after failed assertions. Unlinking and deleting the fixture are separate operations: first prove that `remove --group` preserves the source files, then let the script delete only the temporary files it created.
 
 ### What changes after a plugin update
 
@@ -242,7 +264,7 @@ NODE
 
 | Action | Expected UI / request |
 |---|---|
-| Inspect source buttons | Trae CN, Trae and Qoder enabled; Claude Code, WorkBuddy and Qoder CN disabled |
+| Inspect source buttons | Trae CN, Trae, Qoder and Qoder CN enabled; Claude Code and WorkBuddy disabled |
 | Leave the input empty and click Trae | `source: "trae"`, `confirm: false`, no `sourceDir`; preview `trae.skills.panel-demo`, registered list still empty |
 | Click `link` after preview | `source: "trae"`, `confirm: true`; acceptance 202, external entry appears after the job finishes |
 | Remove the newly created Trae group | Confirm removal; entry disappears while `TRAE_DIR/skills/panel-demo/SKILL.md` remains |
