@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+**2026-10-24 · Added · link 支持 qoder 来源，插件技能发现独立成模块**
+
+- **背景**：第三个真实来源 `qoder` 的布局与前两个 Trae 来源不同：同一个根下既挂用户级 `skills/`，也挂市场安装的插件——`plugins/installed_plugins_v2.json` 记录每个插件的 `installPath`，技能目录由插件自己的 `plugin.json` 声明。若沿用「固定子目录列表」的配置形态，就得在 `external.ts` 里写来源分支，与来源注册表「一个来源一份发现函数」的原则相悖。另有一组 `qoder-bundler` 发布的插件随客户端下发、依赖 Qoder 宿主运行时，不能纳入。
+- **变更**：
+  - `src/external.ts`：`SourceConfig.subdirs` 改为 `discover: (root) => Promise<DiscoveredSkill[]>`，新增 `plainDiscovery(subdirs)` 工厂供 `trae` / `trae-cn` 复用；`DiscoveredSkill.subdir` 更名 `segment`（它成为 `groupPath` 的第二段）；`planLinkLocal` 按根循环调用各来源自己的 `discover`。行为等价：跨根同名去重原本就由扁平名完成。`discoverSkills` 签名、`discoverTraeCnSkills`、`TRAE_CN_SUBDIRS` 保留。
+  - 新增 `src/qoder.ts`：用户级 `<root>/skills/` 取一层；只读 `plugins/installed_plugins_v2.json`，按 `<installPath>/.qoder-plugin/plugin.json` → `<installPath>/plugin.json` → `./skills/` 的顺位解析技能目录（`skills` 支持字符串或数组，相对 `installPath` 解析）；声明目录自身带 `SKILL.md` 算一个技能，否则只枚举一层；`enabled: false`、`installPath` 缺失或目录已不存在均静默跳过；`qoder-bundler` 整组排除；同名技能用户级优先，插件之间按清单顺序先到先得。
+  - 注册 `qoder` 来源（`QODER_DIR` / `.qoder`），排在 `trae` / `trae-cn` 之后，`SUPPORTED_SOURCES` 为 `trae-cn, trae, qoder`。条目形状 `qoder.<插件>.<技能目录>`，用户级为 `qoder.skills.<技能>`。面板只把 Qoder 按钮翻为可用，Claude Code / WorkBuddy / Qoder CN 仍是占位；`usage.ts` 的来源默认根说明补 qoder——四个补全脚本不动，各 shell 的 `link` 分支只补 flag，不枚举来源名。
+  - 新增 `test/external-qoder.test.ts`（8 条）：版本层/无版本层两种安装深度、`skills` 数组形态、`./skills/` 兜底、声明目录下二级嵌套不收录、`enabled: false` 跳过、`installPath` 缺失跳过、`qoder-bundler` 整组排除、同名技能只留用户级那条；`package.json` 的 test 显式清单同步加入。
+  - 双语 README / ARCHITECTURE / sources-and-packages / verify-link-sources 同步来源表与扫描方式，并补三段说明：为什么不纳管随客户端下发的内置插件、插件升级导致链接悬空后怎么处置、同一技能被两个来源同时链接时怎么办；verify 指南的演练脚本新增 qoder 夹具与第六个检查点。
+- **实测验证（Windows / Node 24.19.0）**：本机真实 `~/.qoder` 只读探针 17 条（用户级 2 + `superpowers` 14 + `qmind-knowledge` 1，`qoder-bundler` 0）；`link qoder --dry-run --json` 同为 17 条 entries、0 conflicts，`--source-dir ~/.qoder` 结果一致。`npm test` 794 项（791 通过、3 跳过、0 失败）；`typecheck` / `lint` / `build` / `build:client` 均 exit 0，lint 仍只有原有 2 条 unused-disable warning。双语 verify 指南的演练脚本逐字抽取后过 `bash -n`，Git Bash 实跑各 6 个 `PASS` + `cleaned` + exit 0；`remove --group` 后外部目录与插件缓存均未变动。
+- **如何辨识改动**：`link qoder --dry-run` 的结果里没有 `qoder.qoder-bundler.*`；用户级条目形如 `qoder.skills.<技能>`，插件条目形如 `qoder.<插件>.<技能目录>`；`link qoder --source-dir ~/.qoder` 与默认行为一致——`qoder` 覆盖的是 agent 根，不是它下面的 `skills/`。`remove --group qoder --yes` 只解链并删 manifest 条目，`~/.qoder` 与插件缓存不变。
+- **不做**：不纳 `qoder-bundler` 整组（要纳入就改 `BUILTIN_PUBLISHERS` 常量，不加 `--include-builtin` 开关）；不做 `installed_plugins.json`（v1）兜底——其值形态是对象而非数组，且本机 v1 只列 bundler 条目，零收益；不自动重指升级后的 `installPath`（`doctor` 会报 `missing-target`，其提示的 `update` 对 external 条目无效，文档给 `link qoder --force`）；不对跨来源同名告警；不为修复插件的 `../` 相对引用而链接兄弟技能（`subagent-driven-development`、`executing-plans`、`writing-skills` 三处局限按文档标注处理）；不改四个补全脚本。
+
 **2026-10-23 · Fixed · 补全真 shell 测试的工装判据：区分「子进程异常死亡」与「模板真错」**
 
 - **背景**：CI 一次全矩阵运行中，`windows-latest / Node 20` 腿唯一失败是 `the emitted bash template completes correctly in a real bash`，断言点在 `runInBash` 的子进程退出码上（尚未走到任何补全内容断言），报错为 `bash exited with 2147483652:` 且冒号后为空。2147483652 = 0x80000004 是 NTSTATUS 形态的异常终止，shell 自身只能退出 0..255，故 child bash 在跑到脚本前就死了。同一腿相邻的 pwsh 用例通过；同镜像同 runner 版本的 Node 22 / 24 腿该用例分别以 438ms / 606ms 通过；重跑该腿后 785 项 0 失败（该用例 592ms 通过）。结论：抖动来自 runner，与本分支功能改动无因果关系，也不是 Node 20 的语义差异。
