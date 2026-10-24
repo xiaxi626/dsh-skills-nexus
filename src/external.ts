@@ -223,8 +223,11 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/
 /**
  * Read the frontmatter `name` from a SKILL.md file. Returns '' when the file
  * is absent, has no frontmatter, or the name field is missing/empty.
+ *
+ * Exported for other source modules (`qoder.ts`) so their own layouts can reuse
+ * the one frontmatter reader instead of duplicating the regex + YAML handling.
  */
-async function readSkillName(skillFile: string): Promise<string> {
+export async function readSkillName(skillFile: string): Promise<string> {
   let raw: string
   try {
     raw = await readFile(skillFile, 'utf8')

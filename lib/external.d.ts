@@ -116,6 +116,14 @@ export declare function resolveSourceRoots(source: string, opts?: {
     dirOverride?: string;
 }): Promise<string[]>;
 /**
+ * Read the frontmatter `name` from a SKILL.md file. Returns '' when the file
+ * is absent, has no frontmatter, or the name field is missing/empty.
+ *
+ * Exported for other source modules (`qoder.ts`) so their own layouts can reuse
+ * the one frontmatter reader instead of duplicating the regex + YAML handling.
+ */
+export declare function readSkillName(skillFile: string): Promise<string>;
+/**
  * 按根目录优先级扫描各子目录，仅发现一层包含 SKILL.md 的目录。
  * 相同绝对路径只返回一次；不递归扫描嵌套插件布局。
  */
