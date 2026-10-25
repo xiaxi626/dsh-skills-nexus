@@ -1,5 +1,5 @@
 /**
- * 通道 E：trae-cn / trae / qoder 等本地来源的外部条目核心。
+ * 通道 E：trae-cn / trae / qoder / qoder-cn 等本地来源的外部条目核心。
  *
  * 从已配置的本地来源发现技能，注册为 manifest 条目，
  * 并通过 symlink 引用用户自有目录。Nexus 不克隆、拉取、更新或删除

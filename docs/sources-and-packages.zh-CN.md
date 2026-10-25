@@ -189,6 +189,7 @@ dsh-skills-nexus adopt <name> --url <git-url> [--ref <r>] [--subdir <p>] [--forc
 dsh-skills-nexus link trae-cn                       # 发现 ~/.trae-cn/skills/ 下的技能
 dsh-skills-nexus link trae                          # 发现 ~/.trae/skills/ 下的技能
 dsh-skills-nexus link qoder                         # ~/.qoder 下的用户级技能 + 市场插件技能
+dsh-skills-nexus link qoder-cn                      # 同一布局的 Qoder CN，根目录为 ~/.qoder-cn
 dsh-skills-nexus link trae --source-dir /path        # 覆盖来源根目录，不是 skills/
 dsh-skills-nexus remove --group trae --yes           # 卸载链接，保留外部目录
 dsh-skills-nexus remove --group qoder --yes          # 同上，清理全部 qoder 条目
@@ -206,11 +207,12 @@ dsh-skills-nexus link trae-cn --force               # 冲突时替换已有条�
 | `trae-cn` | `~/.trae-cn` | `TRAE_CN_DIR` | `<root>/skills/` 的一层 |
 | `trae` | `~/.trae` | `TRAE_DIR` | `<root>/skills/` 的一层 |
 | `qoder` | `~/.qoder` | `QODER_DIR` | `<root>/skills/` 的一层 + 每个市场插件声明的技能目录 |
+| `qoder-cn` | `~/.qoder-cn` | `QODER_CN_DIR` | 同 `qoder`：用户级 `<root>/skills/` + 每个市场插件声明的技能目录 |
 
 优先级：`--source-dir` > `--trae-cn-dir`（兼容别名）> 当前来源环境变量 > 配置默认值。
-覆盖指定的是单个根目录——对 `qoder` 来说是 agent 根（`~/.qoder`），不是它下面的 `skills/`；覆盖路径不存在时报错，不回退默认目录。
+覆盖指定的是单个根目录——对 `qoder` / `qoder-cn` 来说是各自的 agent 根（`~/.qoder` / `~/.qoder-cn`），不是它下面的 `skills/`；覆盖路径不存在时报错，不回退默认目录。
 通用注册表支持有序 `rootCandidates`：扫描全部存在的根，按绝对目录去重，跨根同名管理条目保留第一项。
-当前三个来源均只有一个默认根；内置技能与嵌套布局仍不在发现范围内。
+当前四个来源均只有一个默认根；内置技能与嵌套布局仍不在发现范围内。
 
 | 参数 | 作用 |
 |---|---|
@@ -221,9 +223,9 @@ dsh-skills-nexus link trae-cn --force               # 冲突时替换已有条�
 | `--force` | 名称冲突时替换已有 manifest 条目 |
 | `--json` | 输出机器可读报告 |
 
-### `qoder` 的扫描方式
+### Qoder 系来源的扫描方式
 
-一个 Qoder 根目录下同时存在两种布局，所以 `qoder` 自带发现函数（`src/qoder.ts`），不走固定子目录扫描器：
+一个 Qoder 根目录下同时存在两种布局，所以 `qoder` 与 `qoder-cn` 共用一个发现函数（`src/qoder.ts`），不走固定子目录扫描器。两个客户端布局一致，只差根目录（`~/.qoder` vs. `~/.qoder-cn`）：
 
 1. **用户级技能**——`<root>/skills/` 的一层；段名为 `skills`。
 2. **市场插件**——插件清单只读不写：`<root>/plugins/installed_plugins_v2.json`。对每条已启用且目录仍在的记录，声明的技能目录依次取 `<installPath>/.qoder-plugin/plugin.json`、`<installPath>/plugin.json`，都没有时按 `./skills/` 惯例。`skills` 支持字符串或数组，相对 `installPath` 解析。声明目录自身带 `SKILL.md` 时算单个技能，否则只读一层。
@@ -233,7 +235,7 @@ dsh-skills-nexus link trae-cn --force               # 冲突时替换已有条�
 
 ### 为什么不纳管内置插件
 
-`qoder-bundler` 发布的是随 Qoder 客户端一同下发的插件。它们的 `SKILL.md` 假定自己处在插件根与 Qoder 宿主环境里：用 `../..` 定位插件根、读 `${QODER_PLUGIN_ROOT}`、调用 `~/.qodersec/bin`。单独链接后它们整体不可用，而且缓存内容会随客户端升级被改写。这与 Trae 来源既有的规则一致——只纳用户自有的 `skills/`，不纳 `builtin_skills/`：随客户端下发的归客户端。
+`qoder-bundler` 发布的是随 Qoder 客户端一同下发的插件。它们的 `SKILL.md` 假定自己处在插件根与 Qoder 宿主环境里：用 `../..` 定位插件根、读 `${QODER_PLUGIN_ROOT}`、调用 `~/.qodersec/bin`。单独链接后它们整体不可用，而且缓存内容会随客户端升级被改写。`~/.qoder-cn` 下发的也是同一个 publisher——该根内的 4 个内置插件全部是 `@qoder-bundler`，因此一条排除规则同时覆盖两个根。这与 Trae 来源既有的规则一致——只纳用户自有的 `skills/`，不纳 `builtin_skills/`：随客户端下发的归客户端。
 
 ### 插件升级后怎么办
 
@@ -241,6 +243,7 @@ dsh-skills-nexus link trae-cn --force               # 冲突时替换已有条�
 
 ```bash
 dsh-skills-nexus link qoder --force
+dsh-skills-nexus link qoder-cn --force
 ```
 
 `--force` 原地替换已有条目，扁平名不变，所以 `list`、`enable`/`disable`、`remove` 照旧可用。
@@ -248,6 +251,8 @@ dsh-skills-nexus link qoder --force
 ### 同一技能多来源共存
 
 在同时装了两份 superpowers 的机器上，`link trae` 与 `link qoder` 都会发现它。两者同时链接时，同一个 `SKILL.md`（frontmatter `name` 相同）会以两个扁平名各进 DSH 一次。建议同一套技能只保留一个来源。
+
+同一技能在两个 Qoder 客户端各装一份属于预期情形：`qoder` 与 `qoder-cn` 是各自独立的来源，两份会分别成为 `qoder.*` 与 `qoder-cn.*` 条目，互不吞并。只想要一份生效时，用 `disable` 关掉另一份即可。
 
 ### 命名规则
 
@@ -266,6 +271,7 @@ dsh-skills-nexus link qoder --force
 dsh-skills-nexus enable --group trae-cn/skills     # 开启所有 trae-cn 技能
 dsh-skills-nexus disable --group trae-cn            # 禁用 trae-cn 下的所有条目
 dsh-skills-nexus disable --group qoder/superpowers  # 单个插件，而不是整个来源
+dsh-skills-nexus disable --group qoder-cn           # 只动 CN 客户端，不影响 qoder
 ```
 
 `remove` 也接受同样的前缀做批量删除。前缀以 `/` 分隔、逐段精确匹配（与 `enable`/`disable` 同一规则），与名字 patterns 互斥；匹配多个条目前会先确认（或用 `--yes` 跳过）。匹配不到任何条目是错误，而不是空成功。
@@ -276,8 +282,8 @@ dsh-skills-nexus remove --group trae-cn --yes      # ……跳过确认提示
 ```
 
 国际版来源的组操作将 `trae-cn` 换成 `trae`；link 时指定过 `--group` 则使用自定义 L1 组名。
-对 qoder，第二段是插件名：`--group qoder` 覆盖整个来源，`--group qoder/<插件>` 只针对一个插件。
-Web 面板提供 Trae CN / Trae / Qoder 预览及可选的服务端根目录输入，随后对预览的来源执行链接；分组条目渲染在 L1 组头下，带组级 Switch（✓/○/◐ 表示 on/off/mixed）。
+对 Qoder 系来源，第二段是插件名：`--group qoder`（或 `--group qoder-cn`）覆盖整个来源，`--group qoder/<插件>` 只针对一个插件。
+Web 面板提供 Trae CN / Trae / Qoder / Qoder CN 预览及可选的服务端根目录输入，随后对预览的来源执行链接；分组条目渲染在 L1 组头下，带组级 Switch（✓/○/◐ 表示 on/off/mixed）。
 
 HTTP `POST /skills-nexus/link` 接受 `{ source, sourceDir?, traeCnDir?, group?, force?, confirm? }`。
 `sourceDir` 优先于旧 `traeCnDir`；省略 `confirm`（或传 `false`）进行预览，传 `true` 则作为任务执行。

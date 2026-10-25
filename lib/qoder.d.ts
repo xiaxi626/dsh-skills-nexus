@@ -1,7 +1,8 @@
 /**
- * `qoder` 来源：Qoder 客户端的用户级技能 + 市场安装的插件技能。
+ * `qoder` / `qoder-cn` 来源：Qoder 客户端的用户级技能 + 市场安装的插件技能。
  *
- * 一个 `<root>`（默认 `~/.qoder`）下挂着两种布局：
+ * 同一套布局服务两个根：`qoder` 默认 `~/.qoder`，`qoder-cn` 默认 `~/.qoder-cn`。
+ * 一个 `<root>` 下挂着两种布局：
  *
  *   <root>/skills/<技能目录>/SKILL.md            → segment `skills`
  *   <root>/plugins/installed_plugins_v2.json     → 已安装插件清单（只读）
@@ -16,7 +17,7 @@
  *
  * ## 职责边界
  *
- * 本模块是 qoder 布局的唯一知识来源。`external.ts` 只把它当成一个
+ * 本模块是 qoder 系布局（两个客户端根共用）的唯一知识来源。`external.ts` 只把它当成一个
  * `discover` 函数（`(root) => DiscoveredSkill[]`），不出现任何来源分支；
  * 命名、去重、冲突、链接仍由 `planLinkLocal` / `linkLocal` 统一处理。
  */

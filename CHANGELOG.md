@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+**2026-10-24 · Added · link 支持第二个 Qoder 来源 qoder-cn**
+
+- **背景**：Qoder 有两个客户端根——国际版 `~/.qoder` 与中文版 `~/.qoder-cn`，两者布局完全同构：用户级 `skills/` 一层、`plugins/installed_plugins_v2.json`（version 2）记录市场插件的 `installPath`、技能目录由插件自身的 `plugin.json` 声明，且随客户端下发的内置 publisher 实测同为 `qoder-bundler`。既然布局知识完全相同，就只注册第二个根、复用同一个 `discoverQoder`；另建 `src/qoder-cn.ts` 会让两份布局知识必然漂移，把两个根塞进 `qoder` 的多根列表则无法单独开关、`--group` 也会混组，两者都被否。
+- **变更**：
+  - `src/external.ts`：`SOURCE_CONFIGS` 末尾追加 `'qoder-cn': { envVar: 'QODER_CN_DIR', defaultDirName: '.qoder-cn', discover: discoverQoder }`。追加而非插入，既有帮助串、错误串与解析顺序保持不变，`SUPPORTED_SOURCES` 变为 `trae-cn, trae, qoder, qoder-cn`。条目全部由 `planLinkLocal` 生成，零特判：`groupPath[0]` 为 `qoder-cn`，扁平名为 `qoder-cn.skills.<技能>` / `qoder-cn.<插件>.<技能目录>`，`url` 前缀为 `qoder-cn:`。
+  - `src/qoder.ts`：仅注释——模块头写明同一套布局服务 `qoder` 与 `qoder-cn` 两个根，`BUILTIN_PUBLISHERS` 补 CN 实测依据，不引入第二份常量。
+  - `src/client/panel.tsx`：`LINK_SOURCES` 里 `qoder-cn` 的 `enabled` 由 `false` 改为 `true`，标签为 `Qoder CN`；面板占位至此仅剩 Claude Code / WorkBuddy。
+  - `src/cli/usage.ts`：`--source-dir` 的默认根段落补 `qoder-cn uses ~/.qoder-cn (...)`，precedence 行补 `QODER_CN_DIR`，维持原有折行宽度。`--trae-cn-dir` 作为历史别名对所有来源生效（含 `qoder-cn`），属既有行为，本次不改。
+  - 测试：新增 `test/external-qoder-cn.test.ts` 4 条——根解析（`QODER_CN_DIR` 生效、`--source-dir` 优先、覆盖缺失不回退且错误信息含两个名字）、CN 形状夹具经 `planLinkLocal` 只产出 `qoder-cn.*` 且 bundler 缺席、`url` 前缀正确、`--group` 覆盖 L1、两个来源对同名技能各自成条互不吞并；`test/external-link.test.ts` 的精确数组断言加入 `'qoder-cn'`、注册表表项加入 `['qoder-cn', 'QODER_CN_DIR', '.qoder-cn']`、unknown-source 正则由部分匹配钉成完整串；`test/panel-render.test.tsx` 把 `Qoder CN` 移入启用列表并同步标题；`package.json` 的 test 显式清单在 `external-qoder.test.ts` 之后插入新文件。顺带补齐了 qoder 系此前未被覆盖的根解析空白。
+  - 文档：双语 README / ARCHITECTURE / sources-and-packages / verify-link-sources 同步——sources-and-packages 把「qoder 的扫描方式」扩为两个客户端、内置排除节补 CN 实测、插件升级处置给 `link qoder --force` 与 `link qoder-cn --force` 两条；verify 指南来源表加 `qoder-cn` 行、`roots` 与环境变量块加 `QODER_CN_DIR`、夹具加 CN 插件、新增第七个检查点，通过标准由六行 `PASS` 改为七行。
+- **实测验证（Windows / Node 24.19.0）**：`link qoder-cn --dry-run --json` 恰 1 条 `qoder-cn.skills.evidence-based-engineering`、0 conflicts；`link qoder-cn` 建 1 个 junction 且 `realpath` 指向 `~/.qoder-cn/skills/evidence-based-engineering`；`list --json` 为 `ownership: external`、`groupPath: ['qoder-cn','skills','evidence-based-engineering']`、`url: qoder-cn:skills/evidence-based-engineering`；并存的 `link qoder` 产出 17 条（用户级 2 + `qmind-knowledge` 1 + `superpowers` 14），与 CN 条目零冲突。`disable` / `enable --group qoder-cn` 往返 1 条、exit 0、源目录保留；`remove --group qoder-cn --yes` 为 1/1 且 `~/.qoder-cn` 递归 482 条路径快照前后差集为空；随后 `remove --group qoder` 还原基线，manifest 哈希回到原值、`doctor` 0 error / 0 warning。`~/.qoder-cn/plugins/installed_plugins_v2.json`（version 2）四个插件全部 `@qoder-bundler`，与排除规则一致。`npm test` 798 项（795 通过、3 跳过、0 失败），`test:local-source` 1/1；`typecheck` / `lint`（0 error，仍只有原有 2 条 unused-disable warning）/ `build` / `build:client` 均 exit 0；`lib/client.js` 恰 1 增 1 删、`lib/client-types/` 无 diff、二次构建 250 个 lib 文件哈希无变化；双语 verify 指南的演练脚本逐字抽取后实跑各 7 个 `PASS` + `cleaned` + exit 0。
+- **真机补充验证（同日，真实 DSH 宿主）**：该机随后在 CN 侧安装了 `research-copilot@qoder-marketplace`（18 个技能），同一套命令的预览与 `link` 变为 19 条（用户级 1 + 插件 18）：组开关 19 条往返，`remove --group qoder-cn --yes` 为 19/19 且 `~/.qoder-cn` 源目录全程不变，`remove --group qoder` 后回到 0 条、`doctor` 0 error / 0 warning——CN 根的「市场插件」分支因此由真机验证，不再只靠夹具。面板在真实宿主上同样通过：四个来源按钮可用（Claude Code / WorkBuddy 仍为占位），`Qoder CN` 预览与执行产出 19 条 `linked directory` 条目并显示外部路径，组头开关与 `remove group` 与 CLI 行为一致；对同一批已链接条目再次预览时报为已存在冲突（面板不自动覆盖，覆盖需 CLI `--force`），属既有语义。
+- **如何辨识改动**：`link qoder-cn --dry-run` 只出 `qoder-cn.*` 条目，不会混入 `qoder.*`；帮助与 unknown-source 错误串含 `qoder-cn`，默认根段落出现 `~/.qoder-cn` 与 `QODER_CN_DIR`；面板里 `Qoder CN` 可点，禁用占位只剩 Claude Code / WorkBuddy。两个客户端各装同一技能时，`list` 会同时出现 `qoder.x` 与 `qoder-cn.x`——这是命名空间隔离的预期结果。
+- **不做**：不新建 `src/qoder-cn.ts`；不把两个根合并进 `qoder` 的多根列表；不读 `installed_plugins.json`（v1）；不为 `qoder-cn` 新增别名；不改四个补全脚本（它们对来源名零引用）；不做跨来源同名告警与自动跳过；不加 `--include-builtin`。本条目只追加，不回改上面 2026-10-24 的 `qoder` 条目。
+
 **2026-10-24 · Added · link 支持 qoder 来源，插件技能发现独立成模块**
 
 - **背景**：第三个真实来源 `qoder` 的布局与前两个 Trae 来源不同：同一个根下既挂用户级 `skills/`，也挂市场安装的插件——`plugins/installed_plugins_v2.json` 记录每个插件的 `installPath`，技能目录由插件自己的 `plugin.json` 声明。若沿用「固定子目录列表」的配置形态，就得在 `external.ts` 里写来源分支，与来源注册表「一个来源一份发现函数」的原则相悖。另有一组 `qoder-bundler` 发布的插件随客户端下发、依赖 Qoder 宿主运行时，不能纳入。

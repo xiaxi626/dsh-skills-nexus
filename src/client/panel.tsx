@@ -234,7 +234,7 @@ const LINK_SOURCES = [
   { id: 'claude-code', label: 'Claude Code',  enabled: false },
   { id: 'workbuddy',   label: 'WorkBuddy',    enabled: false },
   { id: 'qoder',       label: 'Qoder',        enabled: true  },
-  { id: 'qoder-cn',    label: 'Qoder CN',     enabled: false },
+  { id: 'qoder-cn',    label: 'Qoder CN',     enabled: true  },
 ] as const
 
 /**
