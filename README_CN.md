@@ -16,6 +16,20 @@ DSH skill 全生命周期管理器——从 git 仓库克隆、外部目录链�
 
 dsh-skills-nexus 是社区维护的 DeepSeek Harness (DSH) 插件，非 DeepSeek 官方产品。
 
+## 能力总览
+
+| 方向 | 你能得到什么 | 入口 |
+|---|---|---|
+| Git 安装 | 任意 git 主机上的 `SKILL.md` 仓库，可锁到分支、tag 或 commit；集合仓库用部分克隆 + 稀疏检出只装一个子目录；注册前先识别包装层 | `add` |
+| 版本管理 | 刷新分支跟踪的克隆、不检出就预览远端变更、把克隆切到另一个 ref、撤销最近一次版本变更 | `update` / `diff` / `switch-version` / `rollback` |
+| 外部引用 | 把已经装在别的 agent 目录里的技能登记进来——不克隆、不复制、不写那些目录 | [`link`](#支持-link-的外部来源) / `remove --group` |
+| 跨机器搬运 | 把条目连同来路打包，在别处重建（可选恢复到记录的精确 commit），给冻结条目补回来路 | `export` / `import` / `adopt` |
+| 分组与开关 | 按来源或自定义 L1 组名分组，按单条目或整组前缀启停 | `enable` / `disable` / `--group` |
+| 体检与清理 | 只读检查清单、链接与克隆（可选比对远端更新），清理累积产物 | `doctor` / `purge` |
+| 自动化接口 | 输出 version 1 JSON 报告、稳定退出码、只列名字的清单 | `--json` / `list --names` |
+| Web 面板 | 浏览条目卡片、预览并链接本地来源、跑健康检查、给无源条目 adopt、搜索与过滤 | [面板](#web-面板插件侧可选) |
+| Shell 补全 | bash / zsh / fish / PowerShell 四种补全脚本 | `completions` |
+
 ## 为什么需要它
 
 `dsh plugin --profile <name> add "github:owner/repo"` 转发给 pnpm，且**只有声明了 `dsh.bundle.patch` 的包才会被激活为 profile layer**。一个只含 `SKILL.md` + `references/` + `scripts/` 的内容仓库没有 Cordis 封装，走不通这条路。`dsh-skills-nexus` 填补了这个缺口：
@@ -74,7 +88,7 @@ npm error Fetching packages of type "git" have been disabled
 
 `lib/` 编译产物已随仓库提交，无需构建，安装即用。
 
-如果只需 npm registry 上的已发布版本（当前为 `0.3.0`），也可改用下面的命令：
+如果只需 npm registry 上的已发布版本（当前为 `0.7.0`），也可改用下面的命令：
 
 ```bash
 npm install -g dsh-skills-nexus
@@ -138,11 +152,30 @@ dsh-skills-nexus link trae-cn --group custom        # 覆盖 L1 组名（默认 
 dsh-skills-nexus link trae-cn --force               # 冲突时替换已有条目
 ```
 
-`link` 支持 `trae-cn`（`~/.trae-cn`，环境变量 `TRAE_CN_DIR`）、`trae`（`~/.trae`，环境变量 `TRAE_DIR`）、`qoder`（`~/.qoder`，环境变量 `QODER_DIR`）、`qoder-cn`（`~/.qoder-cn`，环境变量 `QODER_CN_DIR`）、`codebuddy`（`~/.codebuddy`，环境变量 `CODEBUDDY_DIR`）与 `workbuddy`（`~/.workbuddy`，环境变量 `WORKBUDDY_DIR`）。两个 Trae 来源、CodeBuddy 与 WorkBuddy 一样只扫描 `<root>/skills/` 的一层目录；两个 Qoder 客户端额外纳管其市场安装的插件所声明的技能目录，但不纳入客户端随自身下发的插件（`qoder-bundler`）——那些依赖 Qoder 宿主运行时。CodeBuddy 与 WorkBuddy 把用户在客户端内安装的技能直接放在 `<root>/skills/` 下；根下其他子目录不在契约内——返回 0 条通常意味着实际布局与本契约不符。`qoder` 与 `qoder-cn` 是各自独立的来源：同一技能在两个客户端各装一份时，会生成一条 `qoder.*` 与一条 `qoder-cn.*` 条目，这是预期结果。
+### 支持 `link` 的外部来源
+
+| 来源 | 客户端根 | 环境变量覆盖 | `link` 登记什么 |
+|---|---|---|---|
+| `trae-cn` | `~/.trae-cn` | `TRAE_CN_DIR` | `<root>/skills/` 下一层 |
+| `trae` | `~/.trae` | `TRAE_DIR` | `<root>/skills/` 下一层 |
+| `qoder` | `~/.qoder` | `QODER_DIR` | 用户级 `<root>/skills/` + 每个已装市场插件声明的技能目录 |
+| `qoder-cn` | `~/.qoder-cn` | `QODER_CN_DIR` | 与 `qoder` 同一布局 |
+| `codebuddy` | `~/.codebuddy` | `CODEBUDDY_DIR` | `<root>/skills/` 下一层 |
+| `workbuddy` | `~/.workbuddy` | `WORKBUDDY_DIR` | `<root>/skills/` 下一层 |
+
+各来源是独立命名空间：同一技能装在两个客户端里会生成两条条目（`qoder.*` +
+`qoder-cn.*`，或 `codebuddy.*` + `workbuddy.*`），不会互相遮蔽。两个 Qoder 客户端
+不纳入客户端随自身下发的插件（`qoder-bundler`）——那些依赖 Qoder 宿主运行时。`link`
+从不克隆、更新或删除被引用的目录，`remove` 只删链接与清单条目。面板里的 `Claude Code`
+只是禁用占位，不是已支持来源。
+
+固定子目录类客户端把用户在客户端内安装的技能直接放在 `<root>/skills/` 下；根下其他子目录不在契约内，返回 0 条通常意味着实际布局与契约不符。
 根目录优先级：`--source-dir` > 兼容别名 `--trae-cn-dir` > 当前来源的环境变量 > 默认目录。
 显式覆盖只扫描一个根——`qoder` / `qoder-cn` 即各自的 agent 根（`~/.qoder` / `~/.qoder-cn`），不是它下面的 `skills/`；覆盖路径不存在时不会回退默认目录。卸载用 `remove --group <source> --yes`（设置过 `--group` 则使用自定义组名），保留外部目录。
 详见[来源说明](docs/sources-and-packages.zh-CN.md#通道-e外部引用link)。
 隔离 CLI 演练与面板验收步骤见[验证本地来源链接](docs/verify-link-sources.zh-CN.md)。
+
+### 选项、`--json` 与 `add` 的检查
 
 取值型选项（`--name`、`--ref`、`--subdir`、`--source-dir`）也支持 `--flag=value` 写法（如 `--subdir=skills/foo`、`--name=owner-skills`）；布尔选项 `--yes` 不接受值。
 

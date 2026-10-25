@@ -16,6 +16,20 @@ DSH skill lifecycle manager — from git repo cloning, external directory linkin
 
 dsh-skills-nexus is a community-maintained DeepSeek Harness (DSH) plugin, not an official DeepSeek AI product.
 
+## Capabilities
+
+| Direction | What you get | Entry point |
+|---|---|---|
+| Git-backed installs | Any `SKILL.md` repo from any git host, pinned to a branch, tag or commit; collection repos install one subdirectory with partial clone + sparse checkout; wrapper detection runs before registering | `add` |
+| Version management | Refresh branch-tracked clones, preview remote changes without a checkout, move a clone to another ref, undo the last version change | `update` / `diff` / `switch-version` / `rollback` |
+| External references | Register skills that already live in another agent's directory — no clone, no copy, no writes there | [`link`](#supported-external-sources-link) / `remove --group` |
+| Cross-machine transport | Package entries with their provenance, rebuild them elsewhere (optionally at the exact recorded commit), give a frozen entry its git source back | `export` / `import` / `adopt` |
+| Grouping and toggles | Group by source or a custom L1 name; enable or disable one entry or a whole group prefix | `enable` / `disable` / `--group` |
+| Health and cleanup | Read-only checkup of the manifest, links and clones, with an optional remote update check; purge accumulated artifacts | `doctor` / `purge` |
+| Automation | Version-1 JSON reports on stdout, stable exit codes, name-only listing | `--json` / `list --names` |
+| Web panel | Browse entry cards, preview and link a local source, run the health check, adopt a source-less entry, search and filter | [panel](#web-panel-optional-plugin-side) |
+| Shell completion | Generated completion script for bash, zsh, fish or PowerShell | `completions` |
+
 ## Why
 
 `dsh plugin --profile <name> add "github:owner/repo"` forwards to pnpm, and
@@ -104,7 +118,7 @@ download and installation steps still need to satisfy other requirements.
 `lib/` compiled artifacts are committed with the repo, so there is no build
 step — install and use.
 
-If you only need the published npm registry release (currently `0.3.0`), you
+If you only need the published npm registry release (currently `0.7.0`), you
 can use this command instead:
 
 ```bash
@@ -178,19 +192,28 @@ dsh-skills-nexus link trae-cn --group custom        # override the L1 group name
 dsh-skills-nexus link trae-cn --force               # replace existing entries on conflict
 ```
 
-`link` supports `trae-cn` (`~/.trae-cn`, env `TRAE_CN_DIR`), `trae` (`~/.trae`,
-env `TRAE_DIR`), `qoder` (`~/.qoder`, env `QODER_DIR`), `qoder-cn`
-(`~/.qoder-cn`, env `QODER_CN_DIR`), `codebuddy` (`~/.codebuddy`, env
-`CODEBUDDY_DIR`) and `workbuddy` (`~/.workbuddy`, env `WORKBUDDY_DIR`). The Trae
-variants, CodeBuddy and WorkBuddy scan only `<root>/skills/` one level deep; both
-Qoder clients add the skill directories declared by the plugins installed from
-their marketplace, and leave out the plugins the client ships itself
-(`qoder-bundler`), which need the Qoder host runtime. CodeBuddy and WorkBuddy keep
-user-installed skills directly under `<root>/skills/`; their other subdirectories
-are outside this contract — a run that finds 0 skills there means the on-disk
-layout differs from it. `qoder` and `qoder-cn` are two separate sources, so a
-skill installed in both clients produces one `qoder.*` entry and one `qoder-cn.*`
-entry — that is intended.
+### Supported external sources (`link`)
+
+| Source | Client root | Env override | What `link` registers |
+|---|---|---|---|
+| `trae-cn` | `~/.trae-cn` | `TRAE_CN_DIR` | `<root>/skills/`, one level deep |
+| `trae` | `~/.trae` | `TRAE_DIR` | `<root>/skills/`, one level deep |
+| `qoder` | `~/.qoder` | `QODER_DIR` | user-level `<root>/skills/` plus the skill directories each installed marketplace plugin declares |
+| `qoder-cn` | `~/.qoder-cn` | `QODER_CN_DIR` | same layout as `qoder` |
+| `codebuddy` | `~/.codebuddy` | `CODEBUDDY_DIR` | `<root>/skills/`, one level deep |
+| `workbuddy` | `~/.workbuddy` | `WORKBUDDY_DIR` | `<root>/skills/`, one level deep |
+
+Sources are independent namespaces: one skill installed in two clients becomes two
+entries (`qoder.*` + `qoder-cn.*`, or `codebuddy.*` + `workbuddy.*`), never one
+shadowing the other. The Qoder clients leave out the plugins their own client
+ships (`qoder-bundler`) — those need the Qoder host runtime. `link` never
+clones, updates or deletes the referenced directories; `remove` deletes the link
+and the manifest entry only. `Claude Code` shows up in the panel as a disabled
+placeholder — it is not a supported source.
+
+The fixed-subdirectory clients keep user-installed skills directly under
+`<root>/skills/`; their other subdirectories are outside the contract, so a run
+that finds 0 skills there means the on-disk layout differs from it.
 Root precedence: `--source-dir` > legacy alias `--trae-cn-dir` > the selected
 source's environment variable > default. An override selects one root only — for
 `qoder` / `qoder-cn` that is the agent root (`~/.qoder` / `~/.qoder-cn`), not
@@ -200,6 +223,8 @@ if you set `--group`); this preserves the external directories.
 See [source details](docs/sources-and-packages.md#channel-e-external-reference-link).
 For isolated CLI checks and the panel acceptance checklist, see
 [Verifying local source links](docs/verify-link-sources.md).
+
+### Options, `--json` and `add` checks
 
 Value options (`--name`, `--ref`, `--subdir`, `--source-dir`) also accept the `--flag=value` form (e.g. `--subdir=skills/foo`, `--name=owner-skills`); the boolean `--yes` takes no value.
 
