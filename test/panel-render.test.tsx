@@ -98,19 +98,28 @@ test('the panel renders the package import row (§10.3)', () => {
   assert.match(html, /locked/)
 })
 
-test('the link panel enables the Trae variants and both Qoder clients, and offers a server directory override', () => {
+test('the link panel enables every registered source and offers a server directory override', () => {
   const html = renderToStaticMarkup(<NexusPanel api={mountApi()} />)
   const buttons = [...html.matchAll(/<button\b([^>]*)>([^<]*)<\/button>/g)]
-  for (const label of ['Trae CN', 'Trae', 'Qoder', 'Qoder CN']) {
+  for (const label of ['Trae CN', 'Trae', 'Qoder', 'Qoder CN', 'CodeBuddy', 'WorkBuddy']) {
     const button = buttons.find((m) => m[2] === label)
     assert.ok(button, `${label} button exists`)
     assert.doesNotMatch(button[1]!, /disabled/)
   }
-  for (const label of ['Claude Code', 'WorkBuddy']) {
+  for (const label of ['Claude Code']) {
     const button = buttons.find((m) => m[2] === label)
     assert.ok(button, `${label} placeholder exists`)
     assert.match(button[1]!, /disabled=""/)
   }
+  // 按钮顺序是已批准的排列：新增来源追加在 Qoder CN 之后，禁用占位仍收尾。
+  const linkLabels = buttons
+    .map((m) => m[2])
+    .filter((label) =>
+      ['Trae CN', 'Trae', 'Qoder', 'Qoder CN', 'CodeBuddy', 'WorkBuddy', 'Claude Code'].includes(label!),
+    )
+  assert.deepEqual(linkLabels, [
+    'Trae CN', 'Trae', 'Qoder', 'Qoder CN', 'CodeBuddy', 'WorkBuddy', 'Claude Code',
+  ])
   const input = html.match(/<input\b[^>]*aria-label="link source directory"[^>]*>/)?.[0]
   assert.ok(input)
   assert.match(input, /value=""/)

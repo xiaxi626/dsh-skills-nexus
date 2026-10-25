@@ -1,5 +1,6 @@
 /**
- * 通道 E：trae-cn / trae / qoder / qoder-cn 等本地来源的外部条目核心。
+ * 通道 E：trae-cn / trae / qoder / qoder-cn 等本地来源的外部条目核心；
+ * codebuddy / workbuddy 与两个 Trae 来源同构，复用同一注册层与发现器。
  *
  * 从已配置的本地来源发现技能，注册为 manifest 条目，
  * 并通过 symlink 引用用户自有目录。Nexus 不克隆、拉取、更新或删除
@@ -43,7 +44,7 @@ export interface SourceConfig {
     /** 单个根目录的技能发现逻辑。 */
     discover: DiscoverFn;
 }
-/** 固定子目录布局（trae-cn / trae）：逐个子目录扫描一层。 */
+/** 固定子目录布局（trae-cn / trae / codebuddy / workbuddy）：逐个子目录扫描一层。 */
 export declare function plainDiscovery(subdirs: readonly string[]): DiscoverFn;
 export declare const SOURCE_CONFIGS: Record<string, SourceConfig>;
 /** 已支持的来源标识，用于帮助、错误提示和补全。 */

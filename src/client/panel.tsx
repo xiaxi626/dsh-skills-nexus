@@ -226,15 +226,16 @@ export { matchesQuery }
 
 /**
  * 浏览器侧来源展示列表；不导入含 Node 文件系统依赖的 external.ts。
- * 与后端支持源保持一致，其余来源继续作为禁用占位。
+ * 与后端支持源保持一致，其余来源继续作为禁用占位；顺序即面板按钮顺序。
  */
 const LINK_SOURCES = [
   { id: 'trae-cn',     label: 'Trae CN',     enabled: true  },
   { id: 'trae',        label: 'Trae',        enabled: true  },
-  { id: 'claude-code', label: 'Claude Code',  enabled: false },
-  { id: 'workbuddy',   label: 'WorkBuddy',    enabled: false },
-  { id: 'qoder',       label: 'Qoder',        enabled: true  },
-  { id: 'qoder-cn',    label: 'Qoder CN',     enabled: true  },
+  { id: 'qoder',       label: 'Qoder',       enabled: true  },
+  { id: 'qoder-cn',    label: 'Qoder CN',    enabled: true  },
+  { id: 'codebuddy',   label: 'CodeBuddy',   enabled: true  },
+  { id: 'workbuddy',   label: 'WorkBuddy',   enabled: true  },
+  { id: 'claude-code', label: 'Claude Code', enabled: false },
 ] as const
 
 /**

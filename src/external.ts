@@ -1,5 +1,6 @@
 /**
- * 通道 E：trae-cn / trae / qoder / qoder-cn 等本地来源的外部条目核心。
+ * 通道 E：trae-cn / trae / qoder / qoder-cn 等本地来源的外部条目核心；
+ * codebuddy / workbuddy 与两个 Trae 来源同构，复用同一注册层与发现器。
  *
  * 从已配置的本地来源发现技能，注册为 manifest 条目，
  * 并通过 symlink 引用用户自有目录。Nexus 不克隆、拉取、更新或删除
@@ -74,7 +75,7 @@ export interface SourceConfig {
   discover: DiscoverFn
 }
 
-/** 固定子目录布局（trae-cn / trae）：逐个子目录扫描一层。 */
+/** 固定子目录布局（trae-cn / trae / codebuddy / workbuddy）：逐个子目录扫描一层。 */
 export function plainDiscovery(subdirs: readonly string[]): DiscoverFn {
   return (root) => discoverSkills([root], subdirs)
 }
@@ -86,6 +87,10 @@ export const SOURCE_CONFIGS: Record<string, SourceConfig> = {
   qoder: { envVar: 'QODER_DIR', defaultDirName: '.qoder', discover: discoverQoder },
   // qoder-cn 是同一布局的另一个客户端根：复用 discoverQoder，不另建发现器。
   'qoder-cn': { envVar: 'QODER_CN_DIR', defaultDirName: '.qoder-cn', discover: discoverQoder },
+  // codebuddy / workbuddy：客户端把用户安装的技能直接落在 <root>/skills/ 一层，
+  // 与 trae 同构；两者根下的其他子目录用途未证实，本次不纳管。
+  codebuddy: { envVar: 'CODEBUDDY_DIR', defaultDirName: '.codebuddy', discover: plainDiscovery(['skills']) },
+  workbuddy: { envVar: 'WORKBUDDY_DIR', defaultDirName: '.workbuddy', discover: plainDiscovery(['skills']) },
 }
 
 /** 已支持的来源标识，用于帮助、错误提示和补全。 */

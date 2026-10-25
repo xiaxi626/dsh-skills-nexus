@@ -247,14 +247,18 @@ test('linkLocal reports not-found error for missing skill directory', async () =
 /* discoverTraeCnSkills                                                */
 /* ------------------------------------------------------------------ */
 
-test('source registry enables the Trae variants and both qoder clients with independent defaults', () => {
-  assert.deepEqual(external.SUPPORTED_SOURCES, ['trae-cn', 'trae', 'qoder', 'qoder-cn'])
+test('source registry lists every enabled source with independent defaults', () => {
+  assert.deepEqual(external.SUPPORTED_SOURCES, [
+    'trae-cn', 'trae', 'qoder', 'qoder-cn', 'codebuddy', 'workbuddy',
+  ])
   // `discover` 是函数，不能整体 deepEqual：逐字段比对，顺带钉住“没有多余字段”。
   for (const [source, envVar, defaultDirName] of [
     ['trae', 'TRAE_DIR', '.trae'],
     ['trae-cn', 'TRAE_CN_DIR', '.trae-cn'],
     ['qoder', 'QODER_DIR', '.qoder'],
     ['qoder-cn', 'QODER_CN_DIR', '.qoder-cn'],
+    ['codebuddy', 'CODEBUDDY_DIR', '.codebuddy'],
+    ['workbuddy', 'WORKBUDDY_DIR', '.workbuddy'],
   ] as const) {
     const config = external.SOURCE_CONFIGS[source]!
     assert.deepEqual(Object.keys(config).sort(), ['defaultDirName', 'discover', 'envVar'], source)
@@ -298,7 +302,10 @@ for (const source of ['__proto__', 'constructor', 'toString']) {
     await assert.rejects(external.planLinkLocal(source), (err: unknown) => {
       assert.ok(err instanceof external.LinkError)
       assert.equal(err.code, 'resolve-failed')
-      assert.match(err.message, /supported sources: trae-cn, trae, qoder, qoder-cn\.$/)
+      assert.match(
+        err.message,
+        /supported sources: trae-cn, trae, qoder, qoder-cn, codebuddy, workbuddy\.$/,
+      )
       return true
     })
   })

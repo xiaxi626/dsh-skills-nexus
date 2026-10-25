@@ -179,9 +179,11 @@ Options:
   --source-dir <d> override the selected source root (not its skills/ subdirectory)
                     defaults: trae-cn uses ~/.trae-cn; trae uses ~/.trae;
                     qoder uses ~/.qoder (user-level skills + marketplace plugins);
-                    qoder-cn uses ~/.qoder-cn (user-level skills + marketplace plugins)
+                    qoder-cn uses ~/.qoder-cn (user-level skills + marketplace plugins);
+                    codebuddy uses ~/.codebuddy; workbuddy uses ~/.workbuddy
                     precedence: --source-dir > alias > TRAE_CN_DIR / TRAE_DIR /
-                    QODER_DIR / QODER_CN_DIR > default
+                    QODER_DIR / QODER_CN_DIR / CODEBUDDY_DIR / WORKBUDDY_DIR >
+                    default
   --trae-cn-dir <d> backward-compatible alias for --source-dir
   --force           bypass name-collision checks and overwrite existing entries
 
