@@ -170,6 +170,8 @@ dsh-skills-nexus link trae-cn --dry-run             # preview without creating e
 dsh-skills-nexus link trae                         # discover skills under ~/.trae/skills/
 dsh-skills-nexus link qoder                        # user-level skills + marketplace plugins under ~/.qoder
 dsh-skills-nexus link qoder-cn                     # the same layout for Qoder CN (under ~/.qoder-cn)
+dsh-skills-nexus link codebuddy                    # skills under ~/.codebuddy/skills/
+dsh-skills-nexus link workbuddy                    # skills under ~/.workbuddy/skills/
 dsh-skills-nexus link trae --source-dir /path       # override the source root (not skills/)
 dsh-skills-nexus remove --group trae --yes          # unlink the group; keep external directories
 dsh-skills-nexus link trae-cn --group custom        # override the L1 group name (default: trae-cn)
@@ -177,13 +179,18 @@ dsh-skills-nexus link trae-cn --force               # replace existing entries o
 ```
 
 `link` supports `trae-cn` (`~/.trae-cn`, env `TRAE_CN_DIR`), `trae` (`~/.trae`,
-env `TRAE_DIR`), `qoder` (`~/.qoder`, env `QODER_DIR`) and `qoder-cn`
-(`~/.qoder-cn`, env `QODER_CN_DIR`). The Trae variants scan only `<root>/skills/`
-one level deep; both Qoder clients add the skill directories declared by the
-plugins installed from their marketplace, and leave out the plugins the client
-ships itself (`qoder-bundler`), which need the Qoder host runtime. They are two
-separate sources, so a skill installed in both clients produces one
-`qoder.*` entry and one `qoder-cn.*` entry — that is intended.
+env `TRAE_DIR`), `qoder` (`~/.qoder`, env `QODER_DIR`), `qoder-cn`
+(`~/.qoder-cn`, env `QODER_CN_DIR`), `codebuddy` (`~/.codebuddy`, env
+`CODEBUDDY_DIR`) and `workbuddy` (`~/.workbuddy`, env `WORKBUDDY_DIR`). The Trae
+variants, CodeBuddy and WorkBuddy scan only `<root>/skills/` one level deep; both
+Qoder clients add the skill directories declared by the plugins installed from
+their marketplace, and leave out the plugins the client ships itself
+(`qoder-bundler`), which need the Qoder host runtime. CodeBuddy and WorkBuddy keep
+user-installed skills directly under `<root>/skills/`; their other subdirectories
+are outside this contract — a run that finds 0 skills there means the on-disk
+layout differs from it. `qoder` and `qoder-cn` are two separate sources, so a
+skill installed in both clients produces one `qoder.*` entry and one `qoder-cn.*`
+entry — that is intended.
 Root precedence: `--source-dir` > legacy alias `--trae-cn-dir` > the selected
 source's environment variable > default. An override selects one root only — for
 `qoder` / `qoder-cn` that is the agent root (`~/.qoder` / `~/.qoder-cn`), not
@@ -310,9 +317,9 @@ From the panel you can:
 - browse entry cards — link names, enabled state, pinned commit, status tags
   like `no source` / `linked directory` / `disabled`, and an
   `update available` badge for branch-tracked entries;
-- preview and link **Trae CN**, **Trae**, **Qoder** or **Qoder CN** from the `link local skills` section,
+- preview and link **Trae CN**, **Trae**, **Qoder**, **Qoder CN**, **CodeBuddy** or **WorkBuddy** from the `link local skills` section,
   with an optional server-side source root; changing the root clears the preview;
-- manage **external entries** (created by CLI `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn`) alongside
+- manage **external entries** (created by CLI `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` / `link codebuddy` / `link workbuddy`) alongside
   git-managed ones — the panel displays them with a `linked directory` tag,
   shows their external path, and supports enable/disable and remove (which
   only deletes the link, never the user's directory);
@@ -673,9 +680,9 @@ ls -la ~/.dsh/skills/
   of real Cordis plugins. If a repo already ships a `dsh.bundle.patch`, install
   it the normal way — nexus is for repos that don't. See
   [nexus vs `dsh plugin`](docs/nexus-vs-plugin.md) for the full decision guide.
-- **External entries (`link` channel)**: `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` creates *external* entries
-  that symlink to directories you already own (`~/.trae-cn/skills/`, `~/.trae/skills/`, or the
-  user-level and marketplace-plugin skill directories under `~/.qoder` and `~/.qoder-cn`). Nexus
+- **External entries (`link` channel)**: `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` / `link codebuddy` / `link workbuddy` creates *external* entries
+  that symlink to directories you already own (`~/.trae-cn/skills/`, `~/.trae/skills/`, `~/.codebuddy/skills/`,
+  `~/.workbuddy/skills/`, or the user-level and marketplace-plugin skill directories under `~/.qoder` and `~/.qoder-cn`). Nexus
   never clones, updates or deletes those directories — `remove` only deletes the
   link and the manifest entry. External entries carry a `groupPath` (e.g.
   `['trae-cn', 'skills', 'brainstorming']`) for hierarchical grouping; `enable`

@@ -4,7 +4,7 @@
 
 > **Shell warning:** the `bash` blocks below are for Windows Git Bash or Linux/macOS Bash, not PowerShell/cmd. Open a terminal at this checkout's root and run each block as a whole. The scripts do not change directories, perform Git writes, or require a global `npm link`.
 
-This guide verifies [channel E](sources-and-packages.md#channel-e-external-reference-link) for the currently enabled sources — at the time of writing, `trae-cn`, `trae`, `qoder` and `qoder-cn` — plus root overrides and the panel workflow. The enabled set is driven by `SOURCE_CONFIGS` in `src/external.ts`; when a new source is added, update the contract table and walkthrough coverage accordingly. The CLI walkthrough runs the compiled `lib/cli/index.js` with isolated temporary state. Panel acceptance requires a separate test host; CLI success does not establish UI integration success.
+This guide verifies [channel E](sources-and-packages.md#channel-e-external-reference-link) for the currently enabled sources — at the time of writing, `trae-cn`, `trae`, `qoder`, `qoder-cn`, `codebuddy` and `workbuddy` — plus root overrides and the panel workflow. The enabled set is driven by `SOURCE_CONFIGS` in `src/external.ts`; when a new source is added, update the contract table and walkthrough coverage accordingly. The CLI walkthrough runs the compiled `lib/cli/index.js` with isolated temporary state. Panel acceptance requires a separate test host; CLI success does not establish UI integration success.
 
 ## Prerequisites and the two builds
 
@@ -34,7 +34,8 @@ Every command should exit 0. To check committed artifact freshness, run `git dif
   node -e "require('node:assert/strict').equal(require('./package.json').name, 'dsh-skills-nexus')"
   node --import tsx --import ./test/register-css.mjs --test \
     test/external-link.test.ts test/external-qoder.test.ts \
-    test/external-qoder-cn.test.ts test/cli-link.test.ts test/args.test.ts \
+    test/external-qoder-cn.test.ts test/external-codebuddy-workbuddy.test.ts \
+    test/cli-link.test.ts test/args.test.ts \
     test/api.test.ts test/client-api.test.ts \
     test/completions.test.ts test/panel-render.test.tsx
 )
@@ -42,13 +43,14 @@ Every command should exit 0. To check committed artifact freshness, run `git dif
 
 | Test file | Coverage |
 |---|---|
-| `external-link.test.ts` | Four source configurations, environment variables, overrides without fallback, candidate-root ordering, directory deduplication and first-root wins for management names, one-level scan boundaries |
+| `external-link.test.ts` | Six source configurations, environment variables, overrides without fallback, candidate-root ordering, directory deduplication and first-root wins for management names, one-level scan boundaries |
 | `external-qoder.test.ts` | Qoder layouts: versioned and unversioned installs, `skills` as string/array, the `./skills/` fallback, the one-level boundary, disabled/missing installs, full `qoder-bundler` exclusion, user-level precedence |
 | `external-qoder-cn.test.ts` | The second Qoder root: `QODER_CN_DIR` and `--source-dir` resolution with no fallback, `qoder-cn.*` naming and `qoder-cn:` urls, the `--group` override, and separate entries when both clients hold the same skill |
+| `external-codebuddy-workbuddy.test.ts` | The two fixed-subdirectory clients: `CODEBUDDY_DIR` / `WORKBUDDY_DIR` and `--source-dir` resolution with no fallback, `<source>.skills.<dir>` naming and `<source>:` urls, the one-level boundary (hidden entries and directories without `SKILL.md` stay out), the `--group` override, and separate entries when both clients hold the same skill |
 | `cli-link.test.ts` / `args.test.ts` | Preview/execution, JSON, conflicts and force, groups, new/legacy flags and empty-value rejection |
 | `api.test.ts` / `client-api.test.ts` | `sourceDir` forwarding for preview/confirmed execution, legacy `traeCnDir`, error responses |
 | `completions.test.ts` | New and legacy root flags in all four link branches; actual completion in installed shells |
-| `panel-render.test.tsx` | Four enabled buttons, two disabled placeholders, directory input; static rendering only, no simulated clicks |
+| `panel-render.test.tsx` | Six enabled buttons, one disabled placeholder, button order, directory input; static rendering only, no simulated clicks |
 
 Before release also run `npm test` and `npm run test:local-source`. Record missing-shell skips separately, not as passes. Focused tests do not replace the full suite or remote cross-platform CI.
 
@@ -62,12 +64,14 @@ The table defines the contract; do not create or modify real user directories to
 | `trae` | `~/.trae/skills/` | `TRAE_DIR` |
 | `qoder` | `~/.qoder/skills/` + each marketplace plugin's declared directory | `QODER_DIR` |
 | `qoder-cn` | `~/.qoder-cn/skills/` + each marketplace plugin's declared directory | `QODER_CN_DIR` |
+| `codebuddy` | `~/.codebuddy/skills/` | `CODEBUDDY_DIR` |
+| `workbuddy` | `~/.workbuddy/skills/` | `WORKBUDDY_DIR` |
 
 The table reflects the current `SOURCE_CONFIGS`. When a new source is registered, extend the table and the walkthrough coverage.
 
 Precedence: `--source-dir` > `--trae-cn-dir` (legacy alias) > selected source's environment variable > default root. Pass the **root**, not its `skills/` child — for `qoder` / `qoder-cn` that is `~/.qoder` / `~/.qoder-cn`. An invalid override fails without fallback. The core tests above cover default resolution and multiple candidate roots; the walkthrough below scans only temporary directories.
 
-Run the following block as a whole. Node drives the real compiled CLI, explicitly setting `DSH_HOME`, `DSH_SKILLS_NEXUS_HOME`, and all four source environment variables for every child process without changing your terminal environment. A `finally` block cleans the generated directory on success or assertion failure. If forcibly terminated, clean only the printed `fixture:` path.
+Run the following block as a whole. Node drives the real compiled CLI, explicitly setting `DSH_HOME`, `DSH_SKILLS_NEXUS_HOME`, and all six source environment variables for every child process without changing your terminal environment. A `finally` block cleans the generated directory on success or assertion failure. If forcibly terminated, clean only the printed `fixture:` path.
 
 ```bash
 node --input-type=module <<'NODE'
@@ -81,7 +85,7 @@ const cli = resolve('lib/cli/index.js')
 await access(cli)
 const base = await mkdtemp(join(tmpdir(), 'nexus-verify-link-'))
 console.log(`fixture: ${base}`)
-const roots = Object.fromEntries(['trae', 'trae-cn', 'qoder', 'qoder-cn', 'alias', 'override'].map(k => [k, join(base, k)]))
+const roots = Object.fromEntries(['trae', 'trae-cn', 'qoder', 'qoder-cn', 'codebuddy', 'workbuddy', 'alias', 'override'].map(k => [k, join(base, k)]))
 const env = {
   ...process.env,
   DSH_HOME: join(base, 'home'),
@@ -90,6 +94,8 @@ const env = {
   TRAE_CN_DIR: roots['trae-cn'],
   QODER_DIR: roots.qoder,
   QODER_CN_DIR: roots['qoder-cn'],
+  CODEBUDDY_DIR: roots.codebuddy,
+  WORKBUDDY_DIR: roots.workbuddy,
 }
 const md = '---\nname: demo\ndescription: isolated link verification\n---\nBody\n'
 const pluginMd = '---\nname: plugin-demo\ndescription: isolated plugin link verification\n---\nBody\n'
@@ -134,7 +140,7 @@ try {
     plugins: { 'cn-plugin@qoder-marketplace': [{ enabled: true, installPath: cnPlugin }] },
     version: 2,
   }))
-  for (const source of ['trae', 'trae-cn']) {
+  for (const source of ['trae', 'trae-cn', 'codebuddy', 'workbuddy']) {
     const plan = preview(source)
     assert.equal(plan.source, source)
     assert.equal(plan.entries.length, 1)
@@ -144,7 +150,7 @@ try {
   }
   assert.equal(names(), '')
   assert.match(run(['link', 'trae', '--dry-run']).stdout, /Would create 1 entry/)
-  console.log('PASS preview: two independent sources, JSON, no writes, one-level scan')
+  console.log('PASS plain sources: independent roots, naming, no writes')
 
   const qoder = preview('qoder')
   assert.equal(qoder.source, 'qoder')
@@ -172,7 +178,7 @@ try {
   }
   const missing = run(['link', 'trae', '--source-dir', join(base, 'missing'), '--dry-run'], 1)
   assert.match(missing.stderr, /--source-dir.*TRAE_DIR/)
-  assert.match(run(['link', 'unknown-source', '--dry-run'], 1).stderr, /supported sources: trae-cn, trae/)
+  assert.match(run(['link', 'unknown-source', '--dry-run'], 1).stderr, /supported sources: trae-cn, trae, qoder, qoder-cn, codebuddy, workbuddy/)
   run(['link', 'trae', '--source-dir', '--json'], 2)
   assert.equal(names(), '')
   console.log('PASS overrides: new flag > alias > environment; missing root fails; invalid args fail')
@@ -238,7 +244,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 const base = await mkdtemp(join(tmpdir(), 'nexus-panel-link-'))
-for (const source of ['trae', 'trae-cn', 'custom']) {
+for (const source of ['trae', 'trae-cn', 'custom', 'codebuddy', 'workbuddy']) {
   const dir = join(base, source, 'skills', 'panel-demo')
   await mkdir(dir, { recursive: true })
   await writeFile(join(dir, 'SKILL.md'), '---\nname: panel-demo\ndescription: isolated panel verification\n---\nBody\n')
@@ -249,13 +255,15 @@ console.log(JSON.stringify({
   DSH_SKILLS_NEXUS_HOME: join(base, 'nexus'),
   TRAE_DIR: join(base, 'trae'),
   TRAE_CN_DIR: join(base, 'trae-cn'),
+  CODEBUDDY_DIR: join(base, 'codebuddy'),
+  WORKBUDDY_DIR: join(base, 'workbuddy'),
   sourceDir: join(base, 'custom'),
   missingDir: join(base, 'missing'),
 }, null, 2))
 NODE
 ```
 
-1. Save the output. In a **new test terminal**, set the four printed environment variables for the DSH process you are about to start, not in permanent system settings. Environment changes made to a CLI child do not affect an already-running host.
+1. Save the output. In a **new test terminal**, set the six printed environment variables for the DSH process you are about to start, not in permanent system settings. Environment changes made to a CLI child do not affect an already-running host.
 2. Follow only the overlay/host-start sections of the [README local testing steps](../README.md#local-testing-steps) to load this checkout's `lib/index.js`; do not run their real-directory skill installation examples. Use a dedicated test-host configuration and an unused port; do not overwrite an existing overlay or alter your daily profile. DSH initialization may require its own dependencies/configuration and is outside the offline CLI walkthrough.
 3. Complete both builds, cold-start the test host, and refresh the browser to load the current `lib/client.js`. Confirm the Nexus list is empty. If daily entries appear, stop and check both DSH path variables; **do not link or remove anything**.
 4. Open Skills Nexus in settings and expand `link local skills`. Filter browser Network requests by `/skills-nexus/link`. Paths refer to the **server filesystem**, not the browser machine.
@@ -264,12 +272,13 @@ NODE
 
 | Action | Expected UI / request |
 |---|---|
-| Inspect source buttons | Trae CN, Trae, Qoder and Qoder CN enabled; Claude Code and WorkBuddy disabled |
+| Inspect source buttons | Trae CN, Trae, Qoder, Qoder CN, CodeBuddy and WorkBuddy enabled; Claude Code alone disabled |
 | Leave the input empty and click Trae | `source: "trae"`, `confirm: false`, no `sourceDir`; preview `trae.skills.panel-demo`, registered list still empty |
 | Click `link` after preview | `source: "trae"`, `confirm: true`; acceptance 202, external entry appears after the job finishes |
 | Remove the newly created Trae group | Confirm removal; entry disappears while `TRAE_DIR/skills/panel-demo/SKILL.md` remains |
 | Enter the printed `sourceDir`, preview Trae and execute | Both requests carry the same `sourceDir`; preview/entry targets `custom/skills/panel-demo` |
 | Preview Trae CN without executing | `source: "trae-cn"`, retains the entered `sourceDir`; does not fall back to Trae |
+| Click CodeBuddy without executing | `source: "codebuddy"`, preview `codebuddy.skills.panel-demo` from the printed `CODEBUDDY_DIR`; preview only, no `link` |
 | Edit the path while a preview exists | Old preview and its `link` action disappear; another preview is required |
 | Enter `missingDir` and click a source | Real HTTP response is 400 with `error: "not-found"`; error is shown without a stale execution button; exact UI wording is not asserted |
 
@@ -277,7 +286,7 @@ HTTP with omitted `confirm` or `false` is preview-only; the client explicitly se
 
 ### Cleanup and coverage boundaries
 
-- Remove the groups created here from the test panel and confirm. If using the CLI instead, first set the same `DSH_HOME` and `DSH_SKILLS_NEXUS_HOME` as the test host, then run `remove --group trae --yes` only if that group exists. Also remove `trae-cn` if you executed it yourself. Verify the list is empty and source files still exist before cleanup.
-- Stop the test host and close the test terminal to discard process-level environment settings. Delete only the printed `fixtureRoot` and an overlay specifically created for this check. Do not delete pre-existing overlays, profiles, `~/.trae`, or `~/.trae-cn`. If reusing an existing overlay, stop the temporary patch process without deleting the file.
+- Remove the groups created here from the test panel and confirm. If using the CLI instead, first set the same `DSH_HOME` and `DSH_SKILLS_NEXUS_HOME` as the test host, then run `remove --group trae --yes` only if that group exists. Also remove `trae-cn` if you executed it yourself; an executed CodeBuddy or WorkBuddy link is unlinked with `remove --group codebuddy --yes` / `remove --group workbuddy --yes` (this walkthrough only previews them, so nothing to clean). Verify the list is empty and source files still exist before cleanup.
+- Stop the test host and close the test terminal to discard process-level environment settings. Delete only the printed `fixtureRoot` and an overlay specifically created for this check. Do not delete pre-existing overlays, profiles, `~/.trae`, `~/.trae-cn`, `~/.codebuddy` or `~/.workbuddy`. If reusing an existing overlay, stop the temporary patch process without deleting the file.
 - `panel-render.test.tsx` checks only static rendering. Browser checks using the real client bundle with in-memory HTTP / UI stubs verify interaction wiring, not real-host component appearance, routing, or skill discovery.
 - Feature development included isolated browser verification; real-host acceptance and the remote CI matrix are not included in that passing result. After following this guide, record Node/OS, command exit codes, pass/skip counts, and the panel actions actually verified.

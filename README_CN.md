@@ -130,13 +130,15 @@ dsh-skills-nexus link trae-cn --dry-run             # 预览但不创建条目
 dsh-skills-nexus link trae                         # 发现 ~/.trae/skills/ 下的技能
 dsh-skills-nexus link qoder                        # ~/.qoder 下的用户级技能 + 市场安装的插件
 dsh-skills-nexus link qoder-cn                     # 同一布局的 Qoder CN（~/.qoder-cn）
+dsh-skills-nexus link codebuddy                    # 发现 ~/.codebuddy/skills/ 下的技能
+dsh-skills-nexus link workbuddy                    # 发现 ~/.workbuddy/skills/ 下的技能
 dsh-skills-nexus link trae --source-dir /path       # 覆盖来源根目录（不是 skills/）
 dsh-skills-nexus remove --group trae --yes          # 卸载整组链接，保留外部目录
 dsh-skills-nexus link trae-cn --group custom        # 覆盖 L1 组名（默认 trae-cn）
 dsh-skills-nexus link trae-cn --force               # 冲突时替换已有条目
 ```
 
-`link` 支持 `trae-cn`（`~/.trae-cn`，环境变量 `TRAE_CN_DIR`）、`trae`（`~/.trae`，环境变量 `TRAE_DIR`）、`qoder`（`~/.qoder`，环境变量 `QODER_DIR`）与 `qoder-cn`（`~/.qoder-cn`，环境变量 `QODER_CN_DIR`）。两个 Trae 来源只扫描 `<root>/skills/` 的一层目录；两个 Qoder 客户端额外纳管其市场安装的插件所声明的技能目录，但不纳入客户端随自身下发的插件（`qoder-bundler`）——那些依赖 Qoder 宿主运行时。二者是各自独立的来源：同一技能在两个客户端各装一份时，会生成一条 `qoder.*` 与一条 `qoder-cn.*` 条目，这是预期结果。
+`link` 支持 `trae-cn`（`~/.trae-cn`，环境变量 `TRAE_CN_DIR`）、`trae`（`~/.trae`，环境变量 `TRAE_DIR`）、`qoder`（`~/.qoder`，环境变量 `QODER_DIR`）、`qoder-cn`（`~/.qoder-cn`，环境变量 `QODER_CN_DIR`）、`codebuddy`（`~/.codebuddy`，环境变量 `CODEBUDDY_DIR`）与 `workbuddy`（`~/.workbuddy`，环境变量 `WORKBUDDY_DIR`）。两个 Trae 来源、CodeBuddy 与 WorkBuddy 一样只扫描 `<root>/skills/` 的一层目录；两个 Qoder 客户端额外纳管其市场安装的插件所声明的技能目录，但不纳入客户端随自身下发的插件（`qoder-bundler`）——那些依赖 Qoder 宿主运行时。CodeBuddy 与 WorkBuddy 把用户在客户端内安装的技能直接放在 `<root>/skills/` 下；根下其他子目录不在契约内——返回 0 条通常意味着实际布局与本契约不符。`qoder` 与 `qoder-cn` 是各自独立的来源：同一技能在两个客户端各装一份时，会生成一条 `qoder.*` 与一条 `qoder-cn.*` 条目，这是预期结果。
 根目录优先级：`--source-dir` > 兼容别名 `--trae-cn-dir` > 当前来源的环境变量 > 默认目录。
 显式覆盖只扫描一个根——`qoder` / `qoder-cn` 即各自的 agent 根（`~/.qoder` / `~/.qoder-cn`），不是它下面的 `skills/`；覆盖路径不存在时不会回退默认目录。卸载用 `remove --group <source> --yes`（设置过 `--group` 则使用自定义组名），保留外部目录。
 详见[来源说明](docs/sources-and-packages.zh-CN.md#通道-e外部引用link)。
@@ -201,8 +203,8 @@ dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo --subdir skill
 在面板里你可以：
 
 - 浏览条目卡片——链接名、启用状态、固定的 commit、`no source` / `linked directory` / `disabled` 等状态标签，以及分支跟踪条目的「有更新」徽标；
-- 在 `link local skills` 区选择 **Trae CN**、**Trae**、**Qoder** 或 **Qoder CN**，可填写服务端来源根目录，先预览再链接；更改路径会清除旧预览；
-- 管理**外部条目**（由 CLI `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` 创建）——面板以 `linked directory` 标签显示它们及其外部路径，支持启用/禁用和删除（删除只移除链接，不碰用户目录）；
+- 在 `link local skills` 区选择 **Trae CN**、**Trae**、**Qoder**、**Qoder CN**、**CodeBuddy** 或 **WorkBuddy**，可填写服务端来源根目录，先预览再链接；更改路径会清除旧预览；
+- 管理**外部条目**（由 CLI `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` / `link codebuddy` / `link workbuddy` 创建）——面板以 `linked directory` 标签显示它们及其外部路径，支持启用/禁用和删除（删除只移除链接，不碰用户目录）；
 - 带 `groupPath` 的条目（如来自 `link trae-cn`）渲染在可折叠的 L1 组头下，带组级 Switch（✓/○/◐ 表示 on/off/mixed）——切换组 Switch 批量启用或禁用该组所有条目；
 - 在工具栏过滤列表——搜索框按名字或 url 匹配；右侧的徽标在有待更新条目时显示待更新数量，并常驻显示已注册技能总数；
 - 按 git url 添加 skill——可在折叠区填写可选项 `name`（覆盖条目名）、`ref`、`subdir`（monorepo 内的目录）——与 CLI 同一条安装流水线，含 frontmatter 归一化；
@@ -450,7 +452,7 @@ ls -la ~/.dsh/skills/
 - **add 后是否立即可见**：默认配置下官方 filesystem provider 监听 skills 根目录，新添加的 skill 会在稳定窗口内出现在运行中宿主的新对话里——无需重载。未启用 watcher 的宿主则要等下次重扫/重启；web 面板会以「下次宿主启动」提示标注这种情况。
 - **版本固定与更新**：用 `#分支名`、`#tag名` 或 `#commit-hash` 固定 ref。安装时 manifest 会记录实际解析到的 commit（`commit` 字段）——一个轻量锁，`list` 会显示它。`update` 只对**分支** pin 的 skill 做快进拉取（并打印 commit 变化）；**tag/commit** pin 的 skill 是固定点：只校验当前 checkout 是否仍等于 pin（漂移则自动恢复），不做 pull——被固定的版本永远不会静默漂移。不加 `#ref` 时，CLI 会通过 `git ls-remote --symref` 自动探测远程默认分支（探测失败回落到 `main`）。
 - **仅用于 skill 内容仓库**：这不是 `dsh plugin add` 的替代品。如果仓库本身就有 `dsh.bundle.patch`，请用正常方式安装——nexus 是给那些没有封装的仓库用的。完整决策指南见 [nexus 与 `dsh plugin`——什么时候用哪个](docs/nexus-vs-plugin.zh-CN.md)。
-- **外部条目（`link` 通道）**：`link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` 创建*外部*条目，符号链接到用户已有的目录（`~/.trae-cn/skills/`、`~/.trae/skills/`，或 `~/.qoder` 与 `~/.qoder-cn` 下的用户级与市场插件技能目录）。nexus 不克隆、不更新、不删除这些目录——`remove` 只删除链接和 manifest 条目。外部条目携带 `groupPath`（如 `['trae-cn', 'skills', 'brainstorming']`）用于层级分组；`enable` 和 `disable` 接受 `--group <path>` 按前缀批量切换。Web 面板将分组条目渲染在可折叠的 L1 组头下，带组级 Switch。
+- **外部条目（`link` 通道）**：`link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` / `link codebuddy` / `link workbuddy` 创建*外部*条目，符号链接到用户已有的目录（`~/.trae-cn/skills/`、`~/.trae/skills/`、`~/.codebuddy/skills/`、`~/.workbuddy/skills/`，或 `~/.qoder` 与 `~/.qoder-cn` 下的用户级与市场插件技能目录）。nexus 不克隆、不更新、不删除这些目录——`remove` 只删除链接和 manifest 条目。外部条目携带 `groupPath`（如 `['trae-cn', 'skills', 'brainstorming']`）用于层级分组；`enable` 和 `disable` 接受 `--group <path>` 按前缀批量切换。Web 面板将分组条目渲染在可折叠的 L1 组头下，带组级 Switch。
 - **集合仓库与 `--subdir`**：skill 藏在子目录的集合仓库用 `--subdir <path>` 按需安装——每次安装是一个独立条目、独立克隆（独立克隆设计，P1/P2 权衡见 [docs/subdir-design.md](docs/subdir-design.md)）。新装的 `--subdir` 条目在 Git 和远端支持时为**稀疏检出**：部分克隆加 cone 模式 `sparse-checkout`（安装输出里报 `checkout: sparse`），无关 skill 目录不落盘——远端支持 blob 过滤时通常可减少下载与磁盘占用，实际收益取决于仓库布局（无硬性流量上限：cone 会保留仓库根与祖先目录的直属文件；远端忽略 filter 时可能整仓下载，nexus 会给出可见警告）。想退出稀疏：`git -C <克隆目录> sparse-checkout disable`（会把剩余内容全部拉取检出；后续 `update` 不会重新强制稀疏）；稀疏流程需要 **Git 2.35+**（更旧的 Git 其 `sparse-checkout set` 不提供 `--cone`），本机 Git 缺少该能力时，会在警告后把同一克隆补成整仓检出，不重复下载。不带 `--subdir` 全量安装时，根目录无可用 skill 会被拒绝；超过 20 个 skill 会弹确认提示。从同一仓库挑装的多个条目各自保留独立克隆，但 `list` 会显示 **SOURCE** 列（来源 `owner/repo`），同一仓库挑出的条目一眼可辨。
 - **平铺 md 过滤**：没有 frontmatter `name` **且**没有 `description` 的平铺 `*.md` 不会被当作 skill——集合仓库的文档（`README.zh-CN.md`、`CONTRIBUTING.md`、`community-leaderboard.md` 等）永远不会被"假装安装"。发现阶段的跳过名单也按前缀模式覆盖 `readme*`、`contributing*`、`license*`、`changelog*`、`code-of-conduct*`、`security*`。
 - **同名不消歧**：DSH 按名称索引 skill，后安装的同名 skill 会覆盖前者。用 `--name` 区分条目，或用 `--subdir` 只装需要的。`--subdir` 安装时显式传入的 `--name` 若归一化后与默认条目名（subdir 末段）相同，安装成功后会提示可省略该参数。enable/disable 按条目（即按安装的 subdir）生效，`remove` 删除整个条目的克隆及其所有 symlink。

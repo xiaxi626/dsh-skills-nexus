@@ -233,6 +233,8 @@ dsh-skills-nexus link trae-cn                       # discover skills under ~/.t
 dsh-skills-nexus link trae                          # discover skills under ~/.trae/skills/
 dsh-skills-nexus link qoder                         # user-level skills + marketplace plugins under ~/.qoder
 dsh-skills-nexus link qoder-cn                      # same layout for Qoder CN, under ~/.qoder-cn
+dsh-skills-nexus link codebuddy                     # discover skills under ~/.codebuddy/skills/
+dsh-skills-nexus link workbuddy                     # discover skills under ~/.workbuddy/skills/
 dsh-skills-nexus link trae --source-dir /path        # override the source root, not skills/
 dsh-skills-nexus remove --group trae --yes           # unlink; keep the external directories
 dsh-skills-nexus remove --group qoder --yes          # same for every qoder entry
@@ -255,6 +257,8 @@ Supported sources:
 | `trae` | `~/.trae` | `TRAE_DIR` | one level under `<root>/skills/` |
 | `qoder` | `~/.qoder` | `QODER_DIR` | one level under `<root>/skills/`, plus the skill directories each marketplace plugin declares |
 | `qoder-cn` | `~/.qoder-cn` | `QODER_CN_DIR` | same as `qoder`: user-level `<root>/skills/` plus each marketplace plugin's declared skill directories |
+| `codebuddy` | `~/.codebuddy` | `CODEBUDDY_DIR` | one level under `<root>/skills/` |
+| `workbuddy` | `~/.workbuddy` | `WORKBUDDY_DIR` | one level under `<root>/skills/` |
 
 Precedence: `--source-dir` > `--trae-cn-dir` (legacy alias) > the selected
 source's environment variable > configured defaults. Overrides select a
@@ -264,7 +268,10 @@ not a request to fall back. The generic registry supports ordered
 `rootCandidates`: all existing roots are scanned, absolute directories are
 deduplicated, and the first occurrence of each management name wins across
 roots. Current sources each have just one default root. Built-in skills and
-nested layouts stay outside discovery.
+nested layouts stay outside discovery. CodeBuddy and WorkBuddy scan the same
+fixed subdirectory, so 0 skills usually means `<root>/skills/` is missing or
+laid out differently: a missing root is `not-found`, while a present root
+without that subdirectory only yields an empty plan.
 
 | Flag | Effect |
 |---|---|
@@ -337,14 +344,16 @@ skill collection.
 The same skill installed in both Qoder clients is the expected case rather than
 a mistake: `qoder` and `qoder-cn` are separate sources, so the two copies become
 `qoder.*` and `qoder-cn.*` entries and neither shadows the other. Pick one with
-`disable` if you only want a single copy active.
+`disable` if you only want a single copy active. `codebuddy` and `workbuddy`
+behave the same way: they are independent sources with their own
+`<source>.skills.*` namespace, so a skill installed in both stays two entries.
 
 ### Naming convention
 
 Each discovered skill becomes an entry with:
 
 - `groupPath = [group ?? source, segment, dirName]` — e.g. `['trae-cn', 'skills', 'brainstorming']` for a fixed-subdirectory source, `['qoder', 'superpowers', 'brainstorming']` for a plugin skill
-- `name = groupPath.join('.')` — e.g. `trae-cn.skills.brainstorming`, `qoder.superpowers.brainstorming`
+- `name = groupPath.join('.')` — e.g. `trae-cn.skills.brainstorming`, `qoder.superpowers.brainstorming`, `workbuddy.skills.demo`
 - `externalDir` — absolute path to the skill directory
 - `ownership: 'external'`
 
@@ -370,6 +379,8 @@ nothing is an error, not an empty success.
 ```bash
 dsh-skills-nexus remove --group trae-cn/skills     # delete every trae-cn skill
 dsh-skills-nexus remove --group trae-cn --yes      # ...without the confirmation prompt
+dsh-skills-nexus remove --group codebuddy --yes    # the same for the CodeBuddy entries
+dsh-skills-nexus remove --group workbuddy --yes    # ...and for WorkBuddy
 ```
 
 Use `trae` instead of `trae-cn` in group commands for the international
@@ -377,9 +388,10 @@ source; use your custom L1 group if you supplied `--group` when linking.
 For the Qoder sources the second segment is the plugin name, so `--group qoder`
 (or `--group qoder-cn`) covers the whole source and `--group qoder/<plugin>`
 one plugin.
-The web panel offers Trae CN / Trae / Qoder / Qoder CN previews and an optional
-server-side root, then links the previewed source. It renders grouped entries
-under L1 group headers with a group-level Switch (✓/○/◐ for on/off/mixed).
+The web panel offers Trae CN / Trae / Qoder / Qoder CN / CodeBuddy / WorkBuddy
+previews and an optional server-side root, then links the previewed source. It
+renders grouped entries under L1 group headers with a group-level Switch
+(✓/○/◐ for on/off/mixed).
 
 HTTP `POST /skills-nexus/link` accepts `{ source, sourceDir?, traeCnDir?,
 group?, force?, confirm? }`. `sourceDir` takes precedence over the legacy
