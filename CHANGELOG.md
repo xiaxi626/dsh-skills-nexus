@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-26
+
 **2026-10-26 · Added · link 再支持十三个 Agent 客户端来源**
 
 - **背景**：Copilot / Claude Code / Pi / Codex / Cursor / OpenCode / Gemini CLI / ZCode / OpenClaw / Augment Code / Kimi Code / Windsurf 都把个人级技能放在 `<root>/skills/<name>/SKILL.md` 这一层，与 CodeBuddy / WorkBuddy 同构：没有插件清单、没有版本层、没有第二套命名空间。既然布局知识相同，就只往注册表追加十三条、全部复用 `plainDiscovery(['skills'])`，不新建 `src/copilot.ts` 之类的发现器——那会让同一份布局知识存在多处、必然漂移（与 qoder-cn 的取舍同一条理由）。`~/.agents/skills` 是 Codex / Copilot / Cursor / Gemini CLI / Kimi Code 的官方兼读位置、OpenClaw 的 personal 兼容根，因此单独登记为 `shared`：每个来源只扫自己的 vendor 根，兼容目录（`~/.agents`、`~/.claude`、`~/.codex`）一律不并入，否则同一物理目录会被注册成多条。Antigravity 三个发行形态（app / CLI / IDE）的 global 技能目录各不相同，网络上流传的多为 IDE 那一处、CLI 并不读它，契约未定前不纳管，面板只留禁用占位。本批路线依据为各客户端官方文档，未做真机链接验收（本机多数客户端并未安装）。
