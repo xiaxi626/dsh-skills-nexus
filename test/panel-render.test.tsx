@@ -98,28 +98,30 @@ test('the panel renders the package import row (§10.3)', () => {
   assert.match(html, /locked/)
 })
 
-test('the link panel enables every registered source and offers a server directory override', () => {
+test('the link panel enables nineteen sources and keeps one disabled placeholder', () => {
   const html = renderToStaticMarkup(<NexusPanel api={mountApi()} />)
   const buttons = [...html.matchAll(/<button\b([^>]*)>([^<]*)<\/button>/g)]
-  for (const label of ['Trae CN', 'Trae', 'Qoder', 'Qoder CN', 'CodeBuddy', 'WorkBuddy']) {
+  const enabled = [
+    'Trae CN', 'Trae', 'Qoder', 'Qoder CN', 'CodeBuddy', 'WorkBuddy',
+    'Copilot', 'Claude Code', 'Pi', 'Codex', 'Cursor', 'Shared',
+    'OpenCode', 'Gemini CLI', 'ZCode', 'OpenClaw', 'Augment Code',
+    'Kimi Code', 'Windsurf',
+  ]
+  for (const label of enabled) {
     const button = buttons.find((m) => m[2] === label)
     assert.ok(button, `${label} button exists`)
     assert.doesNotMatch(button[1]!, /disabled/)
   }
-  for (const label of ['Claude Code']) {
-    const button = buttons.find((m) => m[2] === label)
-    assert.ok(button, `${label} placeholder exists`)
-    assert.match(button[1]!, /disabled=""/)
-  }
-  // 按钮顺序是已批准的排列：新增来源追加在 Qoder CN 之后，禁用占位仍收尾。
+  const placeholder = buttons.find((m) => m[2] === 'Antigravity')
+  assert.ok(placeholder, 'Antigravity placeholder exists')
+  assert.match(placeholder[1]!, /disabled=""/)
+
+  // 按钮顺序是已批准的排列：十九个来源按注册表顺序，禁用占位收尾。
   const linkLabels = buttons
     .map((m) => m[2])
-    .filter((label) =>
-      ['Trae CN', 'Trae', 'Qoder', 'Qoder CN', 'CodeBuddy', 'WorkBuddy', 'Claude Code'].includes(label!),
-    )
-  assert.deepEqual(linkLabels, [
-    'Trae CN', 'Trae', 'Qoder', 'Qoder CN', 'CodeBuddy', 'WorkBuddy', 'Claude Code',
-  ])
+    .filter((label) => label !== undefined && [...enabled, 'Antigravity'].includes(label))
+  assert.deepEqual(linkLabels, [...enabled, 'Antigravity'])
+
   const input = html.match(/<input\b[^>]*aria-label="link source directory"[^>]*>/)?.[0]
   assert.ok(input)
   assert.match(input, /value=""/)
