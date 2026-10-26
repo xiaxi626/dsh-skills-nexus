@@ -192,6 +192,11 @@ dsh-skills-nexus link qoder                         # ~/.qoder 下的用户级�
 dsh-skills-nexus link qoder-cn                      # 同一布局的 Qoder CN，根目录为 ~/.qoder-cn
 dsh-skills-nexus link codebuddy                     # 发现 ~/.codebuddy/skills/ 下的技能
 dsh-skills-nexus link workbuddy                     # 发现 ~/.workbuddy/skills/ 下的技能
+dsh-skills-nexus link shared                        # 发现 ~/.agents/skills/ 下的技能
+dsh-skills-nexus link kimi-code                     # 发现 ~/.kimi-code/skills/ 下的技能
+dsh-skills-nexus link windsurf                      # 发现 ~/.codeium/windsurf/skills/ 下的技能
+dsh-skills-nexus link zcode                         # 发现 ~/.zcode/skills/ 下的技能
+dsh-skills-nexus link openclaw                      # 发现 ~/.openclaw/skills/ 下的技能
 dsh-skills-nexus link trae --source-dir /path        # 覆盖来源根目录，不是 skills/
 dsh-skills-nexus remove --group trae --yes           # 卸载链接，保留外部目录
 dsh-skills-nexus remove --group qoder --yes          # 同上，清理全部 qoder 条目
@@ -212,12 +217,26 @@ dsh-skills-nexus link trae-cn --force               # 冲突时替换已有条�
 | `qoder-cn` | `~/.qoder-cn` | `QODER_CN_DIR` | 同 `qoder`：用户级 `<root>/skills/` + 每个市场插件声明的技能目录 |
 | `codebuddy` | `~/.codebuddy` | `CODEBUDDY_DIR` | `<root>/skills/` 的一层 |
 | `workbuddy` | `~/.workbuddy` | `WORKBUDDY_DIR` | `<root>/skills/` 的一层 |
+| `copilot` | `~/.copilot` | `COPILOT_HOME` | `<root>/skills/` 的一层 |
+| `claude-code` | `~/.claude` | `CLAUDE_CONFIG_DIR` | `<root>/skills/` 的一层 |
+| `pi` | `~/.pi/agent` | `PI_CODING_AGENT_DIR` | `<root>/skills/` 的一层 |
+| `codex` | `~/.codex` | `CODEX_HOME` | `<root>/skills/` 的一层（Codex 仍在读的旧个人位置；其当前用户级根是 `~/.agents`，由 `shared` 承载） |
+| `cursor` | `~/.cursor` | `CURSOR_DIR` | `<root>/skills/` 的一层 |
+| `shared` | `~/.agents` | `SHARED_DIR` | `<root>/skills/` 的一层 |
+| `opencode` | `~/.config/opencode` | `OPENCODE_CONFIG_DIR` | `<root>/skills/` 的一层 |
+| `gemini` | `~/.gemini` | `GEMINI_DIR` | `<root>/skills/` 的一层 |
+| `zcode` | `~/.zcode` | `ZCODE_DIR` | `<root>/skills/` 的一层 |
+| `openclaw` | `~/.openclaw` | `OPENCLAW_STATE_DIR` | `<root>/skills/` 的一层 |
+| `augment` | `~/.augment` | `AUGMENT_DIR` | `<root>/skills/` 的一层 |
+| `kimi-code` | `~/.kimi-code` | `KIMI_CODE_DIR` | `<root>/skills/` 的一层 |
+| `windsurf` | `~/.codeium/windsurf` | `WINDSURF_DIR` | `<root>/skills/` 的一层 |
 
-优先级：`--source-dir` > `--trae-cn-dir`（兼容别名）> 当前来源环境变量 > 配置默认值。
+优先级：`--source-dir` > `--trae-cn-dir`（兼容别名）> 当前来源环境变量 > 默认根。
 覆盖指定的是单个根目录——对 `qoder` / `qoder-cn` 来说是各自的 agent 根（`~/.qoder` / `~/.qoder-cn`），不是它下面的 `skills/`；覆盖路径不存在时报错，不回退默认目录。
-通用注册表支持有序 `rootCandidates`：扫描全部存在的根，按绝对目录去重，跨根同名管理条目保留第一项。
-当前六个来源均只有一个默认根；内置技能与嵌套布局仍不在发现范围内。
-`codebuddy` 与 `workbuddy` 扫的是同一个固定子目录，因此 0 条结果通常意味着 `<root>/skills/` 不存在或布局与本契约不符：根缺失报 `not-found`，根存在但无该子目录只会得到空计划。
+当前没有任何来源使用 `rootCandidates`：十九个来源都只有一个默认根，有序多根能力留给“客户端有多处 global 位置”的情形。
+内置技能、插件技能、workspace 级目录与嵌套布局仍不在发现范围内——包括 Kimi Code 顶层的扁平 `.md` 技能。
+`KIMI_CODE_HOME` 与 `GEMINI_CLI_HOME` 刻意不作为扫描根：它们替换的是客户端自己的数据根/home，客户端搬家后要用 `--source-dir` 显式跟随。
+每个来源只扫自己的 vendor 根——兼容目录（`~/.agents`、`~/.claude`、`~/.codex`）一律不并入，所以 `~/.agents` 只以 `shared` 出现一次。
 
 | 参数 | 作用 |
 |---|---|

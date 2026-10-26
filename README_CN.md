@@ -146,6 +146,9 @@ dsh-skills-nexus link qoder                        # ~/.qoder 下的用户级技
 dsh-skills-nexus link qoder-cn                     # 同一布局的 Qoder CN（~/.qoder-cn）
 dsh-skills-nexus link codebuddy                    # 发现 ~/.codebuddy/skills/ 下的技能
 dsh-skills-nexus link workbuddy                    # 发现 ~/.workbuddy/skills/ 下的技能
+dsh-skills-nexus link shared                       # 发现 ~/.agents/skills 下的技能
+dsh-skills-nexus link kimi-code                    # 发现 ~/.kimi-code/skills 下的技能
+dsh-skills-nexus link windsurf                     # 发现 ~/.codeium/windsurf/skills 下的技能
 dsh-skills-nexus link trae --source-dir /path       # 覆盖来源根目录（不是 skills/）
 dsh-skills-nexus remove --group trae --yes          # 卸载整组链接，保留外部目录
 dsh-skills-nexus link trae-cn --group custom        # 覆盖 L1 组名（默认 trae-cn）
@@ -162,14 +165,32 @@ dsh-skills-nexus link trae-cn --force               # 冲突时替换已有条�
 | `qoder-cn` | `~/.qoder-cn` | `QODER_CN_DIR` | 与 `qoder` 同一布局 |
 | `codebuddy` | `~/.codebuddy` | `CODEBUDDY_DIR` | `<root>/skills/` 下一层 |
 | `workbuddy` | `~/.workbuddy` | `WORKBUDDY_DIR` | `<root>/skills/` 下一层 |
+| `copilot` | `~/.copilot` | `COPILOT_HOME` | `<root>/skills/` 下一层 |
+| `claude-code` | `~/.claude` | `CLAUDE_CONFIG_DIR` | `<root>/skills/` 下一层 |
+| `pi` | `~/.pi/agent` | `PI_CODING_AGENT_DIR` | `<root>/skills/` 下一层 |
+| `codex` | `~/.codex` | `CODEX_HOME` | `<root>/skills/` 下一层（Codex 仍在读取的旧个人位置；其当前用户级根是 `~/.agents`，由 `shared` 承载） |
+| `cursor` | `~/.cursor` | `CURSOR_DIR` | `<root>/skills/` 下一层 |
+| `shared` | `~/.agents` | `SHARED_DIR` | `<root>/skills/` 下一层 |
+| `opencode` | `~/.config/opencode` | `OPENCODE_CONFIG_DIR` | `<root>/skills/` 下一层 |
+| `gemini` | `~/.gemini` | `GEMINI_DIR` | `<root>/skills/` 下一层 |
+| `zcode` | `~/.zcode` | `ZCODE_DIR` | `<root>/skills/` 下一层 |
+| `openclaw` | `~/.openclaw` | `OPENCLAW_STATE_DIR` | `<root>/skills/` 下一层 |
+| `augment` | `~/.augment` | `AUGMENT_DIR` | `<root>/skills/` 下一层 |
+| `kimi-code` | `~/.kimi-code` | `KIMI_CODE_DIR` | `<root>/skills/` 下一层 |
+| `windsurf` | `~/.codeium/windsurf` | `WINDSURF_DIR` | `<root>/skills/` 下一层 |
 
 各来源是独立命名空间：同一技能装在两个客户端里会生成两条条目（`qoder.*` +
-`qoder-cn.*`，或 `codebuddy.*` + `workbuddy.*`），不会互相遮蔽。两个 Qoder 客户端
-不纳入客户端随自身下发的插件（`qoder-bundler`）——那些依赖 Qoder 宿主运行时。`link`
-从不克隆、更新或删除被引用的目录，`remove` 只删链接与清单条目。面板里的 `Claude Code`
-只是禁用占位，不是已支持来源。
+`qoder-cn.*`，或 `codebuddy.*` + `workbuddy.*`），不会互相遮蔽。每个来源只扫自己的
+vendor 根——兼容目录（`~/.agents`、`~/.claude`、`~/.codex`）一律不并入，因为同一物理
+目录注册两次就会产出重复条目。`~/.agents` 只登记一次，即 `shared`：它同时是 Codex、
+Copilot、Cursor、Gemini CLI 与 Kimi Code 的官方跨工具位置。两个 Qoder 客户端不纳入
+客户端随自身下发的插件（`qoder-bundler`）——那些依赖 Qoder 宿主运行时。`link` 从不
+克隆、更新或删除被引用的目录，`remove` 只删链接与清单条目。面板里的 `Antigravity`
+是禁用占位：它的三个发行形态（app、CLI、IDE）各有不同的 global 技能目录，契约未定，
+不是已支持来源。
 
 固定子目录类客户端把用户在客户端内安装的技能直接放在 `<root>/skills/` 下；根下其他子目录不在契约内，返回 0 条通常意味着实际布局与契约不符。
+`KIMI_CODE_HOME` 与 `GEMINI_CLI_HOME` 不是扫描根：它们替换的是客户端自己的数据根/home，所以客户端搬家后要用 `--source-dir`（或该来源的 `*_DIR` 变量）显式跟随，不会静默跟随。Kimi Code 顶层的扁平 `.md` 技能（`skills/commit.md`）不在契约内——只登记 `<name>/SKILL.md` 目录。Windows 上 `~/.config/opencode` 取决于 opencode 自己如何解析配置目录，不一致时用 `--source-dir`。
 根目录优先级：`--source-dir` > 兼容别名 `--trae-cn-dir` > 当前来源的环境变量 > 默认目录。
 显式覆盖只扫描一个根——`qoder` / `qoder-cn` 即各自的 agent 根（`~/.qoder` / `~/.qoder-cn`），不是它下面的 `skills/`；覆盖路径不存在时不会回退默认目录。卸载用 `remove --group <source> --yes`（设置过 `--group` 则使用自定义组名），保留外部目录。
 详见[来源说明](docs/sources-and-packages.zh-CN.md#通道-e外部引用link)。

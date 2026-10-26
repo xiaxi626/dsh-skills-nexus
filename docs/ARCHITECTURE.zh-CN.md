@@ -127,18 +127,19 @@ DSH filesystem provider（官方内置）
 
 - `repos/` 是 nexus 的私有存储——所有 git 克隆都放在这里，保持原始结构不变。CLI 通过 git 对这些目录做 clone / pull / checkout 等操作。克隆由 nexus 管理：`add` / `update` 可能原地归一化 frontmatter（修正非法名称、补全缺失的 `description`），`update` 在拉取前会丢弃本地改动（有警告）——请勿手动编辑克隆。
 - `~/.dsh/skills/` 是 DSH 官方的 skills 根目录——官方 filesystem provider 只扫描这一层。nexus 在这里为每个 skill 创建一个 symlink，指向 `repos/` 中的实际目录。这样官方 provider 就能自动发现所有 skill，无需自定义 provider。
-- **外部条目**（由 `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` / `link codebuddy` / `link workbuddy` 创建）符号链接到 nexus 控制范围之外的目录——通常是 `~/.trae-cn/skills/`、`~/.trae/skills/`、`~/.codebuddy/skills/`、`~/.workbuddy/skills/`，或 `~/.qoder/` 与 `~/.qoder-cn/` 下的某个技能（用户级 `skills/`，或市场插件声明的技能目录）。nexus 不克隆、不更新、不删除那些目录。`remove` 只删除链接和 manifest 条目。
+- **外部条目**（由 `link <source>` 创建，来源共十九个）符号链接到 nexus 控制范围之外的目录——通常是 `~/.trae-cn/skills/`、`~/.trae/skills/`、`~/.codebuddy/skills/`、`~/.workbuddy/skills/`、`~/.agents/skills/`、`~/.config/opencode/skills/`、`~/.codeium/windsurf/skills/`、`~/.kimi-code/skills/`，或 `~/.qoder/` 与 `~/.qoder-cn/` 下的某个技能（用户级 `skills/`，或市场插件声明的技能目录）。nexus 不克隆、不更新、不删除那些目录。`remove` 只删除链接和 manifest 条目。
 
 `src/external.ts` 的来源注册表配置 `envVar`、`defaultDirName` 或有序 `rootCandidates`，以及每个来源自带的 `discover`（`(root) => DiscoveredSkill[]`）。
 `trae-cn` 使用 `TRAE_CN_DIR` / `.trae-cn`，`trae` 使用 `TRAE_DIR` / `.trae`，两者都走 `plainDiscovery(['skills'])`。
 `qoder` 使用 `QODER_DIR` / `.qoder`，`qoder-cn` 使用 `QODER_CN_DIR` / `.qoder-cn`；两者共用 `src/qoder.ts` 的同一个发现函数，因为两个客户端的布局一致：用户级 `<root>/skills/` + `<root>/plugins/installed_plugins_v2.json` 中列出的市场插件，逐个读插件的 `plugin.json`。
 `qoder-bundler` 在两个根里都一律排除——那些插件随客户端下发，依赖 Qoder 宿主运行时。
 `codebuddy` 使用 `CODEBUDDY_DIR` / `.codebuddy`，`workbuddy` 使用 `WORKBUDDY_DIR` / `.workbuddy`，两者同样都走 `plainDiscovery(['skills'])`——这两个客户端把用户安装的技能直接放在 `<root>/skills/` 下，根下其他子目录不在契约内。
+注册表共十九个来源。除 `qoder` / `qoder-cn` 外全部走 `plainDiscovery(['skills'])`：其中六个复用客户端自己的配置根变量（`COPILOT_HOME`、`CLAUDE_CONFIG_DIR`、`PI_CODING_AGENT_DIR`、`CODEX_HOME`、`OPENCODE_CONFIG_DIR`、`OPENCLAW_STATE_DIR`），其余用按默认目录名派生的 nexus 侧 `*_DIR`（`.kimi-code` → `KIMI_CODE_DIR`）。`KIMI_CODE_HOME` 与 `GEMINI_CLI_HOME` 被排除：它们替换的是客户端自己的数据根/home，不是扫描根。`rootCandidates` 能力保留但目前无消费者；app/CLI/IDE 三个形态各用不同 global 目录的 Antigravity 是它的预期用户。
 `--source-dir` 覆盖当前来源根目录，旧 `--trae-cn-dir` 是较低优先级的兼容别名。
 `resolveSourceRoots` 按顺序检查全部默认候选，显式参数或环境变量覆盖时只检查该路径。
 `discoverSkills` 按绝对目录去重，`planLinkLocal` 对跨根同名管理条目保留第一项，并用发现结果里的 `segment`（固定子目录名或插件名）拼出扁平名：`['trae-cn', 'skills', 'brainstorming']` 与 `['qoder', 'superpowers', 'brainstorming']`。
 每个声明目录仍只扫一层，不支持嵌套布局，也从不包含内置技能。
-卸载默认组用 `remove --group trae`、`remove --group trae-cn`、`remove --group codebuddy`、`remove --group workbuddy`、`remove --group qoder` 或 `remove --group qoder-cn`，外部目录保持不动。
+卸载默认组用 `remove --group <source>`，例如 `remove --group trae`、`remove --group shared` 或 `remove --group kimi-code`，外部目录保持不动。
 
 `enable` / `disable` 就是创建/删除 symlink——轻量且原子化，克隆数据始终保留在 `repos/` 中。`remove` 则同时删除 symlink 和克隆目录。
 
