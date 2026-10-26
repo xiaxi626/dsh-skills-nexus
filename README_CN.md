@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml)
 ![NPM Version](https://img.shields.io/npm/v/dsh-skills-nexus)
+![NPM Downloads](https://img.shields.io/npm/dt/dsh-skills-nexus)
 [![dsh.so risk](https://www.dsh.so/badge/dsh-skills-nexus.svg)](https://www.dsh.so/artifact/dsh-skills-nexus/)
 [![dsh.so install](https://www.dsh.so/badge/install/dsh-skills-nexus.svg)](https://www.dsh.so/artifact/dsh-skills-nexus/)
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/xiaxi626/dsh-skills-nexus)
@@ -88,7 +89,7 @@ npm error Fetching packages of type "git" have been disabled
 
 `lib/` 编译产物已随仓库提交，无需构建，安装即用。
 
-如果只需 npm registry 上的已发布版本（当前为 `0.7.0`），也可改用下面的命令：
+如果只需 npm registry 上的最新发布版本，也可改用下面的命令：
 
 ```bash
 npm install -g dsh-skills-nexus

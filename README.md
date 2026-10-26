@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml)
 ![NPM Version](https://img.shields.io/npm/v/dsh-skills-nexus)
+![NPM Downloads](https://img.shields.io/npm/dt/dsh-skills-nexus)
 [![dsh.so risk](https://www.dsh.so/badge/dsh-skills-nexus.svg)](https://www.dsh.so/artifact/dsh-skills-nexus/)
 [![dsh.so install](https://www.dsh.so/badge/install/dsh-skills-nexus.svg)](https://www.dsh.so/artifact/dsh-skills-nexus/)
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/xiaxi626/dsh-skills-nexus)
@@ -118,8 +119,8 @@ download and installation steps still need to satisfy other requirements.
 `lib/` compiled artifacts are committed with the repo, so there is no build
 step — install and use.
 
-If you only need the published npm registry release (currently `0.7.0`), you
-can use this command instead:
+If you only need the latest published npm release, you can use this command
+instead:
 
 ```bash
 npm install -g dsh-skills-nexus
