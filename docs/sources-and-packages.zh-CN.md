@@ -190,6 +190,13 @@ dsh-skills-nexus link trae-cn                       # 发现 ~/.trae-cn/skills/ 
 dsh-skills-nexus link trae                          # 发现 ~/.trae/skills/ 下的技能
 dsh-skills-nexus link qoder                         # ~/.qoder 下的用户级技能 + 市场插件技能
 dsh-skills-nexus link qoder-cn                      # 同一布局的 Qoder CN，根目录为 ~/.qoder-cn
+dsh-skills-nexus link codebuddy                     # 发现 ~/.codebuddy/skills/ 下的技能
+dsh-skills-nexus link workbuddy                     # 发现 ~/.workbuddy/skills/ 下的技能
+dsh-skills-nexus link shared                        # 发现 ~/.agents/skills/ 下的技能
+dsh-skills-nexus link kimi-code                     # 发现 ~/.kimi-code/skills/ 下的技能
+dsh-skills-nexus link windsurf                      # 发现 ~/.codeium/windsurf/skills/ 下的技能
+dsh-skills-nexus link zcode                         # 发现 ~/.zcode/skills/ 下的技能
+dsh-skills-nexus link openclaw                      # 发现 ~/.openclaw/skills/ 下的技能
 dsh-skills-nexus link trae --source-dir /path        # 覆盖来源根目录，不是 skills/
 dsh-skills-nexus remove --group trae --yes           # 卸载链接，保留外部目录
 dsh-skills-nexus remove --group qoder --yes          # 同上，清理全部 qoder 条目
@@ -208,11 +215,28 @@ dsh-skills-nexus link trae-cn --force               # 冲突时替换已有条�
 | `trae` | `~/.trae` | `TRAE_DIR` | `<root>/skills/` 的一层 |
 | `qoder` | `~/.qoder` | `QODER_DIR` | `<root>/skills/` 的一层 + 每个市场插件声明的技能目录 |
 | `qoder-cn` | `~/.qoder-cn` | `QODER_CN_DIR` | 同 `qoder`：用户级 `<root>/skills/` + 每个市场插件声明的技能目录 |
+| `codebuddy` | `~/.codebuddy` | `CODEBUDDY_DIR` | `<root>/skills/` 的一层 |
+| `workbuddy` | `~/.workbuddy` | `WORKBUDDY_DIR` | `<root>/skills/` 的一层 |
+| `copilot` | `~/.copilot` | `COPILOT_HOME` | `<root>/skills/` 的一层 |
+| `claude-code` | `~/.claude` | `CLAUDE_CONFIG_DIR` | `<root>/skills/` 的一层 |
+| `pi` | `~/.pi/agent` | `PI_CODING_AGENT_DIR` | `<root>/skills/` 的一层 |
+| `codex` | `~/.codex` | `CODEX_HOME` | `<root>/skills/` 的一层（Codex 仍在读的旧个人位置；其当前用户级根是 `~/.agents`，由 `shared` 承载） |
+| `cursor` | `~/.cursor` | `CURSOR_DIR` | `<root>/skills/` 的一层 |
+| `shared` | `~/.agents` | `SHARED_DIR` | `<root>/skills/` 的一层 |
+| `opencode` | `~/.config/opencode` | `OPENCODE_CONFIG_DIR` | `<root>/skills/` 的一层 |
+| `gemini` | `~/.gemini` | `GEMINI_DIR` | `<root>/skills/` 的一层 |
+| `zcode` | `~/.zcode` | `ZCODE_DIR` | `<root>/skills/` 的一层 |
+| `openclaw` | `~/.openclaw` | `OPENCLAW_STATE_DIR` | `<root>/skills/` 的一层 |
+| `augment` | `~/.augment` | `AUGMENT_DIR` | `<root>/skills/` 的一层 |
+| `kimi-code` | `~/.kimi-code` | `KIMI_CODE_DIR` | `<root>/skills/` 的一层 |
+| `windsurf` | `~/.codeium/windsurf` | `WINDSURF_DIR` | `<root>/skills/` 的一层 |
 
-优先级：`--source-dir` > `--trae-cn-dir`（兼容别名）> 当前来源环境变量 > 配置默认值。
+优先级：`--source-dir` > `--trae-cn-dir`（兼容别名）> 当前来源环境变量 > 默认根。
 覆盖指定的是单个根目录——对 `qoder` / `qoder-cn` 来说是各自的 agent 根（`~/.qoder` / `~/.qoder-cn`），不是它下面的 `skills/`；覆盖路径不存在时报错，不回退默认目录。
-通用注册表支持有序 `rootCandidates`：扫描全部存在的根，按绝对目录去重，跨根同名管理条目保留第一项。
-当前四个来源均只有一个默认根；内置技能与嵌套布局仍不在发现范围内。
+当前没有任何来源使用 `rootCandidates`：十九个来源都只有一个默认根，有序多根能力留给“客户端有多处 global 位置”的情形。
+内置技能、插件技能、workspace 级目录与嵌套布局仍不在发现范围内——包括 Kimi Code 顶层的扁平 `.md` 技能。
+`KIMI_CODE_HOME` 与 `GEMINI_CLI_HOME` 刻意不作为扫描根：它们替换的是客户端自己的数据根/home，客户端搬家后要用 `--source-dir` 显式跟随。
+每个来源只扫自己的 vendor 根——兼容目录（`~/.agents`、`~/.claude`、`~/.codex`）一律不并入，所以 `~/.agents` 只以 `shared` 出现一次。
 
 | 参数 | 作用 |
 |---|---|
@@ -252,14 +276,14 @@ dsh-skills-nexus link qoder-cn --force
 
 在同时装了两份 superpowers 的机器上，`link trae` 与 `link qoder` 都会发现它。两者同时链接时，同一个 `SKILL.md`（frontmatter `name` 相同）会以两个扁平名各进 DSH 一次。建议同一套技能只保留一个来源。
 
-同一技能在两个 Qoder 客户端各装一份属于预期情形：`qoder` 与 `qoder-cn` 是各自独立的来源，两份会分别成为 `qoder.*` 与 `qoder-cn.*` 条目，互不吞并。只想要一份生效时，用 `disable` 关掉另一份即可。
+同一技能在两个 Qoder 客户端各装一份属于预期情形：`qoder` 与 `qoder-cn` 是各自独立的来源，两份会分别成为 `qoder.*` 与 `qoder-cn.*` 条目，互不吞并。只想要一份生效时，用 `disable` 关掉另一份即可。`codebuddy` 与 `workbuddy` 同样是各自独立的来源，命名空间各自为 `<source>.skills.*`，两侧各自成条。
 
 ### 命名规则
 
 每个发现的技能成为一个条目，带：
 
 - `groupPath = [group ?? source, segment, dirName]` — 固定子目录来源如 `['trae-cn', 'skills', 'brainstorming']`，插件技能如 `['qoder', 'superpowers', 'brainstorming']`
-- `name = groupPath.join('.')` — 如 `trae-cn.skills.brainstorming`、`qoder.superpowers.brainstorming`
+- `name = groupPath.join('.')` — 如 `trae-cn.skills.brainstorming`、`qoder.superpowers.brainstorming`、`workbuddy.skills.demo`
 - `externalDir` — 技能目录的绝对路径
 - `ownership: 'external'`
 
@@ -279,11 +303,13 @@ dsh-skills-nexus disable --group qoder-cn           # 只动 CN 客户端，不�
 ```bash
 dsh-skills-nexus remove --group trae-cn/skills     # 删除所有 trae-cn 技能
 dsh-skills-nexus remove --group trae-cn --yes      # ……跳过确认提示
+dsh-skills-nexus remove --group codebuddy --yes    # 同理，清理 CodeBuddy 条目
+dsh-skills-nexus remove --group workbuddy --yes    # ……以及 WorkBuddy
 ```
 
 国际版来源的组操作将 `trae-cn` 换成 `trae`；link 时指定过 `--group` 则使用自定义 L1 组名。
 对 Qoder 系来源，第二段是插件名：`--group qoder`（或 `--group qoder-cn`）覆盖整个来源，`--group qoder/<插件>` 只针对一个插件。
-Web 面板提供 Trae CN / Trae / Qoder / Qoder CN 预览及可选的服务端根目录输入，随后对预览的来源执行链接；分组条目渲染在 L1 组头下，带组级 Switch（✓/○/◐ 表示 on/off/mixed）。
+Web 面板提供 Trae CN / Trae / Qoder / Qoder CN / CodeBuddy / WorkBuddy 预览及可选的服务端根目录输入，随后对预览的来源执行链接；分组条目渲染在 L1 组头下，带组级 Switch（✓/○/◐ 表示 on/off/mixed）。
 
 HTTP `POST /skills-nexus/link` 接受 `{ source, sourceDir?, traeCnDir?, group?, force?, confirm? }`。
 `sourceDir` 优先于旧 `traeCnDir`；省略 `confirm`（或传 `false`）进行预览，传 `true` 则作为任务执行。

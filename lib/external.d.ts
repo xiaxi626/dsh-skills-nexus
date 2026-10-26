@@ -1,5 +1,16 @@
 /**
- * 通道 E：trae-cn / trae / qoder / qoder-cn 等本地来源的外部条目核心。
+ * 通道 E：本地来源的外部条目核心。
+ *
+ * 每个来源在 `SOURCE_CONFIGS` 里登记一个 vendor 根 + 一个发现函数；当前十九个
+ * 来源里，除 qoder / qoder-cn 复用 `discoverQoder`（用户级 skills + 市场插件
+ * 两套命名空间）外，其余全部是 `plainDiscovery(['skills'])`——即"客户端把个人
+ * 技能放在 <root>/skills/<name>/SKILL.md"这一层。
+ *
+ * 环境变量命名规则：取默认根目录名的末段 token，逐段大写加 `_DIR`（`.kimi-code`
+ * → `KIMI_CODE_DIR`）。例外两条：客户端有官方"配置根"变量且语义严格等于本注册表
+ * 的根时复用官方名；目录名不带产品标识时按来源 id 取值（`.agents` → `SHARED_DIR`）。
+ * `KIMI_CODE_HOME` 与 `GEMINI_CLI_HOME` 不属于此类——它们替换的是客户端自己的数据
+ * 根/home，不是 nexus 的扫描根。
  *
  * 从已配置的本地来源发现技能，注册为 manifest 条目，
  * 并通过 symlink 引用用户自有目录。Nexus 不克隆、拉取、更新或删除
@@ -43,7 +54,7 @@ export interface SourceConfig {
     /** 单个根目录的技能发现逻辑。 */
     discover: DiscoverFn;
 }
-/** 固定子目录布局（trae-cn / trae）：逐个子目录扫描一层。 */
+/** 固定子目录布局（除 qoder 系外的全部来源）：逐个子目录扫描一层。 */
 export declare function plainDiscovery(subdirs: readonly string[]): DiscoverFn;
 export declare const SOURCE_CONFIGS: Record<string, SourceConfig>;
 /** 已支持的来源标识，用于帮助、错误提示和补全。 */

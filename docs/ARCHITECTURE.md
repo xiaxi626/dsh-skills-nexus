@@ -43,7 +43,7 @@ flowchart TD
 ```
 
 - **CLI writes**: `add` / `import` / `update` / `remove` commands operate git, update `manifest.json`, and create/remove symlinks in `~/.dsh/skills/`
-- **External references**: `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` creates external entries that symlink to directories the user already owns — nexus never clones or deletes those directories
+- **External references**: `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` / `link codebuddy` / `link workbuddy` creates external entries that symlink to directories the user already owns — nexus never clones or deletes those directories
 - **Official provider reads**: the built-in filesystem provider scans `~/.dsh/skills/` and discovers skills through symlinks
 - **Decoupled**: CLI only manages clones and symlinks; discovery and serving are entirely handled by the official provider
 
@@ -64,7 +64,7 @@ dsh-skills-nexus import package.zip --locked
    └─ append entry with locked: true; use payload only when the remote
       explicitly reports that commit unavailable
 
-dsh-skills-nexus link <source>  # trae-cn or trae
+dsh-skills-nexus link <source>  # any registered source
    └─ resolve roots from SOURCE_CONFIGS (override > env > defaults)
    └─ scan <root>/skills/ one level deep for skill directories
    └─ for each discovered skill:
@@ -147,7 +147,7 @@ Required: `name`, `description`. Optional, respected by the provider:
 
 - `repos/` is nexus's private storage — all git clones live here, keeping their original structure intact. The CLI uses git to clone / pull / checkout these directories. Clones are nexus-managed: `add` / `update` may normalize frontmatter in place (fix invalid names, add missing `description`), and `update` discards local changes before pulling (with a warning) — do not edit clones by hand.
 - `~/.dsh/skills/` is the official DSH skills root — the official filesystem provider only scans this level. Nexus creates one symlink per skill here, pointing to the actual directory in `repos/`. This way the official provider discovers all skills automatically, with no custom provider needed.
-- **External entries** (created by `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn`) symlink to directories outside nexus's control — typically `~/.trae-cn/skills/`, `~/.trae/skills/`, or a Qoder skill under `~/.qoder/` or `~/.qoder-cn/` (user-level `skills/`, or a marketplace plugin's declared skill directory). Nexus never clones, updates, or deletes those directories. `remove` only deletes the link and the manifest entry.
+- **External entries** (created by `link <source>`, one of the nineteen registered sources) symlink to directories outside nexus's control — typically `~/.trae-cn/skills/`, `~/.trae/skills/`, `~/.codebuddy/skills/`, `~/.workbuddy/skills/`, `~/.agents/skills/`, `~/.config/opencode/skills/`, `~/.codeium/windsurf/skills/`, `~/.kimi-code/skills/`, or a Qoder skill under `~/.qoder/` or `~/.qoder-cn/` (user-level `skills/`, or a marketplace plugin's declared skill directory). Nexus never clones, updates, or deletes those directories. `remove` only deletes the link and the manifest entry.
 
 The local source registry in `src/external.ts` configures `envVar`,
 `defaultDirName` or ordered `rootCandidates`, and one `discover` function per
@@ -160,6 +160,20 @@ in `src/qoder.ts`, because the two clients use the same layout: user-level
 `<root>/plugins/installed_plugins_v2.json`, read through each plugin's
 `plugin.json`. The `qoder-bundler` publisher is excluded in both roots — those
 plugins ship with the client and need the Qoder host runtime.
+`codebuddy` uses `CODEBUDDY_DIR` / `.codebuddy` and `workbuddy` uses
+`WORKBUDDY_DIR` / `.workbuddy`; both also go through
+`plainDiscovery(['skills'])`, since those clients keep user-installed skills
+directly under `<root>/skills/` — their other subdirectories are outside this
+contract.
+Nineteen sources are registered. Beyond `qoder`/`qoder-cn`, all of them go through
+`plainDiscovery(['skills'])`. Six reuse a client's own configuration-root variable
+(`COPILOT_HOME`, `CLAUDE_CONFIG_DIR`, `PI_CODING_AGENT_DIR`, `CODEX_HOME`,
+`OPENCODE_CONFIG_DIR`, `OPENCLAW_STATE_DIR`); the rest use a nexus-side `*_DIR` named
+after the default directory (`.kimi-code` → `KIMI_CODE_DIR`). `KIMI_CODE_HOME` and
+`GEMINI_CLI_HOME` are excluded because they relocate the client's data root / home
+rather than a scan root. `rootCandidates` stays supported but currently has no
+consumer; Antigravity, whose app/CLI/IDE builds each use a different global
+directory, is the intended future user.
 `--source-dir` overrides the selected source root; `--trae-cn-dir`
 remains an alias with lower precedence. `resolveSourceRoots` checks every
 default candidate in order, or only the explicit/environment override.
@@ -169,9 +183,9 @@ from the discovered `segment` (the fixed subdirectory, or the plugin name):
 `['trae-cn', 'skills', 'brainstorming']` vs.
 `['qoder', 'superpowers', 'brainstorming']`. Each declared directory is scanned
 one level deep (nested layouts are not supported), and builtin skills are never
-included. Unlink a default group with `remove --group trae`,
-`remove --group trae-cn`, `remove --group qoder` or
-`remove --group qoder-cn`; external directories remain
+included. Unlink a default group with `remove --group <source>`, e.g.
+`remove --group trae`, `remove --group shared` or `remove --group kimi-code`;
+external directories remain
 untouched.
 
 `enable` / `disable` simply create/remove symlinks — lightweight and atomic, clone data always stays in `repos/`. `remove` deletes both the symlink and the clone directory.

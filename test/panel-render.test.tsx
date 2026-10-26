@@ -98,19 +98,30 @@ test('the panel renders the package import row (§10.3)', () => {
   assert.match(html, /locked/)
 })
 
-test('the link panel enables the Trae variants and both Qoder clients, and offers a server directory override', () => {
+test('the link panel enables nineteen sources and keeps one disabled placeholder', () => {
   const html = renderToStaticMarkup(<NexusPanel api={mountApi()} />)
   const buttons = [...html.matchAll(/<button\b([^>]*)>([^<]*)<\/button>/g)]
-  for (const label of ['Trae CN', 'Trae', 'Qoder', 'Qoder CN']) {
+  const enabled = [
+    'Trae CN', 'Trae', 'Qoder', 'Qoder CN', 'CodeBuddy', 'WorkBuddy',
+    'Copilot', 'Claude Code', 'Pi', 'Codex', 'Cursor', 'Shared',
+    'OpenCode', 'Gemini CLI', 'ZCode', 'OpenClaw', 'Augment Code',
+    'Kimi Code', 'Windsurf',
+  ]
+  for (const label of enabled) {
     const button = buttons.find((m) => m[2] === label)
     assert.ok(button, `${label} button exists`)
     assert.doesNotMatch(button[1]!, /disabled/)
   }
-  for (const label of ['Claude Code', 'WorkBuddy']) {
-    const button = buttons.find((m) => m[2] === label)
-    assert.ok(button, `${label} placeholder exists`)
-    assert.match(button[1]!, /disabled=""/)
-  }
+  const placeholder = buttons.find((m) => m[2] === 'Antigravity')
+  assert.ok(placeholder, 'Antigravity placeholder exists')
+  assert.match(placeholder[1]!, /disabled=""/)
+
+  // 按钮顺序是已批准的排列：十九个来源按注册表顺序，禁用占位收尾。
+  const linkLabels = buttons
+    .map((m) => m[2])
+    .filter((label) => label !== undefined && [...enabled, 'Antigravity'].includes(label))
+  assert.deepEqual(linkLabels, [...enabled, 'Antigravity'])
+
   const input = html.match(/<input\b[^>]*aria-label="link source directory"[^>]*>/)?.[0]
   assert.ok(input)
   assert.match(input, /value=""/)

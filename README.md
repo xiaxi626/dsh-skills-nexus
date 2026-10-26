@@ -16,6 +16,20 @@ DSH skill lifecycle manager — from git repo cloning, external directory linkin
 
 dsh-skills-nexus is a community-maintained DeepSeek Harness (DSH) plugin, not an official DeepSeek AI product.
 
+## Capabilities
+
+| Direction | What you get | Entry point |
+|---|---|---|
+| Git-backed installs | Any `SKILL.md` repo from any git host, pinned to a branch, tag or commit; collection repos install one subdirectory with partial clone + sparse checkout; wrapper detection runs before registering | `add` |
+| Version management | Refresh branch-tracked clones, preview remote changes without a checkout, move a clone to another ref, undo the last version change | `update` / `diff` / `switch-version` / `rollback` |
+| External references | Register skills that already live in another agent's directory — no clone, no copy, no writes there | [`link`](#supported-external-sources-link) / `remove --group` |
+| Cross-machine transport | Package entries with their provenance, rebuild them elsewhere (optionally at the exact recorded commit), give a frozen entry its git source back | `export` / `import` / `adopt` |
+| Grouping and toggles | Group by source or a custom L1 name; enable or disable one entry or a whole group prefix | `enable` / `disable` / `--group` |
+| Health and cleanup | Read-only checkup of the manifest, links and clones, with an optional remote update check; purge accumulated artifacts | `doctor` / `purge` |
+| Automation | Version-1 JSON reports on stdout, stable exit codes, name-only listing | `--json` / `list --names` |
+| Web panel | Browse entry cards, preview and link a local source, run the health check, adopt a source-less entry, search and filter | [panel](#web-panel-optional-plugin-side) |
+| Shell completion | Generated completion script for bash, zsh, fish or PowerShell | `completions` |
+
 ## Why
 
 `dsh plugin --profile <name> add "github:owner/repo"` forwards to pnpm, and
@@ -104,7 +118,7 @@ download and installation steps still need to satisfy other requirements.
 `lib/` compiled artifacts are committed with the repo, so there is no build
 step — install and use.
 
-If you only need the published npm registry release (currently `0.3.0`), you
+If you only need the published npm registry release (currently `0.7.0`), you
 can use this command instead:
 
 ```bash
@@ -170,20 +184,63 @@ dsh-skills-nexus link trae-cn --dry-run             # preview without creating e
 dsh-skills-nexus link trae                         # discover skills under ~/.trae/skills/
 dsh-skills-nexus link qoder                        # user-level skills + marketplace plugins under ~/.qoder
 dsh-skills-nexus link qoder-cn                     # the same layout for Qoder CN (under ~/.qoder-cn)
+dsh-skills-nexus link codebuddy                    # skills under ~/.codebuddy/skills/
+dsh-skills-nexus link workbuddy                    # skills under ~/.workbuddy/skills/
+dsh-skills-nexus link shared                       # discover ~/.agents/skills
+dsh-skills-nexus link kimi-code                    # discover ~/.kimi-code/skills
+dsh-skills-nexus link windsurf                     # discover ~/.codeium/windsurf/skills
 dsh-skills-nexus link trae --source-dir /path       # override the source root (not skills/)
 dsh-skills-nexus remove --group trae --yes          # unlink the group; keep external directories
 dsh-skills-nexus link trae-cn --group custom        # override the L1 group name (default: trae-cn)
 dsh-skills-nexus link trae-cn --force               # replace existing entries on conflict
 ```
 
-`link` supports `trae-cn` (`~/.trae-cn`, env `TRAE_CN_DIR`), `trae` (`~/.trae`,
-env `TRAE_DIR`), `qoder` (`~/.qoder`, env `QODER_DIR`) and `qoder-cn`
-(`~/.qoder-cn`, env `QODER_CN_DIR`). The Trae variants scan only `<root>/skills/`
-one level deep; both Qoder clients add the skill directories declared by the
-plugins installed from their marketplace, and leave out the plugins the client
-ships itself (`qoder-bundler`), which need the Qoder host runtime. They are two
-separate sources, so a skill installed in both clients produces one
-`qoder.*` entry and one `qoder-cn.*` entry — that is intended.
+### Supported external sources (`link`)
+
+| Source | Client root | Env override | What `link` registers |
+|---|---|---|---|
+| `trae-cn` | `~/.trae-cn` | `TRAE_CN_DIR` | `<root>/skills/`, one level deep |
+| `trae` | `~/.trae` | `TRAE_DIR` | `<root>/skills/`, one level deep |
+| `qoder` | `~/.qoder` | `QODER_DIR` | user-level `<root>/skills/` plus the skill directories each installed marketplace plugin declares |
+| `qoder-cn` | `~/.qoder-cn` | `QODER_CN_DIR` | same layout as `qoder` |
+| `codebuddy` | `~/.codebuddy` | `CODEBUDDY_DIR` | `<root>/skills/`, one level deep |
+| `workbuddy` | `~/.workbuddy` | `WORKBUDDY_DIR` | `<root>/skills/`, one level deep |
+| `copilot` | `~/.copilot` | `COPILOT_HOME` | `<root>/skills/`, one level deep |
+| `claude-code` | `~/.claude` | `CLAUDE_CONFIG_DIR` | `<root>/skills/`, one level deep |
+| `pi` | `~/.pi/agent` | `PI_CODING_AGENT_DIR` | `<root>/skills/`, one level deep |
+| `codex` | `~/.codex` | `CODEX_HOME` | `<root>/skills/`, one level deep (Codex's older personal location; its current user-level root is `~/.agents`, covered by `shared`) |
+| `cursor` | `~/.cursor` | `CURSOR_DIR` | `<root>/skills/`, one level deep |
+| `shared` | `~/.agents` | `SHARED_DIR` | `<root>/skills/`, one level deep |
+| `opencode` | `~/.config/opencode` | `OPENCODE_CONFIG_DIR` | `<root>/skills/`, one level deep |
+| `gemini` | `~/.gemini` | `GEMINI_DIR` | `<root>/skills/`, one level deep |
+| `zcode` | `~/.zcode` | `ZCODE_DIR` | `<root>/skills/`, one level deep |
+| `openclaw` | `~/.openclaw` | `OPENCLAW_STATE_DIR` | `<root>/skills/`, one level deep |
+| `augment` | `~/.augment` | `AUGMENT_DIR` | `<root>/skills/`, one level deep |
+| `kimi-code` | `~/.kimi-code` | `KIMI_CODE_DIR` | `<root>/skills/`, one level deep |
+| `windsurf` | `~/.codeium/windsurf` | `WINDSURF_DIR` | `<root>/skills/`, one level deep |
+
+Sources are independent namespaces: one skill installed in two clients becomes two
+entries (`qoder.*` + `qoder-cn.*`, or `codebuddy.*` + `workbuddy.*`), never one
+shadowing the other. Every source scans its own vendor root only — the compatibility
+directories (`~/.agents`, `~/.claude`, `~/.codex`) are never merged in, because the
+same physical directory registered twice would produce duplicate entries. `~/.agents` is
+registered exactly once, as `shared`: it is also the official cross-tool location for
+Codex, Copilot, Cursor, Gemini CLI and Kimi Code. The Qoder clients leave out the
+plugins their own client ships (`qoder-bundler`) — those need the Qoder host runtime.
+`link` never clones, updates or deletes the referenced directories; `remove` deletes the
+link and the manifest entry only. `Antigravity` shows up in the panel as a disabled
+placeholder: its three distributions (app, CLI, IDE) each use a different global skills
+directory, so the contract is not settled and it is not a supported source.
+
+The fixed-subdirectory clients keep user-installed skills directly under
+`<root>/skills/`; their other subdirectories are outside the contract, so a run
+that finds 0 skills there means the on-disk layout differs from it.
+`KIMI_CODE_HOME` and `GEMINI_CLI_HOME` are not scan roots: they relocate the client's
+own data root / home, so a moved installation is followed with `--source-dir` (or the
+source's `*_DIR` variable), never silently. Kimi Code's flat top-level `.md` skills
+(`skills/commit.md`) are outside the contract — only `<name>/SKILL.md` directories are
+registered. On Windows, `~/.config/opencode` depends on how opencode resolves its
+config directory; if it does not match, pass `--source-dir`.
 Root precedence: `--source-dir` > legacy alias `--trae-cn-dir` > the selected
 source's environment variable > default. An override selects one root only — for
 `qoder` / `qoder-cn` that is the agent root (`~/.qoder` / `~/.qoder-cn`), not
@@ -193,6 +250,8 @@ if you set `--group`); this preserves the external directories.
 See [source details](docs/sources-and-packages.md#channel-e-external-reference-link).
 For isolated CLI checks and the panel acceptance checklist, see
 [Verifying local source links](docs/verify-link-sources.md).
+
+### Options, `--json` and `add` checks
 
 Value options (`--name`, `--ref`, `--subdir`, `--source-dir`) also accept the `--flag=value` form (e.g. `--subdir=skills/foo`, `--name=owner-skills`); the boolean `--yes` takes no value.
 
@@ -310,9 +369,9 @@ From the panel you can:
 - browse entry cards — link names, enabled state, pinned commit, status tags
   like `no source` / `linked directory` / `disabled`, and an
   `update available` badge for branch-tracked entries;
-- preview and link **Trae CN**, **Trae**, **Qoder** or **Qoder CN** from the `link local skills` section,
+- preview and link **Trae CN**, **Trae**, **Qoder**, **Qoder CN**, **CodeBuddy** or **WorkBuddy** from the `link local skills` section,
   with an optional server-side source root; changing the root clears the preview;
-- manage **external entries** (created by CLI `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn`) alongside
+- manage **external entries** (created by CLI `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` / `link codebuddy` / `link workbuddy`) alongside
   git-managed ones — the panel displays them with a `linked directory` tag,
   shows their external path, and supports enable/disable and remove (which
   only deletes the link, never the user's directory);
@@ -673,9 +732,9 @@ ls -la ~/.dsh/skills/
   of real Cordis plugins. If a repo already ships a `dsh.bundle.patch`, install
   it the normal way — nexus is for repos that don't. See
   [nexus vs `dsh plugin`](docs/nexus-vs-plugin.md) for the full decision guide.
-- **External entries (`link` channel)**: `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` creates *external* entries
-  that symlink to directories you already own (`~/.trae-cn/skills/`, `~/.trae/skills/`, or the
-  user-level and marketplace-plugin skill directories under `~/.qoder` and `~/.qoder-cn`). Nexus
+- **External entries (`link` channel)**: `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` / `link codebuddy` / `link workbuddy` creates *external* entries
+  that symlink to directories you already own (`~/.trae-cn/skills/`, `~/.trae/skills/`, `~/.codebuddy/skills/`,
+  `~/.workbuddy/skills/`, or the user-level and marketplace-plugin skill directories under `~/.qoder` and `~/.qoder-cn`). Nexus
   never clones, updates or deletes those directories — `remove` only deletes the
   link and the manifest entry. External entries carry a `groupPath` (e.g.
   `['trae-cn', 'skills', 'brainstorming']`) for hierarchical grouping; `enable`

@@ -226,15 +226,30 @@ export { matchesQuery }
 
 /**
  * 浏览器侧来源展示列表；不导入含 Node 文件系统依赖的 external.ts。
- * 与后端支持源保持一致，其余来源继续作为禁用占位。
+ * 前十九项与后端支持源一致，顺序即面板按钮顺序；Antigravity 是唯一的禁用占位——
+ * 它的三个发行形态各有不同的 global 技能位置，契约未定，暂不纳管。
  */
 const LINK_SOURCES = [
-  { id: 'trae-cn',     label: 'Trae CN',     enabled: true  },
-  { id: 'trae',        label: 'Trae',        enabled: true  },
-  { id: 'claude-code', label: 'Claude Code',  enabled: false },
-  { id: 'workbuddy',   label: 'WorkBuddy',    enabled: false },
+  { id: 'trae-cn',     label: 'Trae CN',      enabled: true  },
+  { id: 'trae',        label: 'Trae',         enabled: true  },
   { id: 'qoder',       label: 'Qoder',        enabled: true  },
   { id: 'qoder-cn',    label: 'Qoder CN',     enabled: true  },
+  { id: 'codebuddy',   label: 'CodeBuddy',    enabled: true  },
+  { id: 'workbuddy',   label: 'WorkBuddy',    enabled: true  },
+  { id: 'copilot',     label: 'Copilot',      enabled: true  },
+  { id: 'claude-code', label: 'Claude Code',  enabled: true  },
+  { id: 'pi',          label: 'Pi',           enabled: true  },
+  { id: 'codex',       label: 'Codex',        enabled: true  },
+  { id: 'cursor',      label: 'Cursor',       enabled: true  },
+  { id: 'shared',      label: 'Shared',       enabled: true  },
+  { id: 'opencode',    label: 'OpenCode',     enabled: true  },
+  { id: 'gemini',      label: 'Gemini CLI',   enabled: true  },
+  { id: 'zcode',       label: 'ZCode',        enabled: true  },
+  { id: 'openclaw',    label: 'OpenClaw',     enabled: true  },
+  { id: 'augment',     label: 'Augment Code', enabled: true  },
+  { id: 'kimi-code',   label: 'Kimi Code',    enabled: true  },
+  { id: 'windsurf',    label: 'Windsurf',     enabled: true  },
+  { id: 'antigravity', label: 'Antigravity',  enabled: false },
 ] as const
 
 /**
