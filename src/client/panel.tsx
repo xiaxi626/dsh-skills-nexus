@@ -60,6 +60,8 @@ import React from 'react'
 import {
   Button,
   DisclosureRow,
+  IconChevronDownOutlineRegular,
+  IconChevronRightOutlineRegular,
   IconLinkOutlineRegular,
   IconPinOutlineRegular,
   IconRefreshOutlineRegular,
@@ -296,6 +298,12 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   const [linkOpen, setLinkOpen] = useState(true)
   /** Name/url filter over the rendered rows (client-side; touches no state). */
   const [query, setQuery] = useState('')
+  /**
+   * L1 groups whose member list the user has folded. View state only: it
+   * changes what is on screen, never what the group contains, and it is not
+   * persisted — a reload reopening every group is the expected behaviour.
+   */
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(() => new Set())
   /** The last `doctor` result, or null before the first check. */
   const [health, setHealth] = useState<DoctorReport | null>(null)
   const [healthBusy, setHealthBusy] = useState(false)
@@ -638,6 +646,16 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     })
   }
 
+  /** Fold or unfold one L1 group's member list. Touches no entry and no server. */
+  const toggleGroupCollapsed = useCallback((l1Name: string): void => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(l1Name)) next.delete(l1Name)
+      else next.add(l1Name)
+      return next
+    })
+  }, [])
+
   const onAdopt = (entry: ListEntry): void => {
     const url = (adoptInputs[entry.name] ?? '').trim()
     if (url.length === 0) {
@@ -809,6 +827,29 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     }
     return map
   }, [groupedEntries])
+
+  /** A filter is active: the visible set is already a subset, so folding a
+   *  group would hide matches the user is looking for. Groups stay open. */
+  const searching = query.trim().length > 0
+  /** One rendered member row — the flat list and every group share this. */
+  const renderEntry = (entry: ListEntry): ReactElement => (
+    <EntryCard
+      entry={entry}
+      refValue={refInputs[entry.name] ?? ''}
+      onRefChange={(v) => setRefInputs((prev) => ({ ...prev, [entry.name]: v }))}
+      adoptValue={adoptInputs[entry.name] ?? ''}
+      onAdoptChange={(v) => setAdoptInputs((prev) => ({ ...prev, [entry.name]: v }))}
+      adoptSubdirValue={adoptSubdirInputs[entry.name] ?? ''}
+      onAdoptSubdirChange={(v) =>
+        setAdoptSubdirInputs((prev) => ({ ...prev, [entry.name]: v }))
+      }
+      onToggle={onToggle}
+      onUpdate={onUpdate}
+      onRemove={onRemove}
+      onSwitchVersion={onSwitchVersion}
+      onAdopt={onAdopt}
+    />
+  )
 
   /* ---------------- render ---------------- */
 
@@ -1111,68 +1152,26 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
       <ul className={css.entries}>
         {/* Ungrouped entries rendered flat */}
         {ungroupedEntries.map((entry) => (
-          <li key={entry.name}>
-            <EntryCard
-              entry={entry}
-              refValue={refInputs[entry.name] ?? ''}
-              onRefChange={(v) => setRefInputs((prev) => ({ ...prev, [entry.name]: v }))}
-              adoptValue={adoptInputs[entry.name] ?? ''}
-              onAdoptChange={(v) => setAdoptInputs((prev) => ({ ...prev, [entry.name]: v }))}
-              adoptSubdirValue={adoptSubdirInputs[entry.name] ?? ''}
-              onAdoptSubdirChange={(v) =>
-                setAdoptSubdirInputs((prev) => ({ ...prev, [entry.name]: v }))
-              }
-              onToggle={onToggle}
-              onUpdate={onUpdate}
-              onRemove={onRemove}
-              onSwitchVersion={onSwitchVersion}
-              onAdopt={onAdopt}
-            />
-          </li>
+          <li key={entry.name}>{renderEntry(entry)}</li>
         ))}
         {/* Grouped entries rendered under L1 group headers */}
         {[...l1Groups.entries()].map(([l1Name, groupEntries]) => {
           const gs = groupStates.find((g) => g.path.length === 1 && g.path[0] === l1Name)
           const groupEnabled = gs?.state === 'on'
-          const groupMixed = gs?.state === 'mixed'
           return (
-            <li key={`group:${l1Name}`}>
-              <div className={css.groupHeader}>
-                <Switch
-                  checked={groupEnabled}
-                  onChange={() => onToggleGroup(l1Name, !groupEnabled)}
-                  label={`${groupMixed ? '◐' : groupEnabled ? '✓' : '○'} ${l1Name} (${groupEntries.length})`}
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => onRemoveGroup(l1Name)}
-                >remove group</Button>
-              </div>
-              <ul className={css.entries}>
-                {groupEntries.map((entry) => (
-                  <li key={entry.name}>
-                    <EntryCard
-                      entry={entry}
-                      refValue={refInputs[entry.name] ?? ''}
-                      onRefChange={(v) => setRefInputs((prev) => ({ ...prev, [entry.name]: v }))}
-                      adoptValue={adoptInputs[entry.name] ?? ''}
-                      onAdoptChange={(v) => setAdoptInputs((prev) => ({ ...prev, [entry.name]: v }))}
-                      adoptSubdirValue={adoptSubdirInputs[entry.name] ?? ''}
-                      onAdoptSubdirChange={(v) =>
-                        setAdoptSubdirInputs((prev) => ({ ...prev, [entry.name]: v }))
-                      }
-                      onToggle={onToggle}
-                      onUpdate={onUpdate}
-                      onRemove={onRemove}
-                      onSwitchVersion={onSwitchVersion}
-                      onAdopt={onAdopt}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </li>
+            <SourceGroup
+              key={`group:${l1Name}`}
+              l1Name={l1Name}
+              entries={groupEntries}
+              groupEnabled={groupEnabled}
+              groupMixed={gs?.state === 'mixed'}
+              collapsed={!searching && collapsedGroups.has(l1Name)}
+              foldDisabled={searching}
+              onToggleCollapsed={() => toggleGroupCollapsed(l1Name)}
+              onToggleGroup={() => onToggleGroup(l1Name, !groupEnabled)}
+              onRemoveGroup={() => onRemoveGroup(l1Name)}
+              renderEntry={renderEntry}
+            />
           )
         })}
       </ul>
@@ -1456,6 +1455,85 @@ export function EntryCard({
         </small>
       )}
     </article>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* The L1 group: header (fold + switch + remove) and its members       */
+/* ------------------------------------------------------------------ */
+
+interface SourceGroupProps {
+  l1Name: string
+  entries: ListEntry[]
+  groupEnabled: boolean
+  groupMixed: boolean
+  collapsed: boolean
+  /** 搜索框有内容时为 true：折叠按钮禁用（但组强制展开）。 */
+  foldDisabled: boolean
+  onToggleCollapsed: () => void
+  onToggleGroup: () => void
+  onRemoveGroup: () => void
+  renderEntry: (entry: ListEntry) => ReactElement
+}
+
+/**
+ * One L1 source group: its header and its members.
+ *
+ * Exported for `test/panel-render.test.ts` for the same reason `EntryCard` is:
+ * header-plus-members is a pure props → markup mapping, so the three states
+ * that matter (open, folded, folded-but-filtered) can be rendered and asserted
+ * without a DOM or a click.
+ *
+ * Folding is a view state. The group switch and `remove group` stay in the
+ * header whatever the members do, because both act on the whole group — a
+ * folded group is still togglable and still removable, and the count in the
+ * label keeps reporting every member.
+ */
+export function SourceGroup({
+  l1Name,
+  entries,
+  groupEnabled,
+  groupMixed,
+  collapsed,
+  foldDisabled,
+  onToggleCollapsed,
+  onToggleGroup,
+  onRemoveGroup,
+  renderEntry,
+}: SourceGroupProps): ReactElement {
+  const count = entries.length
+  return (
+    <li>
+      <div className={css.groupHeader}>
+        <Tooltip
+          label="clear the filter to fold this group"
+          // An empty `label` still mounts the bubble (it only skips the text),
+          // so the suppression channel is `disabled`, not a blank label.
+          disabled={!foldDisabled}
+          side="bottom"
+        >
+          <span className={css.groupFoldHit}>
+            <button
+              type="button"
+              className={css.groupFold}
+              aria-expanded={!collapsed}
+              aria-label={`${collapsed ? 'expand' : 'collapse'} ${l1Name}`}
+              disabled={foldDisabled}
+              onClick={onToggleCollapsed}
+            >
+              {collapsed ? <IconChevronRightOutlineRegular /> : <IconChevronDownOutlineRegular />}
+            </button>
+          </span>
+        </Tooltip>
+        <Switch
+          checked={groupEnabled}
+          onChange={onToggleGroup}
+          label={`${groupMixed ? '◐' : groupEnabled ? '✓' : '○'} ${l1Name} (${count})`}
+        />
+        <Button type="button" size="sm" variant="outline" onClick={onRemoveGroup}>remove group</Button>
+      </div>
+      {!collapsed && <ul className={css.entries}>{entries.map((e) => <li key={e.name}>{renderEntry(e)}</li>)}</ul>}
+    </li>
   )
 }
 

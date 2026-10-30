@@ -98,4 +98,31 @@ interface EntryCardProps {
  * own panels.
  */
 export declare function EntryCard({ entry, refValue, onRefChange, adoptValue, onAdoptChange, adoptSubdirValue, onAdoptSubdirChange, onToggle, onUpdate, onRemove, onSwitchVersion, onAdopt, }: EntryCardProps): ReactElement;
+interface SourceGroupProps {
+    l1Name: string;
+    entries: ListEntry[];
+    groupEnabled: boolean;
+    groupMixed: boolean;
+    collapsed: boolean;
+    /** 搜索框有内容时为 true：折叠按钮禁用（但组强制展开）。 */
+    foldDisabled: boolean;
+    onToggleCollapsed: () => void;
+    onToggleGroup: () => void;
+    onRemoveGroup: () => void;
+    renderEntry: (entry: ListEntry) => ReactElement;
+}
+/**
+ * One L1 source group: its header and its members.
+ *
+ * Exported for `test/panel-render.test.ts` for the same reason `EntryCard` is:
+ * header-plus-members is a pure props → markup mapping, so the three states
+ * that matter (open, folded, folded-but-filtered) can be rendered and asserted
+ * without a DOM or a click.
+ *
+ * Folding is a view state. The group switch and `remove group` stay in the
+ * header whatever the members do, because both act on the whole group — a
+ * folded group is still togglable and still removable, and the count in the
+ * label keeps reporting every member.
+ */
+export declare function SourceGroup({ l1Name, entries, groupEnabled, groupMixed, collapsed, foldDisabled, onToggleCollapsed, onToggleGroup, onRemoveGroup, renderEntry, }: SourceGroupProps): ReactElement;
 //# sourceMappingURL=panel.d.ts.map

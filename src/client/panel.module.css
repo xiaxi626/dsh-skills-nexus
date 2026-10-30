@@ -54,6 +54,49 @@
   margin-bottom: 4px;
 }
 
+/*
+ * The group fold control. It is a bare `<button>` — the primitives have no
+ * chevron-only icon button — so it is styled from tokens only, and the 24px box
+ * sits beside the header's `sm` button (28px) without a border, centred by
+ * `.groupHeader`'s `align-items`.
+ */
+.groupFoldHit {
+  display: inline-flex;
+}
+
+.groupFold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.groupFold:hover:not(:disabled) {
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.groupFold:focus-visible {
+  /* The fallback is the primitives' own: every focus ring in the package
+   * pairs `--dsw-focus-ring-color` with the business-primary token, because an
+   * unset token would drop the outline entirely — the one state that must not
+   * go invisible. */
+  outline: var(--dsw-focus-ring-width) solid
+    var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+}
+
+.groupFold:disabled {
+  cursor: not-allowed;
+  color: var(--dsw-alias-label-dimmed);
+}
+
 .hint {
   margin: 0;
   color: var(--dsw-alias-label-tertiary);

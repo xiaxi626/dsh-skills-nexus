@@ -11,7 +11,7 @@ import assert from 'node:assert/strict'
 import React from 'react'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { EntryCard, NexusPanel, adoptBackupNotice, entryState, errorText, healthSummary, matchesQuery } from '../src/client/panel.js'
+import { EntryCard, NexusPanel, SourceGroup, adoptBackupNotice, entryState, errorText, healthSummary, matchesQuery } from '../src/client/panel.js'
 import { ApiError } from '../src/client/api.js'
 import type { Job, ListEntry, NexusApi } from '../src/client/api.js'
 
@@ -351,6 +351,90 @@ test('a typed adopt url enables the action and is what gets sent', () => {
 test('a typed adopt subdir round-trips into its input', () => {
   const html = card(snapshotEntry, 'github:owner/real-repo', 'skills/tools')
   assert.match(html, /value="skills\/tools"/)
+})
+
+/* ------------------------------------------------------------------ */
+/* SourceGroup: the L1 group header, and folding as a view-only state  */
+/* ------------------------------------------------------------------ */
+
+/** Two members of one `trae-cn` group — only their names matter here. */
+const groupMembers: ListEntry[] = [
+  { ...externalEntry, name: 'trae-cn.skills.alpha', groupPath: ['trae-cn', 'skills', 'alpha'] },
+  { ...externalEntry, name: 'trae-cn.skills.beta', groupPath: ['trae-cn', 'skills', 'beta'] },
+]
+
+/**
+ * One group, rendered from props alone. `renderEntry` is a name-only stub: the
+ * assertion is about *whether* the member list renders, not about the card, and
+ * a full `EntryCard` fixture would only say more about `EntryCard`.
+ */
+function group(opts: { collapsed?: boolean; foldDisabled?: boolean } = {}): string {
+  return renderToStaticMarkup(
+    createElement(SourceGroup, {
+      l1Name: 'trae-cn',
+      entries: groupMembers,
+      groupEnabled: true,
+      groupMixed: false,
+      collapsed: opts.collapsed === true,
+      foldDisabled: opts.foldDisabled === true,
+      onToggleCollapsed: noop,
+      onToggleGroup: noop,
+      onRemoveGroup: noop,
+      renderEntry: (entry) => createElement('span', null, entry.name),
+    }),
+  )
+}
+
+/** The fold button, isolated so an attribute assertion cannot match another control. */
+function foldButton(html: string, action: 'expand' | 'collapse'): string {
+  const tag = html.match(new RegExp(`<button[^>]*aria-label="${action} trae-cn"[^>]*>`))?.[0]
+  assert.ok(tag, `a ${action} button is in the markup`)
+  return tag
+}
+
+test('an expanded group renders its members and offers collapse', () => {
+  const html = group()
+  assert.match(html, /trae-cn\.skills\.alpha/)
+  assert.match(html, /trae-cn\.skills\.beta/)
+  assert.match(foldButton(html, 'collapse'), /aria-expanded="true"/)
+})
+
+test('a collapsed group drops its members but keeps the header live', () => {
+  const html = group({ collapsed: true })
+  // The fold is the whole point: the rows leave the markup, so a long group
+  // stops pushing the next one off screen.
+  assert.doesNotMatch(html, /trae-cn\.skills\.alpha/)
+  assert.doesNotMatch(html, /trae-cn\.skills\.beta/)
+  assert.match(foldButton(html, 'expand'), /aria-expanded="false"/)
+  // … while the group's own actions stay reachable — folding is not disabling.
+  assert.match(html, />\s*remove group\s*</)
+  // Two assertions on one tag, not one ordered regex: the markup serializer
+  // decides attribute order, and this suite does not want to depend on it.
+  assert.match(html, /<input[^>]*checked=""/)
+  assert.match(html, /<input[^>]*label="✓ trae-cn \(2\)"/)
+})
+
+test('a filtered group stays open and refuses to fold', () => {
+  // With a filter active the visible set is already a subset, so folding a
+  // group would hide matches the user is looking for: forced open, and the
+  // button says so by being inert rather than by silently doing nothing.
+  const html = group({ collapsed: false, foldDisabled: true })
+  assert.match(html, /trae-cn\.skills\.alpha/)
+  const btn = foldButton(html, 'collapse')
+  assert.match(btn, /disabled=""/)
+  assert.match(btn, /aria-expanded="true"/)
+})
+
+test('folding changes no group action: same label, same remove scope', () => {
+  const open = group()
+  const closed = group({ collapsed: true })
+  // The header text is identical, so the count still reports the whole group —
+  // a fold is a view state, never a change to what the group contains.
+  // Anchored on the `<input>`: a bare `label="` would also match the fold
+  // button's `aria-label`, whose text is exactly what a fold changes.
+  const switchLabel = /<input[^>]*\slabel="([^"]*)"/
+  assert.equal(open.match(switchLabel)?.[1], closed.match(switchLabel)?.[1])
+  assert.equal(closed.match(switchLabel)?.[1], '✓ trae-cn (2)')
 })
 
 /* ------------------------------------------------------------------ */
