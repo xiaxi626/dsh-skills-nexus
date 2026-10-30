@@ -303,7 +303,9 @@ What this guide does *not* cover (by design):
   mode uses the same segment-exact rule; `test/api.test.ts` covers it. The
   walkthrough exercises the CLI that shares the same matching logic.
 - **Panel group UI** — the panel's group Switch and reconcile predicate use
-  the same rule; `test/panel-render.test.ts` covers the rendering.
+  the same rule; `test/panel-render.test.ts` covers the rendering. Folding a
+  group header is pure view state: it changes which rows are on screen, never
+  the group's match rule, nor what the group Switch and `remove group` act on.
 - **`remove --group` confirmation prompt** — the walkthrough uses `--yes` for
   scriptability. The interactive confirm path is covered by
   `test/remove-group.test.ts` (confirm true → proceed; confirm false → abort).

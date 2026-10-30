@@ -261,7 +261,7 @@ unset DSH_HOME
 本指南**不**覆盖以下内容（设计如此）：
 
 - **HTTP toggle 路由** — 面板的 `POST /skills-nexus/toggle` group 模式使用同一条段级精确规则；`test/api.test.ts` 覆盖。演练使用的 CLI 共享同一匹配逻辑。
-- **面板组 UI** — 面板的组开关和 reconcile 谓词使用同一规则；`test/panel-render.test.ts` 覆盖渲染。
+- **面板组 UI** — 面板的组开关和 reconcile 谓词使用同一规则；`test/panel-render.test.ts` 覆盖渲染。组头的折叠是纯视图状态：它只改变哪些行在屏上，不改变组匹配规则，也不改变组开关与 `remove group` 的作用范围。
 - **`remove --group` 确认提示** — 演练使用 `--yes` 以适配脚本执行。交互确认路径由 `test/remove-group.test.ts` 覆盖（confirm true → 执行；confirm false → 中止）。
 - **JSON 输出格式** — `test/remove-group.test.ts` 断言空组的 version-1 机器报告（`results: []`，`summary.failed: 1`，exit 1）。演练使用人类可读输出。
 - **Node 20 / 22 / 24 矩阵** — CI 在每次 push/PR 上运行完整质量门禁。

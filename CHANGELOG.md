@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+**2026-10-30 · Added · 面板 L1 来源组头支持折叠成员列表**
+
+- **背景**：面板按 L1 来源（`groupPath[0]`）分组，但成员列表一直全量展开。一次 `link` 可以产出十几条到几十条条目（历史实测：`link qoder` 17 条、真机 CN 根 19 条），组多了就得长距离滚动才能看到下一个组的开关。折叠本身不改变任何条目状态，是视图需求而非运维需求，因此做成组件内状态、不持久化。
+- **变更**：
+  - `src/client/panel.tsx`：新增导出组件 `SourceGroup`（组头与成员一起渲染，与 `EntryCard` 同理由测试直接渲染 props → markup），组头最左加一个 chevron 按钮（`aria-expanded` + `aria-label="expand|collapse <组名>"`）；`NexusPanel` 增加 `collapsedGroups` 状态与 `toggleGroupCollapsed` 回调，折叠只决定成员 `<ul>` 是否渲染。组开关与 `remove group` 恒在组头，折叠不影响二者。搜索框有内容时折叠按钮 `disabled` 且组强制展开，`Tooltip` 给出 `clear the filter to fold this group`——筛选态下折叠只会藏掉用户正在找的匹配项。顺带把 ungrouped 与 grouped 两处重复的 `EntryCard` props 展开合并为局部 `renderEntry`（纯去重，不改行为）。
+  - `src/client/panel.module.css`：新增 `.groupFoldHit` / `.groupFold`（24px 方块、无边框、透明底，hover / focus / disabled 三态），只用 `--dsw-*` token；focus ring 沿用 primitives 的写法给 `--dsw-focus-ring-color` 补 `--dsw-alias-state-business-primary` 回退——token 未定义时整条 `outline` 声明失效，焦点指示恰恰是最不能看不见的一态。
+  - Tooltip 的抑制通道经实测修正：原拟用空 `label` 表示「无需提示」，但 primitives 的实现是 `content = visible && !suppressed`，只有文本节点做 `resolvedLabel &&` 判断，空 label 在 hover / focus 时仍会挂出一个空的 `role="tooltip"` 元素；改用它自带的 `disabled={!foldDisabled}`，该分支只抑制气泡、不改锚点结构（不会因切换而重挂载）。
+  - 测试：`test/panel-render.test.tsx` 新增 4 条——展开态成员可见且 `aria-expanded="true"`；折叠态成员名不进标记、按钮文案转 `expand`；搜索禁用态强制展开且按钮带 `disabled`；折叠后 `remove group` 与 `Switch` 恒在、标签计数不变。`renderEntry` 在测试里传只输出名字的桩件，不构造完整 `EntryCard` props。
+- **实测验证（Windows 25H2 / Node 24.19.0）**：4 条新增先跑红（`The requested module '../src/client/panel.js' does not provide an export named 'SourceGroup'`）再转绿。变异探针两处，确证断言能判别新旧实现：去掉 `{!collapsed && …}` 守卫 → 「折叠态成员不进标记」转红；`disabled={foldDisabled}` 改成 `disabled={false}` → 「搜索禁用态」转红。`npm test` 840 项（837 通过 / 3 跳过 / 0 失败，跳过项为 bash / zsh / fish 补全实跑），总数由基线 836 增 4；`typecheck`、`lint`（0 error，仍只有原有 2 条 unused-disable warning）、`test:build`、`build`、`build:client` 均 exit 0；`build:client` 重建四个产物（`lib/client.js` 及其 `.map`、`lib/client-types/client/panel.d.ts` 及其 `.map`）并随改动提交，二次构建四文件 SHA-256 一致；`npm run build` 不产生额外 lib 漂移。
+- **如何辨识改动**：`link trae-cn` 后组头最左出现 chevron——点一下成员行整段消失、组名与计数仍在原位、箭头转向右；再点一下恢复。折叠状态下组开关与 `remove group` 仍在组头上，照常作用整组（折叠不改变任何条目启停，也不改变 `--group` 的匹配范围）。搜索框输入任意过滤词后所有组强制展开、折叠按钮变灰，悬停提示 `clear the filter to fold this group`，清空搜索即恢复原折叠状态。刷新面板会重新全部展开——折叠不持久化，属预期。
+- **不做**：不持久化折叠状态（不写 manifest、不写 localStorage）；不做 L2 / segment 级折叠；不做「全部折叠 / 全部展开」批量按钮；不按 link 批次重新分组；不加 `aria-controls` / id 关联（组名允许自定义，生成 id 需要一套转义规则，收益不足）；不改 CLI、HTTP 路由、`groupStates` 计算与组操作语义。
+
 ## [0.8.0] - 2026-10-26
 
 **2026-10-26 · Added · link 再支持十三个 Agent 客户端来源**
