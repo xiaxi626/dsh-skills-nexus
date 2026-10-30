@@ -95,6 +95,11 @@
 .groupFold:disabled {
   cursor: not-allowed;
   color: var(--dsw-alias-label-dimmed);
+  /* A disabled form control dispatches no mouse events, and the Tooltip's
+   * anchor is the wrapper span whose box is exactly this button — without this
+   * the "clear the filter" bubble could never be summoned. The declaration is
+   * scoped to the disabled state, where a click has nothing to do anyway. */
+  pointer-events: none;
 }
 
 .hint {
