@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+**2026-10-31 · Fixed · `checkUpdates` 并发化后遗留的进度行发射顺序断言（同日 P4-1 回归）**
+
+- **背景**：同日上一条 P4-1 把 `src/health.ts` 的 `checkUpdates` 由逐 entry 串行 `for … await` 改为常量 4 有界池 `mapBounded`。结果数组顺序由 `mapBounded` 按输入索引装配、恒等于 manifest 顺序，仍由 `test/update-pipeline.test.ts` 中 `deepStrictEqual(results, …)` 与同文件「keeps manifest order」用例钉住；但 `checkEntryUpdate` 进入网络比较时经 `io.progress('checking updates', name)` 打印的进度行是在各 worker 里即时发射的，池化后三条进度行的到达次序不再确定。该文件对 `io.stages` 的断言仍按 manifest 序写死——单文件隔离跑稳定通过、全量并行负载下间歇转红（一次实测把 `unresolved-skill` 挤到第二位），属 P4-1 自身门禁未复现到的加载态 flaky，不是 CLI 侧改动引入。
+- **变更**：`test/update-pipeline.test.ts` 把这条断言两边都 `.sort()` 后再比较，语义由「顺序 + 成员」收敛为「成员集合」——发射顺序已由 P4-1 的池放弃保证，集合（恰好三条、只含进入网络比较的 behind/current/unresolved）才是此处要钉的契约；结果数组顺序另由既有断言与专用用例保证，此处不再重复。纯测试稳健化：不改 `src/`、不改被测行为、不改用例数。
+- **验证方式**：`node --import tsx --test test/update-pipeline.test.ts` 4 项全绿；连跑三次全量 `npm test` 均 861 项 / 858 通过 / 3 跳过（bash/zsh/fish 补全实跑）/ 0 失败、无 ERR_ASSERTION（修复前同命令首跑即在该断言处红）。`typecheck` / `lint`（0 error，仍只有原有 2 条 unused-disable warning）/ `test:build` / `build` 均 exit 0。
+- **不做**：不把并发改回串行以迁就旧断言（P4-1 的并发是既定设计）；不为进度提示新增发射顺序保证（`io.progress` 是 best-effort 提示、非契约）；不改 P4-1 条目原文与其日期。
+
 **2026-10-31 · Changed · `checkUpdates` 串行 ls-remote 改为常量 4 有界池，结果仍按 manifest 顺序（P4-1）**
 
 - **背景**：`src/health.ts` 的 `checkUpdates`（`doctor --updates` 与 HTTP `check-updates` 路由共享的 §6.3 核心）此前是 `for (const entry of manifest.skills) { results.push(await checkEntryUpdate(entry, io)) }`——逐 entry 串行 await。每个 `checkEntryUpdate` 内含三个 await：本地 `stat(dir)` 存在性、本地 `isDetachedHead(dir)`（`git symbolic-ref`）、以及网络 `lsRemoteCommit(gitUrl, ref)`（`git ls-remote`，每次起一个 git 子进程 + 一条外网往返、15s 超时）。前两个是本地快步、真正拖时间的是 `lsRemoteCommit`：串行下任一网络慢的 entry 会把其后所有 entry 排在身后，一个几十条的 manifest 检查会线性累加网络往返。改造只针对这一「between-entry」的网络等待串行化，不动单 entry 内的本地→网络次序。

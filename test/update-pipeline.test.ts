@@ -196,12 +196,21 @@ test('checkUpdates classifies every git state and fills the cache per §7.2', as
     { name: 'snap-skill', status: 'not-applicable' },
     { name: 'unresolved-skill', status: 'unresolved' },
   ])
-  // Only entries that reached the network comparison announce progress.
-  assert.deepEqual(io.stages, [
-    'checking updates: behind-skill',
-    'checking updates: current-skill',
-    'checking updates: unresolved-skill',
-  ])
+  // Only entries that reached the network comparison announce progress — the
+  // membership of the set is the contract, its emission order is not: P4-1
+  // routes the per-entry remote checks through a bounded-concurrency pool, so
+  // the three `checking updates:` progress lines can land in any interleaving
+  // under load while the results-array order asserted above stays pinned by
+  // index assembly. Sorting both sides keeps this a set assertion and stops it
+  // double-testing an order the pool no longer guarantees at emit time.
+  assert.deepEqual(
+    [...io.stages].sort(),
+    [
+      'checking updates: behind-skill',
+      'checking updates: current-skill',
+      'checking updates: unresolved-skill',
+    ].sort(),
+  )
 
   // Cache writes (§7.2): behind/current record the remote comparison;
   // unresolved records an explicit "checked, nothing newer"…
