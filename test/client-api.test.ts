@@ -12,7 +12,7 @@ import {
   reconcileList,
   ReconcileTimeoutError,
 } from '../src/client/api.js'
-import type { ApiFetch, ApiFetchInit, Job, ListEntry } from '../src/client/api.js'
+import type { ApiFetch, ApiFetchInit, GroupState, Job, ListEntry } from '../src/client/api.js'
 
 /**
  * Unit tests for the browser-half api client (src/client/api.ts, §10.1).
@@ -489,32 +489,51 @@ const listEntry = (name: string, enabled = true): ListEntry => ({
   update: null,
 })
 
+const groupState = (path: string[], state: GroupState['state'], count: number): GroupState => ({
+  path,
+  state,
+  count,
+})
+
 test('reconcileList resolves when the first snapshot already satisfies the predicate', async () => {
-  const { fetchFn, calls } = fakeFetch([ok({ entries: [listEntry('a')] }, 'done')])
-  const entries = await reconcileList(createApi(fetchFn), (es) => es.some((e) => e.name === 'a'))
-  assert.deepEqual(entries.map((e) => e.name), ['a'])
+  const { fetchFn, calls } = fakeFetch([
+    ok({ entries: [listEntry('a')], groupStates: [groupState(['g1'], 'on', 1)] }, 'done'),
+  ])
+  const result = await reconcileList(createApi(fetchFn), (es) => es.some((e) => e.name === 'a'))
+  assert.deepEqual(result.entries.map((e) => e.name), ['a'])
+  assert.deepEqual(result.groupStates, [{ path: ['g1'], state: 'on', count: 1 }])
   assert.equal(calls.length, 1, 'no extra polls once the snapshot fits')
 })
 
-test('reconcileList polls until a snapshot satisfies the predicate', async () => {
+test('reconcileList polls until a snapshot satisfies the predicate, carrying groupStates in every tick', async () => {
   const { fetchFn, calls } = fakeFetch([
-    ok({ entries: [listEntry('a')] }, 'done'),
-    ok({ entries: [listEntry('a')] }, 'done'),
-    ok({ entries: [listEntry('a'), listEntry('b')] }, 'done'),
+    ok({ entries: [listEntry('a')], groupStates: [groupState(['g1'], 'on', 1)] }, 'done'),
+    ok({ entries: [listEntry('a')], groupStates: [groupState(['g1'], 'mixed', 1)] }, 'done'),
+    ok({ entries: [listEntry('a'), listEntry('b')], groupStates: [groupState(['g1'], 'mixed', 2)] }, 'done'),
   ])
-  const ticks: string[][] = []
-  const entries = await reconcileList(
+  const ticks: Array<{ names: string[]; groups: GroupState[] }> = []
+  const result = await reconcileList(
     createApi(fetchFn),
     (es) => es.some((e) => e.name === 'b'),
-    { sleep: async () => undefined, onTick: (es) => ticks.push(es.map((e) => e.name)) },
+    {
+      sleep: async () => undefined,
+      onTick: (snap) => ticks.push({ names: snap.entries.map((e) => e.name), groups: snap.groupStates }),
+    },
   )
-  assert.deepEqual(entries.map((e) => e.name), ['a', 'b'])
-  assert.deepEqual(ticks, [['a'], ['a']], 'every missed poll is reported')
+  assert.deepEqual(result.entries.map((e) => e.name), ['a', 'b'])
+  assert.deepEqual(result.groupStates, [{ path: ['g1'], state: 'mixed', count: 2 }])
+  assert.equal(ticks.length, 2, 'every missed poll is reported')
+  assert.deepEqual(ticks[0]!.names, ['a'])
+  assert.deepEqual(ticks[0]!.groups, [{ path: ['g1'], state: 'on', count: 1 }])
+  assert.deepEqual(ticks[1]!.names, ['a'])
+  assert.deepEqual(ticks[1]!.groups, [{ path: ['g1'], state: 'mixed', count: 1 }])
   assert.equal(calls.length, 3)
 })
 
-test('reconcileList throws ReconcileTimeoutError carrying the last snapshot', async () => {
-  const { fetchFn } = fakeFetch([ok({ entries: [listEntry('a')] }, 'done')])
+test('reconcileList throws ReconcileTimeoutError carrying both entries and groupStates', async () => {
+  const { fetchFn } = fakeFetch([
+    ok({ entries: [listEntry('a')], groupStates: [groupState(['g1'], 'off', 1)] }, 'done'),
+  ])
   await assert.rejects(
     reconcileList(createApi(fetchFn), (es) => es.some((e) => e.name === 'b'), {
       intervalMs: 10,
@@ -524,7 +543,36 @@ test('reconcileList throws ReconcileTimeoutError carrying the last snapshot', as
     (err: unknown) => {
       assert.ok(err instanceof ReconcileTimeoutError)
       assert.deepEqual(err.entries.map((e) => e.name), ['a'])
+      assert.deepEqual(err.groupStates, [{ path: ['g1'], state: 'off', count: 1 }])
       return true
     },
   )
+})
+
+test('reconcileList defaults groupStates to empty array for older responses without the field', async () => {
+  // A server that predates the groupStates field omits it from the response;
+  // the snapshot must still be well-formed with an empty array fallback.
+  const { fetchFn } = fakeFetch([
+    ok({ entries: [listEntry('a')] }, 'done'),
+  ])
+  const result = await reconcileList(createApi(fetchFn), (es) => es.some((e) => e.name === 'a'))
+  assert.deepEqual(result.groupStates, [])
+})
+
+test('reconcileList makes exactly k list calls for k polls — no redundant post-success call', async () => {
+  // P2-1 contract: the panel no longer fires an extra api.list() after
+  // reconcileList succeeds. k list responses = k calls, not k+1.
+  const { fetchFn, calls } = fakeFetch([
+    ok({ entries: [listEntry('a')], groupStates: [groupState(['g'], 'off', 1)] }, 'done'),
+    ok({ entries: [listEntry('a', false)], groupStates: [groupState(['g'], 'off', 1)] }, 'done'),
+  ])
+  const result = await reconcileList(
+    createApi(fetchFn),
+    (es) => es.some((e) => e.name === 'a' && e.enabled === false),
+    { sleep: async () => undefined },
+  )
+  // Exactly 2 polls, no 3rd call from the panel post-success.
+  assert.equal(calls.length, 2, 'k polls = k list calls, not k+1')
+  assert.deepEqual(result.entries[0]!.enabled, false)
+  assert.deepEqual(result.groupStates, [{ path: ['g'], state: 'off', count: 1 }])
 })

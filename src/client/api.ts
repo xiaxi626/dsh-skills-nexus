@@ -488,9 +488,17 @@ export async function pollJob(api: NexusApi, id: string, opts: PollOptions = {})
 /* List reconciliation (§11)                                           */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The full reconciliation snapshot: both fields the list response carries.
+ * Reuses the existing `ListEntry` and `GroupState` definitions rather than
+ * creating a second shape with different field meanings — the panel needs
+ * groupStates to keep its switches in sync without a redundant list call.
+ */
+export type ReconcileResult = { entries: ListEntry[]; groupStates: GroupState[] }
+
 /** `reconcileList` gave up before the list reflected the mutation. */
 export class ReconcileTimeoutError extends Error {
-  constructor(readonly entries: ListEntry[]) {
+  constructor(readonly entries: ListEntry[], readonly groupStates: GroupState[]) {
     super('the list did not reflect the change in time')
     this.name = 'ReconcileTimeoutError'
   }
@@ -503,31 +511,37 @@ export interface ReconcileOptions {
   timeoutMs?: number
   /** Injectable sleep — tests resolve immediately. */
   sleep?: (ms: number) => Promise<void>
-  /** Called after every poll that did not yet satisfy `until`. */
-  onTick?: (entries: ListEntry[]) => void
+  /** Called after every poll that did not yet satisfy `until`, with the full snapshot. */
+  onTick?: (result: ReconcileResult) => void
 }
 
 /**
  * §11 reconciliation for a `hotReload: 'pending'` mutation: poll `list` until
  * `until` accepts the snapshot — i.e. the link change the host watcher is
- * about to confirm is visible. Resolves the accepted snapshot; throws
- * `ReconcileTimeoutError` (carrying the last snapshot) past the deadline —
- * the caller downgrades to a manual-refresh hint.
+ * about to confirm is visible. Resolves the full snapshot (both entries and
+ * groupStates from the same response); throws `ReconcileTimeoutError`
+ * (carrying both fields of the last response) past the deadline — the caller
+ * downgrades to a manual-refresh hint.
+ *
+ * The groupStates are carried alongside entries so that the panel's success,
+ * tick, and timeout paths can update both state variables from one snapshot,
+ * eliminating the redundant `api.list()` call that was previously needed.
  */
 export async function reconcileList(
   api: NexusApi,
   until: (entries: ListEntry[]) => boolean,
   opts: ReconcileOptions = {},
-): Promise<ListEntry[]> {
+): Promise<ReconcileResult> {
   const interval = opts.intervalMs ?? 250
   const deadline = Date.now() + (opts.timeoutMs ?? 2000)
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
 
   for (;;) {
     const { data } = await api.list()
-    if (until(data.entries)) return data.entries
-    opts.onTick?.(data.entries)
-    if (Date.now() >= deadline) throw new ReconcileTimeoutError(data.entries)
+    const snapshot: ReconcileResult = { entries: data.entries, groupStates: data.groupStates ?? [] }
+    if (until(snapshot.entries)) return snapshot
+    opts.onTick?.(snapshot)
+    if (Date.now() >= deadline) throw new ReconcileTimeoutError(snapshot.entries, snapshot.groupStates)
     await sleep(interval)
   }
 }

@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+**2026-10-31 · Changed · reconcileList 携带 groupStates，删除面板冗余拉取（P2-1）**
+
+- **背景**：`reconcileList` 只返回 `ListEntry[]`，面板成功收尾必须额外发一次 `api.list()` 获取最新 `groupStates`（一次冗余 HTTP 往返）；超时路径只设 entries、groupStates 保持旧值，造成不一致。设计边界见 `docs/perf-panel-list-loading.md` 第三节。
+- **变更**：
+  - `src/client/api.ts`：新增导出类型 `ReconcileResult = { entries: ListEntry[]; groupStates: GroupState[] }`，复用既有 `ListEntry` 与 `GroupState`，不另造第二套字段含义。`reconcileList` 返回 `Promise<ReconcileResult>`，`onTick` 每轮未满足都把完整结果传入（保持回调时机不变），`ReconcileTimeoutError` 同时携带最后一次响应的 `entries` 与 `groupStates`。`groupStates` 缺失（较旧响应）时回退为空数组。不加强变异完成语义，不改既有的对账间隔与超时预算。
+  - `src/client/panel.tsx`：`reconcileAfter` 的 tick、成功、超时三条路径都从对应快照同时更新 `entries` 与 `groupStates`，保留既有 `alive.current` 守卫与提示。成功收尾的冗余 `api.list()` 已移除（全快照接线完成后不再需要）。`done` 与 `unsupported` 仍走 `refresh`，unsupported-host 说明文案保留，hotReload 字段缺失仍按 pending 路径处理。
+  - `reconcileList` 与 `ReconcileTimeoutError` 未经 `src/client/index.tsx` 再导出，属仓库内部 API 变更，不构成 breaking change。
+  - 测试：`test/client-api.test.ts` 三既有用例适配新签名并扩展为覆盖 groupStates（排队响应建模组状态变化、tick 快照含两字段、超时快照含两字段）；新增「旧响应缺 groupStates 回退空数组」与「k 次轮询恰 k 次 list 调用（无 k+1 冗余）」两条用例（总数 850 → 852）。`test/panel-render.test.tsx` 保持静态渲染守卫定位（SSR 不跑 effect，不交互证据）；`test/group-states.test.ts` 继续负责服务端组推导语义。
+- **验证方式**：`npm test` 852 项（849 通过 / 3 跳过 / 0 失败）；`typecheck` / `lint`（0 error，仅原有 2 条 unused-disable warning）/ `test:build` / `build` / `build:client` 均 exit 0；`lib/` 漂移仅 `client.js`、`client.js.map`、`client-types/client/api.d.ts`、`api.d.ts.map`、`panel.d.ts.map` 五件并随本条提交；二次 `build:client` 幂等（`git diff --exit-code -- lib/` 为空）。
+- **不做**：不改 HTTP list 响应 schema；不改 `pollJob`、`done`/`unsupported` 路径行为；不动 `reconcileList` 既有的 `intervalMs`/`timeoutMs` 默认值；不引入新的对账完成语义；不新增 flag、命令或 README 改动。
+
 **2026-10-31 · Changed · 列表链接扫描归并为单次有界遍历（P1）**
 
 - **背景**：`listEntries()` 对每个 manifest entry 各调一次 `entryLinks`：每次都要 realpath 该 entry 的 base、readdir 一次 skills 根、再把根下每个链接逐个 read+realpath。FS 调用量按 \(1+2N+2NL\) 增长（N=entry 数、L=根内名字数，N=10/L=50 估 1021 次）——同一个根目录被读 N 遍、每条链接被解析 N 遍；CLI `list` 默认表格路径的逐 entry `isEntryEnabled` 是同一笔重复。这是面板 list 加载路径上最大的重复 FS 工作（设计边界见 `docs/perf-panel-list-loading.md` 第二节）。

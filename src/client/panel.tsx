@@ -379,21 +379,23 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
         return
       }
       try {
-        const entries = await reconcileList(api, until, {
-          onTick: (snapshot) => {
-            if (alive.current) setEntries(snapshot)
+        const result = await reconcileList(api, until, {
+          onTick: ({ entries: tickEntries, groupStates: tickGroups }) => {
+            if (alive.current) {
+              setEntries(tickEntries)
+              setGroupStates(tickGroups)
+            }
           },
         })
         if (!alive.current) return
-        setEntries(entries)
+        setEntries(result.entries)
+        setGroupStates(result.groupStates)
         setListError(null)
-        // Sync groupStates after reconciliation completes
-        const env = await api.list()
-        if (alive.current) setGroupStates(env.data.groupStates ?? [])
       } catch (err) {
         if (!alive.current) return
         if (err instanceof ReconcileTimeoutError) {
           setEntries(err.entries)
+          setGroupStates(err.groupStates)
           setListError(null)
           setNotice(`${label}: change not reflected yet — refresh manually shortly`)
           return
