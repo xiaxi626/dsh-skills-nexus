@@ -454,7 +454,7 @@ export class PollTimeoutError extends Error {
 }
 
 export interface PollOptions {
-  /** Interval between polls (default 1000ms). */
+  /** Steady-state interval between polls, after the two early backoff steps (default 1000ms). */
   intervalMs?: number
   /** Give up polling after this long (default 10 minutes). */
   maxWaitMs?: number
@@ -465,22 +465,43 @@ export interface PollOptions {
 }
 
 /**
+ * Early-backoff steps (§ polling schedule): the two waits after the first
+ * still-running answer, before the steady `intervalMs` resumes. Fixed because
+ * they hunt a job that may settle any second — making them configurable would
+ * invite a caller to flatten the ramp back into the old constant cadence.
+ */
+const POLL_EARLY_STEPS_MS = [200, 400]
+
+/**
  * Poll `GET /job?id=` until the job leaves `running`. Resolves the settled
  * job; throws `PollTimeoutError` (carrying the last snapshot) past the
  * deadline — the job itself keeps running server-side and can still be
  * cancelled or found by a later poll.
+ *
+ * The first request goes out immediately, so an already-settled job never
+ * waits; only a still-running first answer pays the 200/400ms backoff steps,
+ * after which polling holds at `intervalMs`. The deadline budget, the
+ * cancellation and error return, and the timeout throw are untouched — this
+ * moves *when* we look, never *what we do* about what we saw.
  */
 export async function pollJob(api: NexusApi, id: string, opts: PollOptions = {}): Promise<Job> {
   const interval = opts.intervalMs ?? 1000
   const deadline = Date.now() + (opts.maxWaitMs ?? 10 * 60 * 1000)
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
 
+  let polls = 0
   for (;;) {
     const { data } = await api.job(id)
     opts.onTick?.(data.job)
     if (data.job.status !== 'running') return data.job
     if (Date.now() >= deadline) throw new PollTimeoutError(data.job)
-    await sleep(interval)
+    // The backoff index rides on the poll count, not a loop counter, so the
+    // per-attempt wait stays put if the loop ever grows a `continue` path.
+    // The `?? interval` arm is unreachable while polls < steps.length and
+    // only exists to keep the indexed read total under this bundle's tsconfig.
+    const early = polls < POLL_EARLY_STEPS_MS.length ? POLL_EARLY_STEPS_MS[polls] : undefined
+    await sleep(early ?? interval)
+    polls++
   }
 }
 

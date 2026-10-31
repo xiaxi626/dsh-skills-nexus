@@ -434,6 +434,12 @@ test('jobConfirmationQuestion extracts the marker from job errors', () => {
 /* Job polling (§7.5)                                                  */
 /* ------------------------------------------------------------------ */
 
+/** A sleep that records its argument — the backoff-rhythm oracle. */
+function recordingSleep(): { sleep: (ms: number) => Promise<void>; waits: number[] } {
+  const waits: number[] = []
+  return { waits, sleep: async (ms: number) => { waits.push(ms) } }
+}
+
 test('pollJob settles once the job leaves running and reports every tick', async () => {
   const { fetchFn } = fakeFetch([
     ok({ job: job('j', 'running', { stage: 'cloning' }) }, 'done'),
@@ -441,13 +447,54 @@ test('pollJob settles once the job leaves running and reports every tick', async
     ok({ job: job('j', 'done', { stage: 'linking', endedAt: 'later' }) }, 'done'),
   ])
   const ticks: string[] = []
+  const { sleep, waits } = recordingSleep()
   const settled = await pollJob(createApi(fetchFn), 'j', {
-    sleep: async () => undefined,
+    sleep,
     onTick: (j) => ticks.push(j.stage ?? '?'),
   })
   assert.equal(settled.status, 'done')
   assert.deepEqual(ticks, ['cloning', 'linking', 'linking'])
+  // Helper default (no intervalMs): two running answers pay the 200/400 early
+  // steps; the third is settled so no third wait exists.
+  assert.deepEqual(waits, [200, 400])
 })
+
+test('pollJob backs off early, then holds at the steady 800ms the panel supplies', async () => {
+  // The panel's `track` supplies intervalMs: 800 — a distinct steady-state
+  // value from the helper default, so the ramp must land on 800, not 1000.
+  const { fetchFn } = fakeFetch(
+    Array.from({ length: 6 }, (_, i) =>
+      ok({ job: job('j', i < 5 ? 'running' : 'done', { stage: `s${i}` }) }, 'done'),
+    ),
+  )
+  const { sleep, waits } = recordingSleep()
+  const settled = await pollJob(createApi(fetchFn), 'j', { intervalMs: 800, sleep })
+  assert.equal(settled.status, 'done')
+  assert.deepEqual(waits, [200, 400, 800, 800, 800])
+})
+
+test('pollJob backs off early, then holds at the helper default 1000ms', async () => {
+  const { fetchFn } = fakeFetch(
+    Array.from({ length: 5 }, (_, i) =>
+      ok({ job: job('j', i < 4 ? 'running' : 'done', { stage: `s${i}` }) }, 'done'),
+    ),
+  )
+  const { sleep, waits } = recordingSleep()
+  const settled = await pollJob(createApi(fetchFn), 'j', { sleep })
+  assert.equal(settled.status, 'done')
+  assert.deepEqual(waits, [200, 400, 1000, 1000])
+})
+
+for (const status of ['done', 'error', 'cancelled'] as const) {
+  test(`pollJob never sleeps when the first answer already settled (${status})`, async () => {
+    // The backoff may not delay an already-settled first response.
+    const { fetchFn } = fakeFetch([ok({ job: job('j', status) }, 'done')])
+    const { sleep, waits } = recordingSleep()
+    const settled = await pollJob(createApi(fetchFn), 'j', { sleep })
+    assert.equal(settled.status, status)
+    assert.deepEqual(waits, [])
+  })
+}
 
 test('pollJob resolves cancelled jobs without throwing', async () => {
   const { fetchFn } = fakeFetch([ok({ job: job('j', 'cancelled') }, 'done')])
@@ -457,11 +504,12 @@ test('pollJob resolves cancelled jobs without throwing', async () => {
 
 test('pollJob throws PollTimeoutError carrying the last running snapshot', async () => {
   const { fetchFn } = fakeFetch([ok({ job: job('j', 'running', { stage: 'pulling' }) }, 'done')])
+  const { sleep, waits } = recordingSleep()
   await assert.rejects(
     pollJob(createApi(fetchFn), 'j', {
       intervalMs: 10,
       maxWaitMs: 0,
-      sleep: async () => undefined,
+      sleep,
     }),
     (err: unknown) => {
       assert.ok(err instanceof PollTimeoutError)
@@ -470,6 +518,9 @@ test('pollJob throws PollTimeoutError carrying the last running snapshot', async
       return true
     },
   )
+  // The deadline check still precedes any wait — early backoff cannot buy
+  // a zero-budget poll an extra sleep, and the throw semantics are unchanged.
+  assert.deepEqual(waits, [])
 })
 
 /* ------------------------------------------------------------------ */

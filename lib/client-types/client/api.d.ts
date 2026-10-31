@@ -353,7 +353,7 @@ export declare class PollTimeoutError extends Error {
     constructor(job: Job);
 }
 export interface PollOptions {
-    /** Interval between polls (default 1000ms). */
+    /** Steady-state interval between polls, after the two early backoff steps (default 1000ms). */
     intervalMs?: number;
     /** Give up polling after this long (default 10 minutes). */
     maxWaitMs?: number;
@@ -367,6 +367,12 @@ export interface PollOptions {
  * job; throws `PollTimeoutError` (carrying the last snapshot) past the
  * deadline — the job itself keeps running server-side and can still be
  * cancelled or found by a later poll.
+ *
+ * The first request goes out immediately, so an already-settled job never
+ * waits; only a still-running first answer pays the 200/400ms backoff steps,
+ * after which polling holds at `intervalMs`. The deadline budget, the
+ * cancellation and error return, and the timeout throw are untouched — this
+ * moves *when* we look, never *what we do* about what we saw.
  */
 export declare function pollJob(api: NexusApi, id: string, opts?: PollOptions): Promise<Job>;
 /**

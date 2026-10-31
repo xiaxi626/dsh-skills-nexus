@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+**2026-10-31 · Changed · pollJob 早期退避：200/400 后回到稳态间隔（P2-2）**
+
+- **背景**：`pollJob` 在首次查询仍 `running` 后每轮固定等 `intervalMs`（面板 `track` 传 800ms、helper 默认 1000ms），快速结算的作业也要整轮等待才被看见。设计边界见 `docs/perf-panel-list-loading.md` 第三节「轮询节奏」：首次请求仍在 t₀，其后 sleep 依次为 200ms、400ms，此后稳定回到 `intervalMs`；面板 800ms 与 helper 默认 1000ms 是两个不同的稳态值，不得混同。
+- **变更**：
+  - `src/client/api.ts`：`pollJob` 的 sleep 序列改为第一次 `200`、第二次 `400`、第三次起 `interval`。前两步固定为模块常量 `POLL_EARLY_STEPS_MS = [200, 400]`（它们是为「随时可能结算」的作业搜寻答案的节拍，做成可配置会诱使调用方把斜坡抹回旧的恒定节奏）；退避索引用已查询次数而非循环计数，若日后循环增加 `continue` 路径每个 attempt 的等待不变；取步长时先读为可空局部再以 `?? interval` 兜底——client-types 与 test:build 两套 tsconfig 开有更严格的索引检查（具下标的读取带 `undefined` 分支），主 tsconfig 不会暴露这一差异。`PollOptions` 接口签名不变，`intervalMs` 注释改述为「两次早期退避之后的稳态间隔」；`deadline` 计算不变（`Date.now() + maxWaitMs`），首次查询不额外等待；`PollTimeoutError`、取消、错误返回与超时抛出的语义全部不变——只改「什么时候看」，不改「看到之后怎么办」。
+  - 测试：`test/client-api.test.ts` 新增注入 `sleep` 的序列断言——面板配置（`intervalMs: 800`）长作业为 200/400/800/800…，helper 默认（无 `intervalMs`）长作业为 200/400/1000/1000…；首次即完成的路径按 `done`/`error`/`cancelled` 三态各一条断言零 sleep；既有 tick 用例改走记录型 sleep 并追加 `[200, 400]` 断言；既有 `PollTimeoutError` 用例（`maxWaitMs: 0`）追加零 sleep 断言，钉住「deadline 检查先于任何等待」。测试文件总数 34 → 39。
+- **验证方式**：聚焦跑 `node --import tsx --test test/client-api.test.ts` 39 项全绿；变异探针实测两条：把 `POLL_EARLY_STEPS_MS` 改为 `[200, 400, 600]` → 面板稳态用例（断言 200/400/800/800/800）转红；改为 `[200, 400, 800]` → helper 默认稳态用例（断言 200/400/1000/1000）转红（注：后者不碰面板用例，因 800 恰与面板稳态同值），两个稳态值各自可判别；探针后已还原。全量门禁（Windows 25H2 / Node 24）：`typecheck` / `lint`（0 error，仅原有 2 条 unused-disable warning）/ `test:build` / `build` / `build:client` 均 exit 0；`npm test` 857 项（854 通过 / 3 跳过（bash / zsh / fish 补全实跑）/ 0 失败），总数由上一提交 852 增 5；`npm run build` 无服务端 lib 漂移，client 漂移仅 `client.js`、`.map`、`client-types/client/api.d.ts`、`.map` 四件并随本条提交，二次 `build:client` 四文件 SHA-256 一致（幂等）。不改 HTTP 路由、服务端作业生命周期与 `reconcileList`。
+- **不做**：不改 `PollOptions` 签名与 `intervalMs` 稳态含义；不拖延已结算的首次响应；不动取消、错误与超时语义；不把早期步长做成可配置项；不改面板 `track` 传入的 800ms；不新增 flag、命令或 README 改动。
+
 **2026-10-31 · Changed · reconcileList 携带 groupStates，删除面板冗余拉取（P2-1）**
 
 - **背景**：`reconcileList` 只返回 `ListEntry[]`，面板成功收尾必须额外发一次 `api.list()` 获取最新 `groupStates`（一次冗余 HTTP 往返）；超时路径只设 entries、groupStates 保持旧值，造成不一致。设计边界见 `docs/perf-panel-list-loading.md` 第三节。
