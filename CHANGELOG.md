@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+**2026-10-31 · Changed · 列表链接扫描归并为单次有界遍历（P1）**
+
+- **背景**：`listEntries()` 对每个 manifest entry 各调一次 `entryLinks`：每次都要 realpath 该 entry 的 base、readdir 一次 skills 根、再把根下每个链接逐个 read+realpath。FS 调用量按 \(1+2N+2NL\) 增长（N=entry 数、L=根内名字数，N=10/L=50 估 1021 次）——同一个根目录被读 N 遍、每条链接被解析 N 遍；CLI `list` 默认表格路径的逐 entry `isEntryEnabled` 是同一笔重复。这是面板 list 加载路径上最大的重复 FS 工作（设计边界见 `docs/perf-panel-list-loading.md` 第二节）。
+- **变更**：
+  - `src/link.ts`：新增导出 `scanEntryLinks(entries): Promise<Map<string, EntryLink[]>>`——每个 entry 的 base 只做一次 `safeRealPath`（含既有的祖先回退），`readdir(OFFICIAL_SKILLS_DIR)` 只做一次（失败含根缺失 → 全员空桶，与旧版每 entry 各自 catch 返回 `[]` 逐位一致），每个根内名字只做一次 `readLinkEntryTarget`（保留悬空 POSIX 的 `readlink` 回退，`undefined` 跳过、不从链接名虚构归属），每个成功解析的 target 只做一次 `safeRealPath` 后与**所有** base 做内存 `pointsInto` 比对——同一链接同时入 parent 整仓 entry 与 subdir entry 两个桶（首个命中即分桶会改变 §6.4 归属语义，禁止）；桶按 `readdir` 原始顺序按索引装配（worker 乱序完成不影响），`target` 仍是规范化字符串。解析走新增的有界并发池 `mapBounded`，上限常量 `LINK_SCAN_CONCURRENCY = 8`（base 准备与链接读取共用同一上限，不无界扇出）。`entryLinks` 改为 `scanEntryLinks([entry])` 的薄包装，签名与语义不变，写路径（toggle/remove/update/adopt）调用方零改动；`isEntryEnabled` 仍为 `entryLinks` 薄包装。
+  - `src/manifest.ts`：`listEntries()` 改为一次 `scanEntryLinks(manifest.skills)` 后按 manifest 顺序装配；`getUpdateStatus` 是纯内存读取，保持在装配点原位。
+  - `src/cli/commands/list.ts`：默认表格路径的逐 entry `isEntryEnabled` 换用单次扫描结果；`present` 列的目录 `stat` 语义不动（链接归属不能证明目录在场，两者不互替）；`--names` 仍走 manifest-only 无扫描路径；`--json` 路径经 `listEntries()` 自动获得同一次归并扫描，schema 与数组顺序不变。
+  - 测试：新增 `test/link-scan.test.ts`（已注册进 `package.json` 显式 test 清单，文件数 51 → 52）。核心验收是差分测试而非特征测试：改动前的逐 entry 实现在测试内原样保留为参照实现（oracle），同一份未改动夹具上对批量桶与单条包装各做一次 `deepStrictEqual`（含顺序与 target 字符串），杜绝「新包装自比新扫描器」的自我比较。夹具覆盖：存活 managed/subdir/external 目标、悬空链接（POSIX 经 `readlink` 恢复并保持归属；Windows 悬空 junction 两版实现一致跳过、不虚构归属，分支由 `DANGLING_LINKS_OBSERVABLE` 显式选择）、skills 根内真实目录与普通文件（含 external entry 目录本身在根内时 `resolved === base` 的旧谓词锐边）、嵌套 parent+subdir 双桶命中、clone 目录缺失（祖先规范化回退）、skills 根缺失（须在 `linkSkill` 建根之前跑，断言扫描不建根）、祖先被 `realpath` 重写（复用 `test/link-canonical.test.ts` 的目录链接手法并断言重写确实发生，平台不可舞台时显式 skip）、20 链接夹具的桶序 = `readdir` 原始顺序、`mapBounded` 反序完成仍按输入序返回且观测并发 `>1`（防空转假证）`且 ≤ 8`（上限常量断言）与拒绝传播/空输入。夹具 home 在动态 import 模块图之前设置，临时目录在 `after()` 清理。
+- **验证方式**：差分测试 `test/link-scan.test.ts`：新旧实现对同一 fixture 逐 entry 深度相等；`list --json` 输出不变（由既有 `test/list.test.ts` 的 `--json` 契约断言继续钉住）。回归护栏 `test/link.test.ts`、`test/link-canonical.test.ts`、`test/list.test.ts`、`test/cli-plugin-parity.test.ts` 全绿。实测（Windows 25H2 / Node 24）：`typecheck` / `lint`（0 error，仍只有原有 2 条 unused-disable warning）/ `test:build` / `build` 均 exit 0，`lib/` 漂移仅 `link`、`manifest`、`cli/commands/list` 三组并随本条提交；`npm test` 850 项（847 通过 / 3 跳过 / 0 失败，跳过项为 bash / zsh / fish 补全实跑），总数由基线 840 增 10。变异探针：把装配改成「首个命中即分桶」→ 嵌套双桶用例转红（`actual: []` vs `expected: [nested-inner]`），探针后已还原。本条目是调用计数归并（估 \(1+2N+2NL\) → \(N+2+2L\)），墙钟前后 T1/T2 实测数字待 P3 测量步骤补记。
+- **不做**：不动 HTTP 路由的链接装饰（stat/preview 属 P3 候选，须实测归因后才裁决）；不改 `entryLinks` 签名、归属语义与冲突/移除保护；不为扫描结果建跨请求缓存；不新增 flag、命令或 README 改动。
+
 **2026-10-30 · Added · 面板 L1 来源组头支持折叠成员列表**
 
 - **背景**：面板按 L1 来源（`groupPath[0]`）分组，但成员列表一直全量展开。一次 `link` 可以产出十几条到几十条条目（历史实测：`link qoder` 17 条、真机 CN 根 19 条），组多了就得长距离滚动才能看到下一个组的开关。折叠本身不改变任何条目状态，是视图需求而非运维需求，因此做成组件内状态、不持久化。

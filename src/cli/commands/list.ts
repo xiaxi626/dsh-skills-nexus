@@ -2,7 +2,7 @@ import { listEntries, readManifest } from '../../manifest.js'
 import { REPOS_DIR, OFFICIAL_SKILLS_DIR } from '../../paths.js'
 import { entrySkillDir } from '../../external.js'
 import { stat } from 'node:fs/promises'
-import { isEntryEnabled } from '../../link.js'
+import { scanEntryLinks } from '../../link.js'
 import { cliIO } from '../../ops-io.js'
 import type { OpsIO } from '../../ops-io.js'
 import { parseListArgs } from '../args.js'
@@ -85,6 +85,11 @@ export async function list(argv: string[], io: OpsIO = cliIO): Promise<number> {
   }
 
   const rows: string[][] = []
+  // One batched link scan for the whole table (P1), replacing a full
+  // per-entry rescan inside `isEntryEnabled`. The `present` stat below stays
+  // per-entry on purpose: link attribution says nothing about the directory
+  // being on disk, so it is not mergeable into the scan.
+  const linksByEntry = await scanEntryLinks(skills)
   for (const s of skills) {
     const dir = entrySkillDir(s)
     let present = 'missing'
@@ -95,7 +100,7 @@ export async function list(argv: string[], io: OpsIO = cliIO): Promise<number> {
       present = 'missing'
     }
 
-    const linked = await isEntryEnabled(s)
+    const linked = (linksByEntry.get(s.name) ?? []).length > 0
     const state = linked ? 'on ' : 'off'
 
     rows.push([

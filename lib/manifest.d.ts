@@ -81,6 +81,12 @@ export interface ListedEntry {
  * Read the manifest and merge each entry's derived state (§6.3) — the thin
  * core behind `GET /skills-nexus/list`. Read-only: nothing is persisted, and
  * a missing/corrupt manifest degrades to an empty list like `readManifest`.
+ *
+ * One batched `scanEntryLinks` pass replaces the per-entry scans (P1): the
+ * root used to be re-read and every link re-resolved once per entry, which
+ * made this call O(N·L) filesystem work for N entries and L links. Output
+ * still follows manifest order, and `getUpdateStatus` — a pure in-memory
+ * cache read, not FS work — stays at the assembly point.
  */
 export declare function listEntries(): Promise<ListedEntry[]>;
 //# sourceMappingURL=manifest.d.ts.map
