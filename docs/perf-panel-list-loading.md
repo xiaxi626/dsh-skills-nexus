@@ -381,7 +381,7 @@ while doing P1 or P2.
 | Item | Reason for separation | Execution or revisit condition |
 |---|---|---|
 | `checkUpdates` remote checks | Network `ls-remote` concurrency is separate from local list FS work | An already included independent step: use a pool of 3–5, preserve manifest result order, and inject an executor to test both the concurrency ceiling and ordering. Do not add a new per-candidate authorization or independent measurement prerequisite |
-| CLI command imports on demand | Startup module loading is separate from warm list-route latency | Compare at least 20 cold starts before and after using an empty manifest and `node lib/cli/index.js list`; skip and record if benefit is insignificant. Revisit when cold-start evidence shows material command-loading cost |
+| CLI command imports on demand | Startup module loading is separate from warm list-route latency | **Done (P4-2).** Measured on Windows 25H2 / Node v24.19.0 against an isolated empty home, `node lib/cli/index.js list` cold start over two independent passes of 3 warmup + 20 `spawnSync` samples: static imports median 130.86 / 129.23 ms (p95 136.13 / 141.82), bare-node floor ≈ 55 ms, lazy dispatcher median 97.42 / 101.80 ms (p95 102.96 / 105.55). The ≈30 ms of unselected command-module load (≈23% of the cold start; distributions cleanly separated at old min 124.46 vs new max 108.25) exceeded the observable-increment threshold, so it was implemented rather than skipped. Revisit if a future change reintroduces static command imports |
 
 The current dispatcher imports **15 command modules plus one usage module = 16**;
 its separate `cliIO` import brings the top-level total to **17**. This is not
