@@ -3,8 +3,10 @@
 > [中文](perf-panel-list-loading.zh-CN.md) | **English**
 
 Status: design boundaries for future implementation, not an implementation or
-verification report. No timing measurements are available. P1, P2 and P3 below
-name the scan, client and measurement phases defined in this document.
+verification report. Step 4's P3 measurement has landed — see "Measurement log
+and disposition" in Section 4 for the wall-clock and attribution numbers, and
+the disposition column in Section 5 for each P3 candidate's verdict. P1, P2 and
+P3 below name the scan, client and measurement phases defined in this document.
 
 The goal is to reduce repeated filesystem work and avoid redundant panel list
 requests without changing link attribution, list output or group-state semantics.
@@ -269,7 +271,91 @@ Low benefit is a valid reason to record every candidate without implementing any
 of them. The later P3 measurement log and P1 verification addendum must contain
 actual before/after T1/T2 median and p95, attribution, and the disposition of each
 candidate. They are future evidence, not additional artifacts to create during
-this documentation-only step. There are no measurements to fill in yet.
+this documentation-only step.
+
+### Measurement log and disposition
+
+Step 4's measurement pass produced the following numbers on the synthetic fixture
+defined in "Reproducible measurement boundaries". Runtime and platform: Windows
+25H2 (win32 10.0.26200) / Node v24.19.0 / tsx 4.23.12. Fixture: N = 10 managed
+entries, L = 50 junction links under `repos/perf-eXX/skills/eXX-sK`, each target
+root carrying a valid-frontmatter `SKILL.md`. Sampling: 3 warmups + 20 samples,
+median / p95, two independent runs reported side by side.
+
+| Boundary | Run 1 median/p95 (ms) | Run 2 median/p95 (ms) |
+|---|---|---|
+| manifest-only (guardrail) | 0.18 / 0.35 | 0.19 / 0.25 |
+| T1 old (per-entry scan, oracle) | 185.31 / 212.45 | 174.29 / 196.26 |
+| T1 current (`listEntries`) | 8.93 / 9.42 | 7.20 / 8.80 |
+| T2 old (reference scan + decoration) | 200.26 / 220.04 | 166.76 / 174.20 |
+| T2 current (complete handler) | 12.61 / 14.35 | 12.39 / 14.13 |
+
+P1 wall-clock speedup: T1 ≈ 20.8× / 24.2×, T2 ≈ 15.9× / 13.5×. In the old T2
+about 90% of the time is the repeated scan. **Net decoration cost after P1**
+(T2 − T1, guardrail subtracted, normalized against the net T2): **3.68–5.19 ms,
+or 29.6–42.5% of net T2** — the trigger condition for the "record every
+candidate without implementing" branch (Section 4's closing paragraph) did not
+fire on this synthetic population.
+
+CPU attribution (30 s budget per path; sampled frames are not FS-call counters):
+
+- **T1** (3434 rounds / 20760 frames) self: idle 82.5%, fs-native 8.5%
+  (`realpath` 8.2%), (program) 3.7%, scan(app) 2.6%, node-internal 2.4%.
+- **T2** (2495 rounds / 20825 frames) self: idle 66.3%, fs-native 11.4%
+  (including decoration's `stat(link.target)` at 3.3%), decor(app+yaml) 7.6%
+  (yaml `.next` 2.0%, `locateSkillFiles` 0.6% — the root-SKILL.md early return
+  is confirmed by measurement), (program) 6.8%, node-internal 5.6%, scan(app)
+  1.5%, route-shell 0.4%.
+- `realpath` is the largest non-idle category on both paths (once per scanned
+  link plus base-path normalization in the scan).
+
+Real `~/.dsh` group measured separately and read-only. Manifest pre-flight was
+valid (35 B, `entries = 0`), the skills root enumerated 0 names, and the
+`.corrupt-…` backup path was confirmed not to fire. T1 median = 0.10 / p95 =
+0.14 ms; T2 median = 0.15 / p95 = 0.21 ms (n = 20 + 3 warmups). Before/after
+snapshots (directory listing, manifest size:mtime) were bit-for-bit unchanged.
+Honestly labelled: at the time of this log the real population sits at N = 0 /
+L = 0 — an unloaded floor latency, not a substitute for the synthetic
+population in the disposition reasoning below.
+
+All numbers come from real runs; no measurement was blocked or unavailable.
+Temporary scripts, logs and fixtures were removed afterwards and verified
+absent.
+
+Per-candidate disposition against this evidence (mirrors the Section 5 table):
+
+1. **Failed-stat preview skip** — recorded, not implemented. The synthetic
+   fixture has 50 live targets and the real home is empty, so the failure path
+   carried no measured attribution. `locateSkillFiles` already returns `[]`
+   promptly for a missing target (the root `SKILL.md` `isFile` fails, `readdir`
+   fails), so the saving is bounded to two failing FS calls that are already
+   cheap. Reopen per Section 5's condition.
+2. **Reuse P1 canonical target** — recorded, not implemented (already realized
+   by P1 rule 5). Direct read of `listRoute`: `stat(link.target)` and
+   `linkSkillName(link.target, ...)` consume the canonical string `scanEntryLinks`
+   produced; a `grep` for `realpath`/`resolveLinkTarget`/`safeRealPath` in the
+   decoration body returns nothing. There is no avoidable duplicate resolution
+   to demonstrate.
+3. **Bound decoration concurrency** — **implemented**. Net T2 − T1 attributed
+   cost is well above the "low benefit" threshold; `listRoute` now wraps both
+   nesting levels in `mapBounded(..., LINK_SCAN_CONCURRENCY)` (8) — the same
+   primitive `scanEntryLinks` uses, so no second concurrency constant is
+   introduced. Order and failure-path semantics are pinned by the existing
+   list tests plus a new order-preservation test with 10 entries and 9 links
+   on the first entry, which exceeds the ceiling at both nesting levels.
+   Post-P3 T2 accounting is deferred to the final accounting step.
+4. **Single-file locator/name path** — recorded, not implemented. Root
+   `SKILL.md` early return already exists in `src/locator.ts:32-35` and was
+   confirmed by the profile (`locateSkillFiles` self-time 0.6%, yaml `.next`
+   2.0%); all 50 fixture targets hit the fast path. A parallel single-file
+   name path would re-implement discovery priority (root/SKILL.md vs.
+   subdir/SKILL.md vs. flat .md) and carries more drift risk than measured
+   benefit.
+5. **Deduplicate name work by physical target within one request** — recorded,
+   not implemented. Step 4 fixture had 50 independent targets (no repeated
+   physical target) and the real home had L = 0. The Section 5 condition
+   ("Measured repeated-target cost and differential alias/fallback coverage")
+   has no supporting evidence at this time.
 
 ## 5. Known non-work — three disposition tiers
 
@@ -279,13 +365,13 @@ substitutes; they do not turn every nearby opportunity into implementation scope
 
 ### Conditional P3 adjuncts
 
-| Item | Why not automatic work | Condition to open or revisit |
-|---|---|---|
-| Failed-stat preview skip | May save only an error-path cost and can alter fallback behavior | Significant measured attribution and matching failure-path semantics |
-| P1 target reuse in decoration | Avoidable duplicate resolution must be demonstrated, not assumed | Evidence of redundant work and unchanged canonical-target behavior |
-| Request-local physical-target name deduplication | Independent targets gain nothing; aliases have different fallbacks | Measured repeated-target cost and differential alias/fallback coverage |
-| Decoration pool of 8 | Scheduling changes need not improve latency on every filesystem | Significant attributed cost plus boundedness and ordering evidence |
-| Single-file locator/name path | Root-file early return already exists; duplicated discovery rules are risky | Remaining measured discovery cost and passing layout/name differential tests |
+| Item | Why not automatic work | Condition to open or revisit | Disposition after Step 4 |
+|---|---|---|---|
+| Failed-stat preview skip | May save only an error-path cost and can alter fallback behavior | Significant measured attribution and matching failure-path semantics | Recorded, not implemented (no measured failure-path attribution; `locateSkillFiles` already returns `[]` fast on a missing target) |
+| P1 target reuse in decoration | Avoidable duplicate resolution must be demonstrated, not assumed | Evidence of redundant work and unchanged canonical-target behavior | Recorded, not implemented (already realized by P1 rule 5; `listRoute` reads `link.target` directly and issues no `realpath`/`resolveLinkTarget` during decoration) |
+| Request-local physical-target name deduplication | Independent targets gain nothing; aliases have different fallbacks | Measured repeated-target cost and differential alias/fallback coverage | Recorded, not implemented (fixture had 50 independent targets; real home L = 0) |
+| Decoration pool of 8 | Scheduling changes need not improve latency on every filesystem | Significant attributed cost plus boundedness and ordering evidence | **Implemented** — `listRoute` now uses `mapBounded(..., LINK_SCAN_CONCURRENCY)` at both nesting levels; order preserved by the pool's indexed assembly and pinned by a new route-level test |
+| Single-file locator/name path | Root-file early return already exists; duplicated discovery rules are risky | Remaining measured discovery cost and passing layout/name differential tests | Recorded, not implemented (fast path confirmed by profile; parallel path would re-implement discovery priority) |
 
 These are the candidates from P3, not permission to implement them incidentally
 while doing P1 or P2.
