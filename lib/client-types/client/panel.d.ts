@@ -121,8 +121,17 @@ interface SourceGroupProps {
  *
  * Folding is a view state. The group switch and `remove group` stay in the
  * header whatever the members do, because both act on the whole group — a
- * folded group is still togglable and still removable, and the count in the
- * label keeps reporting every member.
+ * folded group is still togglable and still removable, and a folded count
+ * still reports the whole group; under an active filter the group is derived
+ * from `visibleEntries`, so the count reports the matches instead.
+ *
+ * The name and the count are carried by the `.groupName` span, not by the
+ * switch. The real primitives' `Switch` writes `label` into `aria-label` only
+ * and never produces visible text, so leaning on it left the header showing no
+ * group name at all — the test stub forwards `label` as an attribute, which
+ * reads like proof of visibility but is not. The span is `aria-hidden` because
+ * the switch already owns the accessible name; announcing both would read the
+ * same group twice.
  */
 export declare function SourceGroup({ l1Name, entries, groupEnabled, groupMixed, collapsed, foldDisabled, onToggleCollapsed, onToggleGroup, onRemoveGroup, renderEntry, }: SourceGroupProps): ReactElement;
 //# sourceMappingURL=panel.d.ts.map

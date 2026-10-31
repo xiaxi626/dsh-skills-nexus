@@ -45,6 +45,12 @@ function nullStub() {
 export const Button = stub('button', { passProps: true })
 export const Input = stub('input', { passProps: true })
 export const Checkbox = stub('input', { passProps: true })
+/**
+ * Forwarded props are *not* evidence of visibility: the real `Switch` writes
+ * `label` into `aria-label` only and renders no text, so a `label="…"`
+ * assertion here proves the accessible name and nothing else. Whether a header
+ * shows anything on screen can only be judged by the real-host smoke test.
+ */
 export const Switch = stub('input', { passProps: true })
 export const Pill = stub('span')
 export const Tag = stub('span')

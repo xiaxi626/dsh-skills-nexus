@@ -368,10 +368,10 @@ const groupMembers: ListEntry[] = [
  * assertion is about *whether* the member list renders, not about the card, and
  * a full `EntryCard` fixture would only say more about `EntryCard`.
  */
-function group(opts: { collapsed?: boolean; foldDisabled?: boolean } = {}): string {
+function group(opts: { collapsed?: boolean; foldDisabled?: boolean; l1Name?: string } = {}): string {
   return renderToStaticMarkup(
     createElement(SourceGroup, {
-      l1Name: 'trae-cn',
+      l1Name: opts.l1Name ?? 'trae-cn',
       entries: groupMembers,
       groupEnabled: true,
       groupMixed: false,
@@ -435,6 +435,31 @@ test('folding changes no group action: same label, same remove scope', () => {
   const switchLabel = /<input[^>]*\slabel="([^"]*)"/
   assert.equal(open.match(switchLabel)?.[1], closed.match(switchLabel)?.[1])
   assert.equal(closed.match(switchLabel)?.[1], '✓ trae-cn (2)')
+})
+
+/*
+ * The header's *visible* text. These assertions exist because the switch label
+ * above is not one: the real `Switch` only writes it into `aria-label`, so the
+ * stub's `label="…"` attribute proved an accessible name and nothing about
+ * what a sighted user sees. `.groupName` is that visible carrier. The class
+ * name is asserted literally because `test/register-css.mjs` returns the
+ * property name, not a hash.
+ */
+
+test('the group header shows a visible name and count', () => {
+  assert.match(group(), /<span class="groupName" aria-hidden="true">Trae CN · 2<\/span>/)
+})
+
+test('a collapsed group keeps the visible name and count in the header', () => {
+  // Folding drops the members, never the header: the name and count are the
+  // remaining cue to which group this row is and how much it holds.
+  assert.match(group({ collapsed: true }), /<span class="groupName" aria-hidden="true">Trae CN · 2<\/span>/)
+})
+
+test('a custom group name falls back to the raw L1 label', () => {
+  // `--group my-group` names a group no source owns; there is no display label
+  // to prefer, so the raw L1 name is the honest one.
+  assert.match(group({ l1Name: 'my-group' }), /<span class="groupName" aria-hidden="true">my-group · 2<\/span>/)
 })
 
 /* ------------------------------------------------------------------ */

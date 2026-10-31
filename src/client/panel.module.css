@@ -55,6 +55,20 @@
 }
 
 /*
+ * The visible group name and count. `flex: 1 1 auto` gives it the header's
+ * leftover width so `remove group` stays pinned right, and `min-width: 0` is
+ * what makes it shrinkable at all — a flex item defaults to `min-width: auto`
+ * and would push the button out of the header instead of ellipsizing.
+ */
+.groupName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/*
  * The group fold control. It is a bare `<button>` — the primitives have no
  * chevron-only icon button — so it is styled from tokens only, and the 24px box
  * sits beside the header's `sm` button (28px) without a border, centred by

@@ -254,6 +254,11 @@ const LINK_SOURCES = [
   { id: 'antigravity', label: 'Antigravity',  enabled: false },
 ] as const
 
+/** 组头可见名：来源 id 命中 LINK_SOURCES 用展示 label；--group 自定义名回退原样。 */
+function groupDisplayName(l1Name: string): string {
+  return LINK_SOURCES.find((s) => s.id === l1Name)?.label ?? l1Name
+}
+
 /**
  * The panel. `api` is injectable for tests; production builds bind the global
  * fetch. The instance MUST be render-stable: a per-render `createApi()` default
@@ -1488,8 +1493,17 @@ interface SourceGroupProps {
  *
  * Folding is a view state. The group switch and `remove group` stay in the
  * header whatever the members do, because both act on the whole group — a
- * folded group is still togglable and still removable, and the count in the
- * label keeps reporting every member.
+ * folded group is still togglable and still removable, and a folded count
+ * still reports the whole group; under an active filter the group is derived
+ * from `visibleEntries`, so the count reports the matches instead.
+ *
+ * The name and the count are carried by the `.groupName` span, not by the
+ * switch. The real primitives' `Switch` writes `label` into `aria-label` only
+ * and never produces visible text, so leaning on it left the header showing no
+ * group name at all — the test stub forwards `label` as an attribute, which
+ * reads like proof of visibility but is not. The span is `aria-hidden` because
+ * the switch already owns the accessible name; announcing both would read the
+ * same group twice.
  */
 export function SourceGroup({
   l1Name,
@@ -1527,6 +1541,7 @@ export function SourceGroup({
             </button>
           </span>
         </Tooltip>
+        <span className={css.groupName} aria-hidden="true">{groupDisplayName(l1Name)} · {count}</span>
         <Switch
           checked={groupEnabled}
           onChange={onToggleGroup}
