@@ -353,7 +353,7 @@ export declare class PollTimeoutError extends Error {
     constructor(job: Job);
 }
 export interface PollOptions {
-    /** Interval between polls (default 1000ms). */
+    /** Steady-state interval between polls, after the two early backoff steps (default 1000ms). */
     intervalMs?: number;
     /** Give up polling after this long (default 10 minutes). */
     maxWaitMs?: number;
@@ -367,12 +367,29 @@ export interface PollOptions {
  * job; throws `PollTimeoutError` (carrying the last snapshot) past the
  * deadline — the job itself keeps running server-side and can still be
  * cancelled or found by a later poll.
+ *
+ * The first request goes out immediately, so an already-settled job never
+ * waits; only a still-running first answer pays the 200/400ms backoff steps,
+ * after which polling holds at `intervalMs`. The deadline budget, the
+ * cancellation and error return, and the timeout throw are untouched — this
+ * moves *when* we look, never *what we do* about what we saw.
  */
 export declare function pollJob(api: NexusApi, id: string, opts?: PollOptions): Promise<Job>;
+/**
+ * The full reconciliation snapshot: both fields the list response carries.
+ * Reuses the existing `ListEntry` and `GroupState` definitions rather than
+ * creating a second shape with different field meanings — the panel needs
+ * groupStates to keep its switches in sync without a redundant list call.
+ */
+export type ReconcileResult = {
+    entries: ListEntry[];
+    groupStates: GroupState[];
+};
 /** `reconcileList` gave up before the list reflected the mutation. */
 export declare class ReconcileTimeoutError extends Error {
     readonly entries: ListEntry[];
-    constructor(entries: ListEntry[]);
+    readonly groupStates: GroupState[];
+    constructor(entries: ListEntry[], groupStates: GroupState[]);
 }
 export interface ReconcileOptions {
     /** Interval between polls (default 250ms). */
@@ -381,15 +398,20 @@ export interface ReconcileOptions {
     timeoutMs?: number;
     /** Injectable sleep — tests resolve immediately. */
     sleep?: (ms: number) => Promise<void>;
-    /** Called after every poll that did not yet satisfy `until`. */
-    onTick?: (entries: ListEntry[]) => void;
+    /** Called after every poll that did not yet satisfy `until`, with the full snapshot. */
+    onTick?: (result: ReconcileResult) => void;
 }
 /**
  * §11 reconciliation for a `hotReload: 'pending'` mutation: poll `list` until
  * `until` accepts the snapshot — i.e. the link change the host watcher is
- * about to confirm is visible. Resolves the accepted snapshot; throws
- * `ReconcileTimeoutError` (carrying the last snapshot) past the deadline —
- * the caller downgrades to a manual-refresh hint.
+ * about to confirm is visible. Resolves the full snapshot (both entries and
+ * groupStates from the same response); throws `ReconcileTimeoutError`
+ * (carrying both fields of the last response) past the deadline — the caller
+ * downgrades to a manual-refresh hint.
+ *
+ * The groupStates are carried alongside entries so that the panel's success,
+ * tick, and timeout paths can update both state variables from one snapshot,
+ * eliminating the redundant `api.list()` call that was previously needed.
  */
-export declare function reconcileList(api: NexusApi, until: (entries: ListEntry[]) => boolean, opts?: ReconcileOptions): Promise<ListEntry[]>;
+export declare function reconcileList(api: NexusApi, until: (entries: ListEntry[]) => boolean, opts?: ReconcileOptions): Promise<ReconcileResult>;
 //# sourceMappingURL=api.d.ts.map

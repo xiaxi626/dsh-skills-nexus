@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SkillEntry } from '../src/types.js'
+import type { OpsIO } from '../src/ops-io.js'
 import { DANGLING_LINKS_OBSERVABLE, removeTree } from './fs-helpers.js'
 
 /**
@@ -274,4 +275,95 @@ test('findOrphanLinks ignores symlinks pointing outside repos/', async () => {
   } finally {
     await rm(outside, { recursive: true, force: true })
   }
+})
+
+/* ------------------------------------------------------------------ */
+/* checkUpdates — bounded pool: order + concurrency ceiling            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The pool contract for `checkUpdates` (P4-1): per-entry remote checks now run
+ * through `mapBounded` at `UPDATE_CHECK_CONCURRENCY` instead of a serial
+ * `for … await`. Two things must hold that a serial loop gave for free:
+ *   - the result array still tracks manifest order even when lanes finish out
+ *     of order (index-assembly, same guarantee as the link scanner);
+ *   - no more than `UPDATE_CHECK_CONCURRENCY` checks are ever in flight, so a
+ *     big batch never fans out into that many simultaneous `git ls-remote`
+ *     child processes / network connections.
+ *
+ * Both are only observable by injecting the per-entry worker (the git/network
+ * named imports cannot be patched), so these go through the `checkEntry` seam
+ * with a fake executor rather than real clones — `test/update-pipeline.test.ts`
+ * already owns the real-git six-state matrix.
+ */
+
+/** One macrotask turn — enough to let the pool advance a lane. */
+const tick = (): Promise<void> => new Promise((r) => process.nextTick(r))
+
+/** A quiet OpsIO: the fake executor never reports, so nothing is asserted on it. */
+const quietIO: OpsIO = {
+  confirm: async () => false,
+  progress: () => {},
+  emit: () => {},
+  error: () => {},
+  interactive: false,
+}
+
+/** Seed a manifest of `n` git-sourced entries named `upd-00 … upd-(n-1)`. */
+async function seedManifest(count: number): Promise<string[]> {
+  await mkdir(paths.NEXUS_HOME, { recursive: true })
+  const names = Array.from({ length: count }, (_, i) => `upd-${String(i).padStart(2, '0')}`)
+  const skills = names.map((name) => makeEntry(name, name))
+  await writeFile(paths.MANIFEST_PATH, JSON.stringify({ version: 1, skills }), 'utf8')
+  return names
+}
+
+test('checkUpdates keeps manifest order even when the bounded pool finishes out of order', async () => {
+  const names = await seedManifest(10)
+  const visited: string[] = []
+
+  // The per-entry delay shrinks with the index, so the first item started is
+  // the last to finish — the exact interleave an index-assembled pool must
+  // survive. A completion-ordered array would come back reversed here.
+  const results = await health.checkUpdates(undefined, quietIO, async (e, _io) => {
+    visited.push(e.name)
+    const index = names.indexOf(e.name)
+    for (let k = names.length - index; k > 0; k--) await tick()
+    return { name: e.name, status: 'current' as const }
+  })
+
+  assert.deepEqual(visited.slice().sort(), [...names].sort(), 'every manifest entry was visited')
+  assert.deepEqual(
+    results.map((r) => r.name),
+    names,
+    'results track manifest order, not completion order',
+  )
+})
+
+test('checkUpdates holds at most UPDATE_CHECK_CONCURRENCY checks in flight', async () => {
+  assert.equal(health.UPDATE_CHECK_CONCURRENCY, 4, 'the network pool ceiling is the constant 4')
+  const count = 10
+  assert.ok(
+    count > health.UPDATE_CHECK_CONCURRENCY,
+    'the batch must exceed the ceiling or the bound proves nothing',
+  )
+
+  await seedManifest(count)
+  let active = 0
+  let peak = 0
+  await health.checkUpdates(undefined, quietIO, async (e, _io) => {
+    active++
+    peak = Math.max(peak, active)
+    // Hold the lane long enough that a pool without a real ceiling would let
+    // all 10 overlap; several ticks keep the increment/decrement honest.
+    for (let k = 0; k < 3; k++) await tick()
+    active--
+    return { name: e.name, status: 'current' as const }
+  })
+
+  assert.ok(peak > 1, 'the pool actually ran concurrently — a serial run proves nothing')
+  assert.ok(
+    peak <= health.UPDATE_CHECK_CONCURRENCY,
+    `observed ${peak} in flight exceeds the ceiling ${health.UPDATE_CHECK_CONCURRENCY}`,
+  )
 })

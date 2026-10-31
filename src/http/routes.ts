@@ -57,7 +57,7 @@ import { NEXUS_HOME } from '../paths.js'
 import { entrySkillDir } from '../external.js'
 import { findEntry, hasEntry, hasGitSource, isExternalEntry, listEntries, readManifest } from '../manifest.js'
 import type { ListedEntry } from '../manifest.js'
-import { entryLinks, hasCollision, linkSkill, unlinkSkill } from '../link.js'
+import { entryLinks, hasCollision, linkSkill, unlinkSkill, mapBounded, LINK_SCAN_CONCURRENCY } from '../link.js'
 import { removeSkill } from '../remove.js'
 import { previewSkills } from '../resolve.js'
 import { updateEntry } from '../update.js'
@@ -322,53 +322,65 @@ async function ping(_req: RouteRequest, res: RouteResponse): Promise<void> {
   )
 }
 
-/** §7.2: entries with enabled 反推, per-link state and the runtime update cache. */
+/**
+ * §7.2: entries with enabled 反推, per-link state and the runtime update cache.
+ *
+ * Decoration work (target `stat` + frontmatter-name preview) is scheduled
+ * through the shared bounded pool (`mapBounded` at `LINK_SCAN_CONCURRENCY`)
+ * at both nesting levels — outer over entries, inner over an entry's links —
+ * so one list request keeps at most `LINK_SCAN_CONCURRENCY` link-decorations
+ * in flight per entry lane rather than firing the whole root concurrently at
+ * the filesystem. `mapBounded` assembles results by input index (see the
+ * `scanEntryLinks` rule 5 commentary and `test/link-scan.test.ts`), so the
+ * swap from an unbounded `Promise.all` preserves *both* the entry order
+ * (manifest order, from `listEntries`) and the per-entry link order (the
+ * readdir-derived bucket order the P1 scan produced). Failure semantics are
+ * untouched: each worker still swallows its own `stat`/`previewSkills` errors
+ * and falls back to `enabled: false` / the link name, so a single bad link
+ * cannot abort the request.
+ */
 async function listRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
   if (!requireMethod(req, res, 'GET')) return
   const listed = await listEntries()
-  const entries = await Promise.all(
-    listed.map(async (l) => ({
-      name: l.entry.name,
-      url: l.entry.url,
-      ref: l.entry.ref,
-      subdir: l.entry.subdir ?? null,
-      commit: l.entry.commit ?? null,
-      ...(l.entry.locked === true ? { locked: true } : {}),
-      // The update/switch buttons are gated on the same predicate the routes
-      // themselves use (`400 not-a-git-clone`), so the panel cannot disagree
-      // with the server about what is updatable.
-      hasGitSource: hasGitSource(l.entry),
-      // Whether nexus owns the directory this entry exposes. An `external`
-      // entry only *links* a directory the user owns: `remove` deletes the
-      // links and the manifest entry but never that directory, and `adopt`
-      // refuses it. The panel cannot tell "no source yet" from "not ours to
-      // re-source" without this, and the two need different wording and
-      // different actions — so it is a response field, not a client guess.
-      ownership: isExternalEntry(l.entry) ? ('external' as const) : ('managed' as const),
-      enabled: l.enabled,
-      links: await Promise.all(
-        l.links.map(async (link) => {
-          let enabled = true
-          try {
-            enabled = (await stat(link.target)).isDirectory()
-          } catch {
-            enabled = false
-          }
-          return {
-            linkName: link.name,
-            skillName: await linkSkillName(link.target, link.name),
-            enabled,
-          }
-        }),
-      ),
-      update: l.update,
-      // External entries from the link channel carry a hierarchical group
-      // path; managed entries do not. The panel uses this for grouped
-      // rendering and for the group-level Switch derivation.
-      ...(l.entry.groupPath !== undefined ? { groupPath: l.entry.groupPath } : {}),
-      ...(l.entry.externalDir !== undefined ? { externalDir: l.entry.externalDir } : {}),
-    })),
-  )
+  const entries = await mapBounded(listed, LINK_SCAN_CONCURRENCY, async (l) => ({
+    name: l.entry.name,
+    url: l.entry.url,
+    ref: l.entry.ref,
+    subdir: l.entry.subdir ?? null,
+    commit: l.entry.commit ?? null,
+    ...(l.entry.locked === true ? { locked: true } : {}),
+    // The update/switch buttons are gated on the same predicate the routes
+    // themselves use (`400 not-a-git-clone`), so the panel cannot disagree
+    // with the server about what is updatable.
+    hasGitSource: hasGitSource(l.entry),
+    // Whether nexus owns the directory this entry exposes. An `external`
+    // entry only *links* a directory the user owns: `remove` deletes the
+    // links and the manifest entry but never that directory, and `adopt`
+    // refuses it. The panel cannot tell "no source yet" from "not ours to
+    // re-source" without this, and the two need different wording and
+    // different actions — so it is a response field, not a client guess.
+    ownership: isExternalEntry(l.entry) ? ('external' as const) : ('managed' as const),
+    enabled: l.enabled,
+    links: await mapBounded(l.links, LINK_SCAN_CONCURRENCY, async (link) => {
+      let enabled = true
+      try {
+        enabled = (await stat(link.target)).isDirectory()
+      } catch {
+        enabled = false
+      }
+      return {
+        linkName: link.name,
+        skillName: await linkSkillName(link.target, link.name),
+        enabled,
+      }
+    }),
+    update: l.update,
+    // External entries from the link channel carry a hierarchical group
+    // path; managed entries do not. The panel uses this for grouped
+    // rendering and for the group-level Switch derivation.
+    ...(l.entry.groupPath !== undefined ? { groupPath: l.entry.groupPath } : {}),
+    ...(l.entry.externalDir !== undefined ? { externalDir: l.entry.externalDir } : {}),
+  }))
   // Derive group states from the entries: for each distinct L1 group prefix
   // found in `groupPath`, report whether all/on/off/mixed its members are.
   const groupStates = deriveGroupStates(listed)

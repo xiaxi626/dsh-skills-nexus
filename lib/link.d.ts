@@ -70,6 +70,61 @@ export declare function readLinkEntryTarget(path: string): Promise<string | unde
 /** True when `path` is a link rather than a real directory or file. */
 export declare function isLinkAt(path: string): Promise<boolean>;
 /**
+ * Concurrency ceiling for the merged link scan (`scanEntryLinks`).
+ *
+ * The scan fans out per-link `readlink`/`realpath` work; unbounded fan-out
+ * would trade one filesystem pressure (N repeated sequential passes) for
+ * another (L simultaneous requests, each of which Windows may run through
+ * Defender's real-time scan). Eight keeps a root with tens of links down to
+ * a handful of round trips while bounding the handles held open at once.
+ * Exported so the test suite can assert the ceiling the scanner is built on.
+ */
+export declare const LINK_SCAN_CONCURRENCY = 8;
+/**
+ * Run `worker` over `items` with at most `limit` results in flight, and
+ * return the results **in input order** — never in completion order.
+ *
+ * Each lane pulls the next index from a shared cursor (safe: the increment
+ * is synchronous between awaits), so a lane that finishes late cannot push
+ * its neighbours around in the output array. `scanEntryLinks` relies on
+ * exactly this: buckets are assembled by walking the indexed results, which
+ * is what keeps the original `readdir` order (equivalence rule 5) regardless
+ * of how the workers interleave.
+ *
+ * Exported for unit-testing the concurrency ceiling and the order guarantee
+ * — production callers go through `scanEntryLinks`, and observing that
+ * `LINK_SCAN_CONCURRENCY` is really honoured needs a seam where the test
+ * supplies the worker (there is no supported way to patch the FS named
+ * imports `link.ts` already bound).
+ */
+export declare function mapBounded<T, R>(items: readonly T[], limit: number, worker: (item: T, index: number) => Promise<R>): Promise<R[]>;
+/**
+ * Scan the official skills root **once** and attribute every link to every
+ * entry whose base contains its resolved target — the batched sibling of
+ * `entryLinks`, keeping its five equivalence rules exactly:
+ *
+ *   1. each entry's `entrySkillDir` base is canonicalized once (`safeRealPath`,
+ *      bounded — the same ancestor-recovery walk the per-entry scan used);
+ *   2. one `readdir` of the root, and any failure (including a missing root)
+ *      leaves every supplied entry with an empty bucket, bit-for-bit what the
+ *      per-entry scan's own `catch` returned;
+ *   3. one `readLinkEntryTarget` per root name — the POSIX dangling-symlink
+ *      `readlink` fallback is preserved, and an `undefined` target is skipped
+ *      without guessing ownership; reads run through `mapBounded` at
+ *      `LINK_SCAN_CONCURRENCY`;
+ *   4. one `safeRealPath` per recovered target, compared against **all**
+ *      bases in memory: a link under a subdir base also lands in its parent
+ *      repo's bucket — first-match partitioning would change §6.4 attribution;
+ *   5. buckets keep the raw `readdir` order (indexed assembly, not worker
+ *      completion order) and `target` stays the canonical string, so
+ *      `list --json` is byte-identical.
+ *
+ * Keyed by entry management name; every supplied entry gets a bucket, empty
+ * when nothing points into it (the manifest's name-uniqueness contract
+ * holds, so one key per entry is well-defined).
+ */
+export declare function scanEntryLinks(entries: SkillEntry[]): Promise<Map<string, EntryLink[]>>;
+/**
  * All links in the official skills root whose target resolves inside the
  * entry's clone (or one of its subdirs) — the entry-to-link one-to-many
  * relation (section 6.4).
@@ -81,6 +136,11 @@ export declare function isLinkAt(path: string): Promise<boolean>;
  * linked — breaking `list`, the `disable` early-return, and the default
  * `update` target filter. Scanning targets works for single- and multi-skill
  * repos alike and does not require the clone to be present.
+ *
+ * Thin single-entry wrapper over `scanEntryLinks`: the write paths
+ * (toggle/remove/update/adopt) keep calling it per entry with unchanged
+ * semantics; only the read paths that scan the whole manifest batch through
+ * the scanner.
  */
 export declare function entryLinks(entry: SkillEntry): Promise<EntryLink[]>;
 /**

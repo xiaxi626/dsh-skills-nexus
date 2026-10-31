@@ -317,6 +317,50 @@ test('list reports ownership external for a --link-only entry', async () => {
   assert.equal(entries[0]!.hasGitSource, false, 'an external entry never has a git source')
 })
 
+test('list preserves entry and link order once the bounded decoration pool engages', async () => {
+  // The list route's decoration swap (candidate P3-3) replaces the two
+  // unbounded `Promise.all` calls with `mapBounded(..., LINK_SCAN_CONCURRENCY)`
+  // at both nesting levels. `mapBounded` is already tested in
+  // `test/link-scan.test.ts` for its input-order assembly and 8-item
+  // ceiling; what still has to be pinned at the *route* level is that the
+  // swap leaves the response *entry* array in manifest order and each
+  // entry's *links* array in the P1 bucket order (which itself is raw
+  // `readdir` order) even when both exceed the pool ceiling. A regression
+  // to completion-order assembly would show up here as a permutation.
+  await clearEntries()
+  const entryNames: string[] = []
+  for (let i = 0; i < 10; i++) {
+    // 10 entries: outer pool engages (10 > 8).
+    const name = `pool-entry-${String(i).padStart(2, '0')}`
+    entryNames.push(name)
+    const dir = await seedClone(name)
+    // First entry gets 9 links so the inner pool exceeds the ceiling too
+    // (9 > 8); the others stay single-linked, matching a typical root-
+    // layout skill repo.
+    const linkCount = i === 0 ? 9 : 1
+    for (let k = 0; k < linkCount; k++) {
+      const sub = k === 0 ? dir : join(dir, `alias-${k}`)
+      if (k > 0) {
+        await mkdir(sub, { recursive: true })
+        await writeFile(join(sub, 'SKILL.md'), skillMd(`${name}-alias-${k}`), 'utf8')
+      }
+      await link.linkSkill(`${name}-l${String(k).padStart(2, '0')}`, sub)
+    }
+  }
+  const res = await call('/skills-nexus/list')
+  assert.equal(res.status, 200)
+  const { entries } = dataOf<{
+    entries: Array<{ name: string; links: Array<{ linkName: string }> }>
+  }>(res)
+  assert.deepEqual(entries.map((e) => e.name), entryNames, 'entries follow manifest order')
+  // Bucket order = raw `readdir` filtered to this entry's prefix; compare
+  // against a fresh readdir to catch any accidental sort by link name.
+  const rootNames = await readdir(paths.OFFICIAL_SKILLS_DIR)
+  const expected = rootNames.filter((n) => n.startsWith('pool-entry-00-l'))
+  assert.ok(expected.length > link.LINK_SCAN_CONCURRENCY, `fixture must exceed the pool ceiling, saw ${expected.length}`)
+  assert.deepEqual(entries[0]!.links.map((l) => l.linkName), expected, 'links follow readdir bucket order')
+})
+
 /* ------------------------------------------------------------------ */
 /* GET /doctor                                                         */
 /* ------------------------------------------------------------------ */
