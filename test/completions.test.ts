@@ -226,6 +226,48 @@ test('every template offers exactly the subcommands the CLI routes', async () =>
   assert.deepEqual(powershellSubcommands(powershellTemplate), routed)
 })
 
+test('dispatcher loads command modules lazily, never as a top-level import (P4-2)', async () => {
+  // `src/cli/index.ts` is an executable module (importing it runs main), so the
+  // only observable surface of its lazy-import structure is its source — the
+  // same reason the subcommand guard above scrapes the `case` labels. Per-command
+  // behavior stays pinned by the `cli-*.test.ts` suites; this guards the shape
+  // that P4-2 was added to create, so a re-added static import fails loudly.
+  let src: string
+  try {
+    src = await readFile(new URL('../src/cli/index.ts', import.meta.url), 'utf8')
+  } catch {
+    return // `test-dist/` has no `.ts` to read; the shape guard needs source
+  }
+  // A `list` run must not pull the other command graphs onto the cold path, so
+  // no command module may be a top-level static import.
+  assert.doesNotMatch(
+    src,
+    /^import[^\n]*from '\.\/commands\//m,
+    'command modules must not be statically imported by the dispatcher',
+  )
+  // usage.js pulls the external registry and is only reached on the help/default
+  // arms, so it too stays off the top level.
+  assert.doesNotMatch(
+    src,
+    /^import \{ printHelp \} from '\.\/usage\.js'/m,
+    'usage must not be statically imported by the dispatcher',
+  )
+  // Every routed command is reached through a dynamic import() inside its case;
+  // the set of specifiers is exactly the fifteen command modules (toggle.js
+  // serves both enable and disable).
+  const dynamic = new Set(
+    [...src.matchAll(/import\('\.\/commands\/([a-z-]+)\.js'\)/g)].map((m) => m[1]),
+  )
+  assert.deepEqual(
+    [...dynamic].sort(),
+    [
+      'add', 'adopt', 'completions', 'diff', 'doctor', 'export', 'import',
+      'link', 'list', 'purge', 'remove', 'rollback', 'switch-version', 'toggle', 'update',
+    ],
+    'each command module should be loaded via a dynamic import() in the dispatcher',
+  )
+})
+
 test('templates carry the flags each command accepts', () => {
   for (const t of TEMPLATES) {
     for (const flag of ['--name', '--ref', '--subdir', '--yes', '--names', '--json', '--stat', '--updates', '--quiet', '--shell', '--locked']) {

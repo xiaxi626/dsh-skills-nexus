@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+**2026-10-31 · Changed · CLI dispatcher 改为按需动态 import 命令模块，冷启动减约 30ms（P4-2）**
+
+- **背景**：`src/cli/index.ts` 顶部对 15 个命令模块与 `./usage.js` 作静态 `import`，每个命令又各自带一份传递图（git / install / zip / health / external…）。`list` 是面板刷新路径驱动、且调用最频的子命令，却在冷启动时把其余十四个命令的模块图一并读入。设计文档第五节「独立提交项」把「CLI 命令按需 import」列为需先量后做的候选（前置：空 manifest 下 `node lib/cli/index.js list` 前后各至少 20 次冷启动对比）。测量（Windows 25H2 / Node v24.19.0；`DSH_HOME` 与 `DSH_SKILLS_NEXUS_HOME` 指向只含空 skills/skills-nexus 的隔离 home，manifest 缺失走 `No skills registered` 早退、不触发 `.corrupt` 备份写；每次 `spawnSync` 一个全新进程，3 warmup + 20 采样，median/p95，两次独立跑，另测裸 `node -p 0` 作运行时地板）：静态 import median 130.86 / 129.23 ms、p95 136.13 / 141.82 ms；裸 node 地板 median ≈ 55 ms；未选中的命令模块与其传递图≈ 30 ms，占整段冷启动约 23%、占「非运行时」自有模块加载段（≈ 75 ms）约 40%。新旧分布干净分离（旧 min 124.46 vs 新 max 108.25），远超「可观测增量」噪声阈，故实施。
+- **变更**：
+  - `src/cli/index.ts`：15 个命令模块与 `./usage.js` 的静态 import 全部移进 dispatcher 各自的 `case` 分支、改为 `await import(...)`，一次运行只加载所路由命令模块；始终需要的 `cliIO`（OpsIO 半）保持顶层静态 import（懒它只搬运成本、不消除）。help/未知命令两臂共用一个 `showHelp` 局部动态加载 `./usage.js`。`case '<名>':` 标签逐字保留（`test/completions.test.ts` 靠 scrape 这些标签比对四类补全模板），`args` 解析、`--help` 文本、补全脚本与 0/1/2 退出码语义零改动，不新增 flag、不改命令签名。
+  - 测试：`test/completions.test.ts` 新增一条「dispatcher loads command modules lazily, never as a top-level import」源形断言：`src/cli/index.ts` 不得再出现 `import … from './commands/'` 静态命令行，且 15 个命令模块恰以动态 `import('./commands/<x>.js')` 出现（toggle.js 同时服务 enable/disable）。index.ts 是可执行模块、无法被测试 import，故只能像既有 case-label 守卫那样 scrape 源码；逐命令行为仍由既有 `cli-*.test.ts` 钉住；断言在 `test-dist/`（无 `.ts` 可读）自跳过，沿用既有同源约定。不新建测试文件，无 `package.json` test 清单注册义务。
+- **验证方式**：`npm run build` 后 `lib/` 漂移仅 `cli/index.js`、`cli/index.js.map` 两件（index 无导出，`.d.ts`/`.d.ts.map` 不变）。实施后的真实 `lib/cli/index.js` 复测同一口径：median 97.42 / 101.80 ms、p95 102.96 / 105.55 ms——与一次性 prototype（`node_modules/.perf-step8/lazy-index.mjs`，逐字复刻拟议 dispatcher、测毕即删）的 97.50 / 100.13 ms 吻合，确认收益来自实现而非 prototype 差异。全量门禁：`typecheck` / `lint`（0 error，仍只有原有 2 条 unused-disable warning）/ `test:build` / `build` 均 exit 0；`npm test` 861 项（858 通过 / 3 跳过（bash/zsh/fish 补全实跑）/ 0 失败），总数由上提交增 1（新增 dispatcher 源形断言一条）。本步不触及 `src/client/`，`build:client` 非必需。测量脚本与隔离 home 均在 `%LOCALAPPDATA%\dsh-perf-step8` 与 gitignored `node_modules/.perf-step8` 下，测毕删除并验证不存在。
+- **不做**：不懒 `cliIO`（见上）；不重构 `ops-io.ts` / `usage.ts` 内部；不引入命令模块预取或 warm cache；不改 help 文本、补全脚本、退出码或参数解析；不在本轮处理 `checkUpdates` 并发（属 P4-1，其发射顺序回归由同日 `Fixed` 条目单独修）；不新增 flag、命令或 README 改动。
+
 **2026-10-31 · Fixed · `checkUpdates` 并发化后遗留的进度行发射顺序断言（同日 P4-1 回归）**
 
 - **背景**：同日上一条 P4-1 把 `src/health.ts` 的 `checkUpdates` 由逐 entry 串行 `for … await` 改为常量 4 有界池 `mapBounded`。结果数组顺序由 `mapBounded` 按输入索引装配、恒等于 manifest 顺序，仍由 `test/update-pipeline.test.ts` 中 `deepStrictEqual(results, …)` 与同文件「keeps manifest order」用例钉住；但 `checkEntryUpdate` 进入网络比较时经 `io.progress('checking updates', name)` 打印的进度行是在各 worker 里即时发射的，池化后三条进度行的到达次序不再确定。该文件对 `io.stages` 的断言仍按 manifest 序写死——单文件隔离跑稳定通过、全量并行负载下间歇转红（一次实测把 `unresolved-skill` 挤到第二位），属 P4-1 自身门禁未复现到的加载态 flaky，不是 CLI 侧改动引入。
