@@ -114,6 +114,23 @@ export interface UpdateCheck {
     remote?: string;
 }
 /**
+ * Concurrency ceiling for `checkUpdates`' per-entry remote comparison.
+ *
+ * Deliberately NOT the link-scan ceiling (`LINK_SCAN_CONCURRENCY = 8`): that
+ * pool bounds cheap filesystem `readlink`/`realpath` calls, whereas every
+ * entry here shells out a fresh `git ls-remote` child process *and* opens an
+ * outbound network round trip. Running eight of those at once would hold eight
+ * `git` processes and eight simultaneous remote connections for the whole
+ * batch — heavy on a laptop and on the git host, with no throughput to show
+ * for it because the work is I/O-bound on the network, not CPU-bound. Four
+ * saturates a typical manifest's parallelism (most manifests are smaller) and
+ * keeps the process/connection footprint modest; it is also a distinct number
+ * from the scan pool so a reader never conflates the two very different costs.
+ * Exported so the test suite can assert the ceiling `checkUpdates` is built
+ * on, exactly as `LINK_SCAN_CONCURRENCY` is for the scanner.
+ */
+export declare const UPDATE_CHECK_CONCURRENCY = 4;
+/**
  * Compare manifest entries against their remotes (network) and record every
  * comparison in the runtime update cache (§5.2) — nothing is written to disk.
  * Extracted from `doctor --updates` so the plugin's check-updates route can
@@ -123,6 +140,22 @@ export interface UpdateCheck {
  * nothing); omitted checks every manifest entry, in manifest order. The
  * returned array covers exactly the entries that were visited.
  *
+ * The per-entry checks run through the shared bounded pool (`mapBounded` at
+ * `UPDATE_CHECK_CONCURRENCY`) rather than a serial `for … await`, so a
+ * network-slow entry no longer stalls the whole batch behind it. `mapBounded`
+ * assembles by input index, so the result order still mirrors manifest order
+ * (identical to the old serial push) regardless of how the lanes interleave,
+ * and each entry's own local→network sequence inside `checkEntryUpdate`
+ * (`stat` presence, `isDetachedHead`, then `lsRemoteCommit`) is untouched —
+ * only the *between-entry* scheduling changed.
+ *
+ * `checkEntry` is an injectable seam for the concurrency/order contract: the
+ * pool is only observable if the test can supply the per-entry worker (there
+ * is no supported way to patch the git/network named imports `health.ts` and
+ * `git.ts` already bound). It defaults to `checkEntryUpdate`, so the two-arg
+ * CLI and HTTP call sites run the exact same code — the seam is not a public
+ * knob, only a testable one.
+ *
  * Cache writes mirror the list route's `update` object (§7.2):
  *   - `behind-remote` / `current` → `{ hasUpdate, latestCommit: remote }`
  *   - `unresolved`                → `{ hasUpdate: false, latestCommit: null }`
@@ -131,5 +164,5 @@ export interface UpdateCheck {
  *
  * Never throws: every filesystem/git failure degrades to a status.
  */
-export declare function checkUpdates(names?: string[], io?: OpsIO): Promise<UpdateCheck[]>;
+export declare function checkUpdates(names?: string[], io?: OpsIO, checkEntry?: (entry: SkillEntry, io: OpsIO) => Promise<UpdateCheck>): Promise<UpdateCheck[]>;
 //# sourceMappingURL=health.d.ts.map
