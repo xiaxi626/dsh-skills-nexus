@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-01
+
 **2026-10-31 · Fixed · 面板 L1 来源组头显示组名与计数（可见文本）**
 
 - **背景**：面板按 L1 来源分组的组头此前只有折叠按钮、组开关与 `remove group`——组名与成员数从未真正可见。根因是组名只经 `Switch` 的 `label` 传入，而真实 primitives 的 `Switch` 把 `label` 写进 `aria-label`、不产生任何可见文本；`test/panel-render.test.tsx` 的 `Switch` 桩件（`test/primitives-stub.mjs`）把 props 原样透传到 `<input>`，于是 `<input label="✓ trae-cn (2)">` 这条断言看起来像「标签渲染出来了」，实际只钉住可访问名称，属可见性的伪证——旧用例结构上不可能发现该缺陷。本条把根因同时写入源码注释与桩件注释，防止后续再据此误判。
