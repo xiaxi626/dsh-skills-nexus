@@ -218,6 +218,22 @@ DSH filesystem provider 按项目 rank 扫描 `<projectRoot>/.dsh/skills`，**�
 **查看器 + 链接管理器**：填入**任意文件夹**（不必是已登记的 DSH 工作区），它会展示该
 文件夹自身提供的技能，以及 `<projectRoot>/.dsh/skills` 下的条目。
 
+CLI 用的是同一套根，但没有任何隐式上下文：`--project` 是**模式开关**（不接值），
+`--project-root <dir>` 选项目根；`link` 里 `--project` 后面的位置参数是**来源目录**。
+不在项目内时，显式给根：
+
+```bash
+# 从任意目录查看某个项目文件夹
+dsh-skills-nexus list --project --project-root <project-root>
+
+# 把一个来源目录链进该项目（先预览）
+dsh-skills-nexus link --project <source-dir> --project-root <project-root> --dry-run
+```
+
+例如 Windows 下 `list --project --project-root D:\theme-port-skill` 查看该文件夹；
+  `link` 时 `<source-dir>` 是你要链入的技能目录，`<project-root>` 是项目。cwd 已在
+  项目内（或想用最近的 `.git` 祖先）时，短形式可用：
+
 ```bash
 dsh-skills-nexus link    --project /path/to/my-skill     # 链接一个技能目录
 dsh-skills-nexus link    --project /path/to/collection   # 每个发现的技能一条链接
@@ -229,13 +245,29 @@ dsh-skills-nexus remove  --project my-skill              # 只删链接
 dsh-skills-nexus doctor  --project                       # 悬空的项目链接
 ```
 
+`list --project` 输出两段。`NAME` 是解析后的 frontmatter 名；`ENTRY` 是文件系统条目
+（破坏性命令使用的链接名）：
+
+```text
+Folder skills (<project-root>):
+  my-skill  linkable  <description>
+
+Project skills root (<project-root>/.dsh/skills):
+KIND   NAME      ENTRY     TARGET  DESCRIPTION
+files  my-skill  SKILL.md  —       <description>
+```
+
 - **根解析。** 只给 `--project` 时，从当前目录向上找最近含 `.git` 的祖先（找不到回退
   当前目录），与 provider 规则一致。`--project-root <path>` 显式指定，必须与
   `--project` 同时出现；显式根写错会直接报错，不会猜测兜底。
+- **`list --all` 特殊。** 它用 cwd 检测项目根并与全局 manifest 合并，没有
+  `--project-root` 形态；请在项目内运行。
 - **名字。** DSH 目录里的技能名来自 `SKILL.md` 的 frontmatter；链接的**条目名**是
   nexus 的文件系统键，优先取目录名（目录名不含可用 ASCII 字符时回退 frontmatter 名）。
   项目页签展示解析后的名称与描述，不会只显示 `SKILL.md`。布局：根 `SKILL.md` → 文件夹
-  名；一级子目录 → 各子目录；扁平 `.md` → 文件主干。
+  名；一级子目录 → 各子目录；扁平 `.md` → 文件主干。两者可能不同，因此表格分别打印
+  `NAME` 与 `ENTRY`；`enable` / `disable` / `remove --project` 使用 **ENTRY**
+  （文件系统链接名），不是解析后的 `NAME`。
 - **不写 manifest、不复制、不改 skill 文件。** 项目作用域从不写 `manifest.json`、不克隆、
   不复制、不编辑任何 `SKILL.md`。`.dsh/skills` 下的真实目录/文件只读展示，不提供删除。
   `remove --project` 只删被证实的链接，遇到用户内容会以 `refusing to remove user files`
@@ -269,8 +301,9 @@ dsh-skills-nexus doctor  --project                       # 悬空的项目链接
 取值型选项（`--name`、`--ref`、`--subdir`、`--source-dir`）也支持 `--flag=value` 写法（如 `--subdir=skills/foo`、`--name=owner-skills`）；布尔选项 `--yes` 不接受值。
 
 给脚本用时，`--json` 可把 `add`、`list`、`update`、`remove`、`enable`、`disable`、`purge`
-以及项目形态 `list --project` / `link --project` / `remove --project`
-变成机器接口：stdout 只输出一份 version 1 报告、诊断走 stderr，退出码语义不变
+以及项目形态 `list --project` / `link --project` / `enable|disable --project` /
+`remove --project` 变成机器接口：stdout 只输出一份 version 1 报告、诊断走 stderr，
+退出码语义不变
 （`0` 成功 / `1` 有错误或部分失败 / `2` 用法错误）。报告描述的是「刚才做了什么」
 ——安装落在哪个 commit、更新的 before→after、批量里哪个名字没找到：
 

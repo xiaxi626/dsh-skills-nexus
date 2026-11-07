@@ -275,8 +275,26 @@ point it at **any folder** (it does not have to be a registered DSH workspace)
 and it shows the skills the folder itself provides, plus the entries under
 `<projectRoot>/.dsh/skills`.
 
+The CLI uses the same two roots, but nothing is implicit: `--project` is a
+**mode flag** (it takes no value), `--project-root <dir>` selects the project,
+and for `link` the positional value after `--project` is the **source**
+directory. From outside the project, pass the explicit root:
+
 ```bash
-dsh-skills-nexus link    --project /path/to/my-skill     # link one skill directory
+# inspect any folder, even when cwd is somewhere else
+dsh-skills-nexus list --project --project-root <project-root>
+
+# link a source directory into that project (preview first)
+dsh-skills-nexus link --project <source-dir> --project-root <project-root> --dry-run
+```
+
+For example, on Windows `list --project --project-root D:\theme-port-skill`
+inspects that folder; for `link`, `<source-dir>` is the skill directory you want
+to link and `<project-root>` is the project. When cwd is already inside the
+project (or you want the nearest `.git` ancestor), the short forms work:
+
+```bash
+dsh-skills-nexus link    --project /path/to/my-skill     # source directory
 dsh-skills-nexus link    --project /path/to/collection   # one link per discovered skill
 dsh-skills-nexus list    --project                       # folder skills + project entries
 dsh-skills-nexus list    --all                           # project + global, overrides/shadowed
@@ -286,17 +304,36 @@ dsh-skills-nexus remove  --project my-skill              # removes the link only
 dsh-skills-nexus doctor  --project                       # dangling project links
 ```
 
+`list --project` prints two sections. `NAME` is the parsed frontmatter name;
+`ENTRY` is the filesystem entry (the link name used by the destructive
+commands):
+
+```text
+Folder skills (<project-root>):
+  my-skill  linkable  <description>
+
+Project skills root (<project-root>/.dsh/skills):
+KIND   NAME      ENTRY     TARGET  DESCRIPTION
+files  my-skill  SKILL.md  —       <description>
+```
+
 - **Root resolution.** `--project` alone uses the nearest ancestor of the
   current directory that contains `.git` (falling back to the current
   directory), the same rule the provider uses. `--project-root <path>` names it
   explicitly and must accompany `--project`; a bad explicit root is an error
   instead of a guessed fallback.
+- **`list --all` is special.** It joins the project detected from cwd with the
+  global manifest, so it has no `--project-root` form; run it from inside the
+  project.
 - **Names.** DSH's catalog name comes from the `SKILL.md` frontmatter; the link
   **entry name** is nexus's filesystem key, derived from the directory (with the
   frontmatter name as fallback for a non-ASCII directory). The project tab shows
   the parsed name and description, so a row is never just `SKILL.md`. Layouts:
   root `SKILL.md` → the folder's name; one-level subdirectories → each
-  subdirectory; flat `.md` → the file stem.
+  subdirectory; flat `.md` → the file stem. Because the two can differ, the
+  table prints `NAME` and `ENTRY` separately: `enable`, `disable` and
+  `remove --project` take the **ENTRY** (the filesystem link name), not the
+  parsed `NAME`.
 - **No manifest, no copies, no file edits.** Project scope never writes
   `manifest.json`, never clones or copies, and never edits a `SKILL.md`. Real
   directories and files under `.dsh/skills` are shown read-only with no remove
@@ -338,7 +375,8 @@ Value options (`--name`, `--ref`, `--subdir`, `--source-dir`) also accept the `-
 
 For scripts, `--json` turns any of `add`, `list`, `update`, `remove`, `enable`,
 `disable`, and the project forms `list --project` / `link --project` /
-`remove --project` into a machine interface: a version-1 report on stdout and
+`enable|disable --project` / `remove --project` into a machine interface: a
+version-1 report on stdout and
 nothing else, diagnostics on stderr, and the same exit codes (`0` ok / `1`
 error or partial failure / `2` usage error). A report tells you what the
 operation *did* — the commit an install landed on, the before→after pair of an
