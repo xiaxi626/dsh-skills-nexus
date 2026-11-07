@@ -163,6 +163,17 @@ export declare function isEntryEnabled(entry: SkillEntry): Promise<boolean>;
  */
 export declare function linkSkill(skillName: string, targetDir: string): Promise<void>;
 /**
+ * Create a link at an arbitrary path pointing to `targetDir` — the
+ * directory-parameterized form of `linkSkill`, used by project-scope links
+ * under `<project>/.dsh/skills/`.
+ *
+ * The replacement contract is `linkSkill`'s, unchanged: an existing link at
+ * the same path (ours, stale, or dangling) and a plain file are removed first;
+ * a populated real directory is left in place, so `symlink` fails with
+ * `EEXIST` instead of deleting content the user put there.
+ */
+export declare function linkAt(linkPath: string, targetDir: string): Promise<void>;
+/**
  * Remove a skill's link from the official skills root.
  *
  * A real directory the user placed there is left alone — see `isLinkEntry` for
@@ -170,6 +181,15 @@ export declare function linkSkill(skillName: string, targetDir: string): Promise
  * function's whole safety argument is "a real directory is never a link".
  */
 export declare function unlinkSkill(skillName: string): Promise<void>;
+/**
+ * Remove the link at `linkPath` when one is there, and only then.
+ *
+ * Returns true iff a link was removed. A missing path, or a real directory or
+ * file the user placed there, leaves the filesystem untouched and returns
+ * false — the rejection semantics of `removeLinkEntry`, exposed without
+ * letting callers reach that primitive directly.
+ */
+export declare function unlinkAt(linkPath: string): Promise<boolean>;
 /**
  * Remove the link at `linkPath` when its resolved target lies inside `dir` (or
  * equals it) — the section 6.4 target-attribution unlink. Returns true iff a
@@ -190,8 +210,9 @@ export declare function unlinkIfPointsInto(linkPath: string, dir: string): Promi
  * `readlink`.
  */
 export declare function readLinkTarget(skillName: string): Promise<string | undefined>;
-/** Check whether the official skills root has a non-link directory/file that
- *  would collide with a new skill name. Returns true if a collision exists
- *  (i.e. a real directory or file, not a nexus-managed link). */
-export declare function hasCollision(skillName: string): Promise<boolean>;
+/** Check whether a skills root has a non-link directory/file that would
+ *  collide with a new skill name. Defaults to the official root; project-scope
+ *  callers pass their own root. Returns true if a collision exists (i.e. a real
+ *  directory or file, not a nexus-managed link). */
+export declare function hasCollision(skillName: string, dir?: string): Promise<boolean>;
 //# sourceMappingURL=link.d.ts.map

@@ -33,6 +33,14 @@ export declare function repoDir(path: string): string;
 /** Absolute path of a skill's symlink in the official root. */
 export declare function skillLinkPath(name: string): string;
 /**
+ * Project-scope skills directory: `<projectRoot>/.dsh/skills`.
+ *
+ * The DSH filesystem provider scans this path at rank 100, ahead of the
+ * user-level root this module's other constants describe, so a link placed
+ * here shadows a global skill of the same name without any registration step.
+ */
+export declare function projectSkillsDir(projectRoot: string): string;
+/**
  * The directory a link path actually resolves to — the one way nexus reads a
  * link's target.
  *

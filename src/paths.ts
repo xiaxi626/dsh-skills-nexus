@@ -51,6 +51,17 @@ export function skillLinkPath(name: string): string {
 }
 
 /**
+ * Project-scope skills directory: `<projectRoot>/.dsh/skills`.
+ *
+ * The DSH filesystem provider scans this path at rank 100, ahead of the
+ * user-level root this module's other constants describe, so a link placed
+ * here shadows a global skill of the same name without any registration step.
+ */
+export function projectSkillsDir(projectRoot: string): string {
+  return join(projectRoot, '.dsh', 'skills')
+}
+
+/**
  * The directory a link path actually resolves to — the one way nexus reads a
  * link's target.
  *
