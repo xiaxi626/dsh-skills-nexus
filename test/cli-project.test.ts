@@ -2,9 +2,9 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdir, mkdtemp, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DANGLING_LINKS_OBSERVABLE, removeTree } from './fs-helpers.js'
 
@@ -84,7 +84,7 @@ test('list --project detects the project root from cwd', async () => {
   const project = await makeProject('detect')
   const result = await runCli(['list', '--project'], project)
   assert.equal(result.code, 0, result.stderr)
-  assert.match(result.stdout, /No project skills in .*\.dsh[\\/]skills/)
+  assert.match(result.stdout, /No skills found in .*\.dsh[\\/]skills\./)
 })
 
 test('link -> list -> remove keeps no manifest state and never touches the target', async () => {
@@ -96,12 +96,17 @@ test('link -> list -> remove keeps no manifest state and never touches the targe
   const linkReport = JSON.parse(linked.stdout) as {
     projectRoot: string
     source: string
-    results: Array<{ name: string; status: string }>
+    results: Array<{ name: string; target: string; status: string }>
     summary: Record<string, number>
   }
-  assert.equal(resolve(linkReport.projectRoot), resolve(project))
-  assert.equal(resolve(linkReport.source), resolve(source))
-  assert.deepEqual(linkReport.results, [{ name: 'my-skill', target: resolve(source), status: 'link' }])
+  // Compare canonical paths: macOS reports /private/var/... for a temp path
+  // created under /var, and the report is allowed to canonicalize.
+  assert.equal(await realpath(linkReport.projectRoot), await realpath(project))
+  assert.equal(await realpath(linkReport.source), await realpath(source))
+  assert.equal(linkReport.results.length, 1)
+  assert.equal(linkReport.results[0]!.name, 'my-skill')
+  assert.equal(linkReport.results[0]!.status, 'link')
+  assert.equal(await realpath(linkReport.results[0]!.target), await realpath(source))
   assert.equal(linkReport.summary.linked, 1)
 
   const listed = await runCli(['list', '--project', '--json'], project)

@@ -616,7 +616,7 @@ test('the emitted bash template completes correctly in a real bash', { skip: !HA
       'add-bare-dashes|--name --ref --subdir --yes --json',
       'link-source-dir|--source-dir',
       'link-legacy-dir|--trae-cn-dir',
-      'doctor-bare-dashes|--json --updates --quiet',
+      'doctor-bare-dashes|--json --updates --quiet --project --project-root',
       'shell-bare|bash zsh fish powershell',
       'shell-b|bash',
       'update-skill|alpha beta',
@@ -722,8 +722,8 @@ test('the emitted zsh template completes correctly in a real zsh', { skip: !HAS_
 
     assert.deepEqual(rest, [
       'add-flags|-- --name --ref --subdir --yes --json',
-      'link-flags|-- --dry-run --group --source-dir --trae-cn-dir --force --json',
-      'doctor-bare-dashes|-- --json --updates --quiet',
+      'link-flags|-- --dry-run --group --source-dir --trae-cn-dir --force --json --project --project-root',
+      'doctor-bare-dashes|-- --json --updates --quiet --project --project-root',
       'shell-values|-- bash zsh fish powershell',
       'update-names|alpha beta',
       'rollback-names|alpha beta',
@@ -790,7 +790,11 @@ test('the emitted fish template completes correctly in a real fish', { skip: !HA
       ['link-source-dir', 'dsh-skills-nexus link trae --s', ['--source-dir']],
       ['link-legacy-dir', 'dsh-skills-nexus link trae-cn --trae', ['--trae-cn-dir']],
       ['add-bare-dashes', 'dsh-skills-nexus add --', ['--name', '--ref', '--subdir', '--yes', '--json']],
-      ['doctor-bare-dashes', 'dsh-skills-nexus doctor --', ['--json', '--quiet', '--updates']],
+      [
+        'doctor-bare-dashes',
+        'dsh-skills-nexus doctor --',
+        ['--json', '--project', '--project-root', '--quiet', '--updates'],
+      ],
       ['shell-prefix', 'dsh-skills-nexus completions --shell b', ['bash']],
       ['update-skill', 'dsh-skills-nexus update ', ['alpha', 'beta']],
       ['rollback-skill', 'dsh-skills-nexus rollback ', ['alpha', 'beta']],
