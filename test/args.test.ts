@@ -450,10 +450,11 @@ test('parseListArgs --project-root without a value throws', () => {
   }
 })
 
-test('parseListArgs --all is human-only', () => {
+test('parseListArgs --all is human-only and already covers the project scope', () => {
   assert.equal(parseListArgs(['--all']).all, true)
   assert.throws(() => parseListArgs(['--all', '--json']), /cannot be combined with --names or --json/)
   assert.throws(() => parseListArgs(['--names', '--all']), /cannot be combined with --names or --json/)
+  assert.throws(() => parseListArgs(['--all', '--project']), /already includes the project scope/)
 })
 
 test('parseLinkArgs --project takes a directory positional', () => {
