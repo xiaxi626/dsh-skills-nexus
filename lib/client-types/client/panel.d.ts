@@ -43,7 +43,7 @@
 import type { ReactElement } from 'react';
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives';
 import { matchesQuery } from '../filter.js';
-import type { DoctorReport, Job, ListEntry, NexusApi } from './api.js';
+import type { DoctorReport, Job, ListEntry, NexusApi, ProjectSkillEntry } from './api.js';
 /** Map route errors to one-line user-readable text (codes are the route contract). */
 export declare function errorText(err: unknown): string;
 /**
@@ -72,6 +72,20 @@ export { matchesQuery };
 export declare function NexusPanel({ api: apiProp }: {
     api?: NexusApi;
 }): ReactElement;
+interface ProjectSkillRowProps {
+    entry: ProjectSkillEntry;
+    busy: boolean;
+    onRemove: (entry: ProjectSkillEntry) => void;
+}
+/**
+ * One project-scope row: name, kind/dangling badge, target, and a remove action
+ * **only for links**.
+ *
+ * Exported for the static render test: "a user-files row has no remove action"
+ * is the project scope's safety contract in the UI, and it is pure props →
+ * markup — no request, no mounted effect.
+ */
+export declare function ProjectSkillRow({ entry, busy, onRemove }: ProjectSkillRowProps): ReactElement;
 interface EntryCardProps {
     entry: ListEntry;
     refValue: string;

@@ -62,6 +62,7 @@ import {
   DisclosureRow,
   IconChevronDownOutlineRegular,
   IconChevronRightOutlineRegular,
+  IconFolderOpenOutlineRegular,
   IconLinkOutlineRegular,
   IconPinOutlineRegular,
   IconRefreshOutlineRegular,
@@ -84,11 +85,23 @@ import {
   ReconcileTimeoutError,
   confirmable,
   createApi,
+  isProjectLinkPlan,
   jobConfirmationQuestion,
   pollJob,
   reconcileList,
 } from './api.js'
-import type { DoctorReport, GroupState, HotReload, ImportPlan, Job, LinkPlan, ListEntry, NexusApi } from './api.js'
+import type {
+  DoctorReport,
+  GroupState,
+  HotReload,
+  ImportPlan,
+  Job,
+  LinkPlan,
+  ListEntry,
+  NexusApi,
+  ProjectLinkPlan,
+  ProjectSkillEntry,
+} from './api.js'
 import css from './panel.module.css'
 
 /** Reconciliation for `import`: every entry the plan promised shows up. */
@@ -322,6 +335,22 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   /** The group awaiting a group-level remove decision. */
   const [pendingGroupRemoval, setPendingGroupRemoval] = useState<string | null>(null)
   const [groupRemovalAcknowledged, setGroupRemovalAcknowledged] = useState(false)
+  /**
+   * Project scope: the root is typed, never persisted. The panel has no
+   * workspace service to read it from, and a stored value would silently point
+   * at a different project after the user moves directories.
+   */
+  const [projectOpen, setProjectOpen] = useState(true)
+  const [projectRoot, setProjectRoot] = useState('')
+  const [projectEntries, setProjectEntries] = useState<ProjectSkillEntry[]>([])
+  const [projectError, setProjectError] = useState<string | null>(null)
+  const [projectBusy, setProjectBusy] = useState(false)
+  const [projectLinkDir, setProjectLinkDir] = useState('')
+  const [projectPlan, setProjectPlan] = useState<ProjectLinkPlan | null>(null)
+  const [projectLinkBusy, setProjectLinkBusy] = useState(false)
+  /** The project link awaiting a removal decision. */
+  const [pendingProjectRemoval, setPendingProjectRemoval] = useState<ProjectSkillEntry | null>(null)
+  const [projectRemovalAcknowledged, setProjectRemovalAcknowledged] = useState(false)
   const alive = useRef(true)
 
   useEffect(() => {
@@ -633,6 +662,120 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
         await track(`link ${source}`, env.data, linkedAll(plan))
       } finally {
         setLinkBusy(false)
+      }
+    })
+  }
+
+  /* ---------------- project skills (filesystem, no manifest) ---------------- */
+
+  /**
+   * Refresh the project list. An empty root is not an error and never reaches
+   * the server: this panel has no workspace service to infer one from, so the
+   * user supplies the absolute path (and it is deliberately not persisted).
+   */
+  const refreshProject = useCallback(async (): Promise<void> => {
+    const root = projectRoot.trim()
+    if (root.length === 0) {
+      setProjectEntries([])
+      setProjectError(null)
+      return
+    }
+    setProjectBusy(true)
+    try {
+      const env = await api.projectList(root)
+      if (!alive.current) return
+      setProjectEntries(env.data.entries)
+      setProjectError(null)
+    } catch (err) {
+      if (alive.current) setProjectError(errorText(err))
+    } finally {
+      if (alive.current) setProjectBusy(false)
+    }
+  }, [api, projectRoot])
+
+  /** Track a project-link job, then re-read the project directory. */
+  const trackProjectLink = useCallback(
+    async (label: string, accepted: { jobId: string }): Promise<void> => {
+      try {
+        const settled = await pollJob(api, accepted.jobId, {
+          intervalMs: 500,
+          onTick: (job) => patchJob(job.id, job),
+        })
+        if (!alive.current) return
+        if (settled.status === 'error') {
+          setProjectError(`${label}: ${settled.error ?? 'operation failed'}`)
+        } else if (settled.status === 'cancelled') {
+          setProjectError(`${label}: operation cancelled`)
+        } else {
+          const summary = settled.output.find((line) => line.startsWith('Linked'))
+          setNotice(summary?.trim() ?? `${label}: links created`)
+        }
+        await refreshProject()
+      } catch (err) {
+        if (err instanceof PollTimeoutError) {
+          patchJob(err.job.id, err.job, true)
+          return
+        }
+        setProjectError(errorText(err))
+      }
+    },
+    [api, patchJob, refreshProject],
+  )
+
+  /** Step 1: ask the server what a directory would link (touches nothing). */
+  const onPreviewProjectLink = (): void => {
+    const root = projectRoot.trim()
+    const dir = projectLinkDir.trim()
+    if (root.length === 0 || dir.length === 0) return
+    setProjectPlan(null)
+    void run('project-link', async () => {
+      setProjectLinkBusy(true)
+      try {
+        const env = await api.projectLink(root, dir)
+        if (!alive.current) return
+        if (isProjectLinkPlan(env.data)) setProjectPlan(env.data)
+      } finally {
+        setProjectLinkBusy(false)
+      }
+    })
+  }
+
+  /** Step 2: run the same preview with `confirm`, as a pollable job. */
+  const onLinkProject = (): void => {
+    const plan = projectPlan
+    if (plan === null) return
+    void run('project-link', async () => {
+      setProjectLinkBusy(true)
+      try {
+        const env = await api.projectLink(projectRoot.trim(), plan.source, true)
+        setProjectPlan(null)
+        if ('jobId' in env.data) await trackProjectLink('project link', env.data)
+      } finally {
+        setProjectLinkBusy(false)
+      }
+    })
+  }
+
+  /** Open the project-link removal overlay (only link rows offer it). */
+  const onRemoveProject = (entry: ProjectSkillEntry): void => {
+    setPendingProjectRemoval(entry)
+    setProjectRemovalAcknowledged(false)
+  }
+
+  /** The overlay's confirm: the server still requires `confirm: true`. */
+  const onConfirmProjectRemoval = (): void => {
+    const entry = pendingProjectRemoval
+    if (entry === null) return
+    setPendingProjectRemoval(null)
+    setProjectRemovalAcknowledged(false)
+    void run(entry.name, async () => {
+      setProjectBusy(true)
+      try {
+        await api.projectRemove(projectRoot.trim(), entry.name, true)
+        setNotice(`project link "${entry.name}" removed — its target directory is untouched`)
+        await refreshProject()
+      } finally {
+        setProjectBusy(false)
       }
     })
   }
@@ -1116,6 +1259,140 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
         </div>
       </DisclosureRow>
 
+      {/* ---------------- project skills (filesystem, no manifest) ---------------- */}
+      {/*
+        The project scope the DSH provider scans at rank 100. There is no
+        workspace service in this client context, so the root is an input for
+        the user; it is intentionally not persisted (a remembered absolute path
+        silently targets a different project after the next move).
+      */}
+      <DisclosureRow
+        icon={<IconFolderOpenOutlineRegular />}
+        title="project skills"
+        open={projectOpen}
+        expandable
+        expandOnRowClick
+        onToggle={() => setProjectOpen((v) => !v)}
+        className={css.linkDisclosure}
+        contentClassName={css.linkHeaderContent}
+        contentLayoutClassName={css.linkHeaderInner}
+        collapsedContent={
+          <span className={css.linkHeaderHint}>
+            links under &lt;project&gt;/.dsh/skills
+          </span>
+        }
+        keepContentWhenOpen
+      >
+        <div className={css.linkBody}>
+          <div className={css.formRow}>
+            <label className={css.fieldLabel}>
+              project root
+              <Input
+                type="text"
+                aria-label="project root"
+                placeholder="absolute path, e.g. /home/you/dev/my-project"
+                value={projectRoot}
+                disabled={projectBusy}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                  setProjectRoot(e.target.value)
+                  setProjectEntries([])
+                  setProjectError(null)
+                  setProjectPlan(null)
+                }}
+              />
+            </label>
+            <Button
+              type="button"
+              icon={<IconRefreshOutlineRegular />}
+              onClick={() => void refreshProject()}
+              disabled={projectBusy || projectRoot.trim().length === 0}
+            >
+              {projectBusy ? 'loading…' : 'refresh'}
+            </Button>
+          </div>
+          <p className={css.hint}>
+            the provider scans this directory ahead of the global catalog — nexus
+            never copies, moves or deletes the linked target
+          </p>
+
+          {projectRoot.trim().length === 0 ? (
+            <p className={css.hint}>enter the project root to list its skills</p>
+          ) : projectError !== null ? (
+            <p className={css.error}>{projectError}</p>
+          ) : projectEntries.length === 0 ? (
+            <p className={css.empty}>no project skills yet — link a directory below.</p>
+          ) : (
+            <ul className={css.entries}>
+              {projectEntries.map((entry) => (
+                <li key={entry.name} className={css.entryRow}>
+                  <ProjectSkillRow entry={entry} busy={projectBusy} onRemove={onRemoveProject} />
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className={css.formRow}>
+            <label className={css.fieldLabel}>
+              link a directory
+              <Input
+                type="text"
+                aria-label="project link source directory"
+                placeholder="absolute path to a skill directory or collection"
+                value={projectLinkDir}
+                disabled={projectLinkBusy}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                  setProjectLinkDir(e.target.value)
+                  setProjectPlan(null)
+                }}
+              />
+            </label>
+            <Button
+              type="button"
+              onClick={onPreviewProjectLink}
+              disabled={
+                projectLinkBusy ||
+                projectRoot.trim().length === 0 ||
+                projectLinkDir.trim().length === 0
+              }
+            >
+              preview
+            </Button>
+          </div>
+
+          {projectPlan !== null && (
+            <div className={css.plan}>
+              <p className={css.hint}>
+                {`source: ${projectPlan.source} · ${projectPlan.results.length} skill(s)`}
+              </p>
+              <ul className={css.planList}>
+                {projectPlan.results.map((result) => (
+                  <li key={result.name}>
+                    <strong>{result.name}</strong>
+                    {` — ${result.status}`}
+                    {result.error !== undefined ? ` (${result.error})` : ''}
+                  </li>
+                ))}
+              </ul>
+              <div className={css.entryActions}>
+                <Button
+                  type="button"
+                  variant="primary"
+                  onClick={onLinkProject}
+                  disabled={
+                    projectLinkBusy ||
+                    !projectPlan.results.some(
+                      (result) => result.status === 'link' || result.status === 'replace',
+                    )
+                  }
+                >
+                  link to project
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </DisclosureRow>
+
       {/* ---------------- toolbar ---------------- */}
       <div className={css.toolbar}>
         <span className={css.search}>
@@ -1270,6 +1547,34 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
         }}
         onConfirm={onConfirmGroupRemoval}
       />
+
+      {/*
+        Project-link removal. The consequence is deliberately narrow — only the
+        link is removed and the target directory is never touched — so the
+        acknowledgement says exactly that rather than borrowing the clone
+        wording above.
+      */}
+      <RiskConfirmation
+        open={pendingProjectRemoval !== null}
+        title="remove project link"
+        description={
+          pendingProjectRemoval === null
+            ? ''
+            : `Remove "${pendingProjectRemoval.name}" from ${projectRoot.trim() || 'the project'}? ` +
+              'Only the link is deleted; the directory it points at stays untouched.'
+        }
+        acknowledgeLabel="I understand this removes only the link"
+        cancelLabel="cancel"
+        closeLabel="close"
+        confirmLabel="remove link"
+        acknowledged={projectRemovalAcknowledged}
+        onAcknowledgedChange={setProjectRemovalAcknowledged}
+        onCancel={() => {
+          setPendingProjectRemoval(null)
+          setProjectRemovalAcknowledged(false)
+        }}
+        onConfirm={onConfirmProjectRemoval}
+      />
     </div>
   )
 }
@@ -1277,6 +1582,38 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
 /* ------------------------------------------------------------------ */
 /* Entry row                                                           */
 /* ------------------------------------------------------------------ */
+
+interface ProjectSkillRowProps {
+  entry: ProjectSkillEntry
+  busy: boolean
+  onRemove: (entry: ProjectSkillEntry) => void
+}
+
+/**
+ * One project-scope row: name, kind/dangling badge, target, and a remove action
+ * **only for links**.
+ *
+ * Exported for the static render test: "a user-files row has no remove action"
+ * is the project scope's safety contract in the UI, and it is pure props →
+ * markup — no request, no mounted effect.
+ */
+export function ProjectSkillRow({ entry, busy, onRemove }: ProjectSkillRowProps): ReactElement {
+  return (
+    <div className={css.entryHead}>
+      <span className={css.entryName}>{entry.name}</span>
+      <Tag tone={entry.dangling ? 'warning' : 'neutral'}>
+        {entry.kind === 'link' ? (entry.dangling ? 'dangling' : 'link') : 'user files'}
+      </Tag>
+      <span className={css.entryMeta}>{entry.target ?? '—'}</span>
+      <span className={css.toolbarSpacer} />
+      {entry.kind === 'link' && (
+        <Button type="button" size="sm" onClick={() => onRemove(entry)} disabled={busy}>
+          remove
+        </Button>
+      )}
+    </div>
+  )
+}
 
 interface EntryCardProps {
   entry: ListEntry

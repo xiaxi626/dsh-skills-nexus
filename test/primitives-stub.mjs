@@ -138,6 +138,7 @@ export const IconPinOutlineRegular = stub('svg')
 export const IconSkillOutlineRegular = stub('svg')
 export const IconInfoOutlineRegular = stub('svg')
 export const IconLinkOutlineRegular = stub('svg')
+export const IconFolderOpenOutlineRegular = stub('svg')
 
 /* Utilities a panel might reach for. */
 export const relativeTime = () => ''

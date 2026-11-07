@@ -11,9 +11,9 @@ import assert from 'node:assert/strict'
 import React from 'react'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { EntryCard, NexusPanel, SourceGroup, adoptBackupNotice, entryState, errorText, healthSummary, matchesQuery } from '../src/client/panel.js'
+import { EntryCard, NexusPanel, ProjectSkillRow, SourceGroup, adoptBackupNotice, entryState, errorText, healthSummary, matchesQuery } from '../src/client/panel.js'
 import { ApiError } from '../src/client/api.js'
-import type { Job, ListEntry, NexusApi } from '../src/client/api.js'
+import type { Job, ListEntry, NexusApi, ProjectSkillEntry } from '../src/client/api.js'
 
 /**
  * The panel's rendering contract (§10.3), as far as a *static* render reaches.
@@ -59,6 +59,9 @@ function mountApi(): NexusApi {
     export: notCalled('export'),
     linkPreview: notCalled('linkPreview'),
     linkLocal: notCalled('linkLocal'),
+    projectList: notCalled('projectList'),
+    projectLink: notCalled('projectLink'),
+    projectRemove: notCalled('projectRemove'),
   } as unknown as NexusApi
 }
 
@@ -491,6 +494,46 @@ test('errorText surfaces the export-failed message instead of a bare code', () =
   const bare = errorText(new ApiError(400, 'export-failed'))
   assert.match(bare, /export failed/)
   assert.doesNotMatch(bare, /400 export-failed/)
+})
+
+test('the project skills section offers a root input and a gated link form', () => {
+  const html = renderToStaticMarkup(<NexusPanel api={mountApi()} />)
+  assert.match(html, /project skills/)
+  assert.match(html, /project root/)
+  assert.match(html, /enter the project root to list its skills/)
+  assert.match(html, /aria-label="project link source directory"/)
+  // Nothing can be linked before a preview plan exists.
+  assert.doesNotMatch(html, />link to project</)
+})
+
+test('a project link row offers remove; a user-files row never does', () => {
+  const base: ProjectSkillEntry = {
+    name: 'my-skill',
+    path: '/p/.dsh/skills/my-skill',
+    kind: 'link',
+    target: '/s',
+    dangling: false,
+  }
+  const onRemove = (): void => {}
+
+  const linkHtml = renderToStaticMarkup(
+    <ProjectSkillRow entry={base} busy={false} onRemove={onRemove} />,
+  )
+  assert.match(linkHtml, />remove</)
+  assert.match(linkHtml, />link</)
+  assert.match(linkHtml, /\/s/)
+
+  const filesHtml = renderToStaticMarkup(
+    <ProjectSkillRow entry={{ ...base, kind: 'files', target: null }} busy={false} onRemove={onRemove} />,
+  )
+  assert.doesNotMatch(filesHtml, />remove</)
+  assert.match(filesHtml, /user files/)
+  assert.match(filesHtml, /—/)
+
+  const danglingHtml = renderToStaticMarkup(
+    <ProjectSkillRow entry={{ ...base, dangling: true }} busy={false} onRemove={onRemove} />,
+  )
+  assert.match(danglingHtml, />dangling</)
 })
 
 test('adoptBackupNotice lifts the backup path out of the job output', () => {
