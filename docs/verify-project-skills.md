@@ -166,8 +166,8 @@ Notes on platform behavior:
 
 Requires a DSH **web** host with the plugin mounted (see [Local testing steps](../README.md#local-testing-steps)). Static rendering is covered by the test suite; the checklist below is the UI integration gate.
 
-1. Open **Settings → Skills Nexus**. The page has one section; `project skills` is its own collapsible block below the global list (there are no tabs).
-2. With the project root field empty, the section says `enter the project root to list its skills`, and **no request** is sent.
+1. Open **Settings → Skills Nexus**. The section has two tabs: **Global skills** (the default) and **Project skills**.
+2. Switch to **Project skills**. With the project root field empty, the tab says `enter the project root to list its skills`, and **no request** is sent.
 3. Enter the temporary project's absolute path, press **refresh**. An empty `.dsh/skills` shows `no project skills yet — link a directory below.`
 4. Paste a skill directory path, press **preview**. The plan lists one row per discovered skill with the planned status (`link` / `replace` / `unchanged` / `collision` / `invalid`). Nothing is on disk yet.
 5. Press **link to project**. The job runs and the list refreshes with a `link` badge and the absolute target.

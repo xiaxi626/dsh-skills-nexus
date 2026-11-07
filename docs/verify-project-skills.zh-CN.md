@@ -166,8 +166,8 @@ cleaned
 
 需要挂载了插件的 DSH **web** 宿主（见[本地测试步骤](../README_CN.md#本地测试步骤)）。静态渲染由测试套件覆盖；下面是 UI 集成门禁。
 
-1. 打开**设置 → Skills Nexus**。页面只有一个 section；`project skills` 是全局列表下方的独立折叠块（**没有**选项卡）。
-2. 项目根输入为空时，区块显示 `enter the project root to list its skills`，且**不发请求**。
+1. 打开**设置 → Skills Nexus**。该 section 有两个页签：**全局技能**（默认）与**项目技能**。
+2. 切到**项目技能**页签。项目根输入为空时，页签显示 `enter the project root to list its skills`，且**不发请求**。
 3. 填入临时项目的绝对路径，点 **refresh**。空的 `.dsh/skills` 显示 `no project skills yet — link a directory below.`
 4. 粘贴技能目录路径，点 **preview**。计划为每个发现的技能列一行，带计划状态（`link` / `replace` / `unchanged` / `collision` / `invalid`）。此时磁盘上还没有任何变化。
 5. 点 **link to project**。job 运行，列表刷新出 `link` 徽标与绝对目标。

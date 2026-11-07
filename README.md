@@ -430,6 +430,11 @@ output surface — and its colors follow the host's light/dark theme
 automatically, so it reads as a native part of Settings rather than a
 third-party add-on.
 
+The section is split into two tabs: **Global skills** (the manifest-driven
+lifecycle below) and **Project skills** (one project's filesystem links, with
+its own root input). Both stay mounted, so switching tabs keeps a half-typed
+form and any running job on screen.
+
 From the panel you can:
 
 - browse entry cards — link names, enabled state, pinned commit, status tags
@@ -437,7 +442,7 @@ From the panel you can:
   `update available` badge for branch-tracked entries;
 - preview and link **Trae CN**, **Trae**, **Qoder**, **Qoder CN**, **CodeBuddy** or **WorkBuddy** from the `link local skills` section,
   with an optional server-side source root; changing the root clears the preview;
-- manage **project-scope skills** from the `project skills` section: type a
+- manage **project-scope skills** from the **Project skills** tab: type a
   project root, browse the links under `<project>/.dsh/skills` (a `dangling`
   badge marks a link whose target is gone), preview a directory before
   confirming the link as a job, and remove a link only — a `user files` row has

@@ -310,11 +310,15 @@ dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo --subdir skill
 
 面板使用与 DSH 设置页同源的界面组件——状态点、开关、标签、折叠行、终端输出块等——配色自动跟随宿主的亮/暗主题，看起来就是设置页原生的一部分，而非第三方拼凑的界面。
 
+该段分为两个页签：**全局技能**（下方由 manifest 驱动的完整生命周期）与
+**项目技能**（单个项目的文件系统链接，带自己的项目根输入）。两个面板都常驻，
+切换页签不会丢失填了一半的表单，也不会让进行中的 job 消失。
+
 在面板里你可以：
 
 - 浏览条目卡片——链接名、启用状态、固定的 commit、`no source` / `linked directory` / `disabled` 等状态标签，以及分支跟踪条目的「有更新」徽标；
 - 在 `link local skills` 区选择 **Trae CN**、**Trae**、**Qoder**、**Qoder CN**、**CodeBuddy** 或 **WorkBuddy**，可填写服务端来源根目录，先预览再链接；更改路径会清除旧预览；
-- 在 `project skills` 区管理**项目级技能**：填入项目根，浏览 `<project>/.dsh/skills`
+- 在 **项目技能**页签管理**项目级技能**：填入项目根，浏览 `<project>/.dsh/skills`
   下的链接（目标消失的链接带 `dangling` 徽标），先预览目录再确认建链（job），删除时
   只删链接——`user files` 行没有 remove 按钮。项目根按会话手填、不持久化（该客户端
   上下文只注入 `slots`，没有可读取项目根的 workspace 服务）；
