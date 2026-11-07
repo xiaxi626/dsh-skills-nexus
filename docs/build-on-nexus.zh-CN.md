@@ -91,10 +91,10 @@ nexus 暴露五条机器可读路径。五条都是稳定契约；CLI 的其余�
 
 ## `--json` 写接口（version 1）
 
-六个命令会输出带版本号的报告，描述它们**刚才做了什么**：`list --json`、
+六个生命周期命令会输出带版本号的报告，描述它们**刚才做了什么**：`list --json`、
 `add --json`、`update --json`、`remove --json`、`enable` / `disable --json`，
-以及 `link --json`。
-它们共用一份刻意保持窄小的契约：
+以及 `link --json`。项目作用域另有三种形状（`list --project` / `link --project` /
+`remove --project`，见下文），它们共用同一份刻意保持窄小的契约：
 
 ### 承诺的部分
 
@@ -245,6 +245,65 @@ nexus 暴露五条机器可读路径。五条都是稳定契约；CLI 的其余�
 - `externalDir` 是用户拥有目录的绝对路径。
 - 带 `--dry-run` 时不创建条目；报告显示*将会*发生什么。
 
+### 项目作用域报告
+
+项目作用域是另一套数据集（文件系统链接，无 manifest），因此它用三种独立形状，而不是
+复用 `list --json` / `link --json` / `remove --json`：
+
+`list --project --json`：
+
+```json
+{
+  "version": 1,
+  "projectRoot": "/abs/project",
+  "entries": [
+    { "name": "my-skill", "kind": "link", "target": "/abs/skill", "dangling": false }
+  ]
+}
+```
+
+- `kind` ∈ `link` | `files`。`files` 是用户自己放进
+  `<projectRoot>/.dsh/skills` 的真实内容，nexus 永不删除。
+- `target` 对 `files` 以及目标无法恢复的链接为 `null`；目标缺失或不是目录时
+  `dangling` 为 `true`。
+- `projectRoot` 是解析后的绝对项目根。
+
+`link --project --json`：
+
+```json
+{
+  "version": 1,
+  "projectRoot": "/abs/project",
+  "source": "/abs/source",
+  "results": [
+    { "name": "my-skill", "target": "/abs/source", "status": "link" }
+  ],
+  "summary": { "linked": 1, "replaced": 0, "unchanged": 0, "failed": 0 }
+}
+```
+
+- `status` ∈ `link` | `replace` | `unchanged` | `collision` | `invalid`。
+  `collision` 表示该名字已被真实目录/文件占用（原样保留）；`invalid` 表示推导不出
+  合法的 DSH 名，或目标不可用（例如 Windows 上的 UNC 路径）。两者都携带 `error`。
+- 带 `--dry-run` 时同一份报告描述计划，不写任何东西。
+- `summary.failed` 统计 `collision` / `invalid` / 尝试后失败的项目；非零时退出码
+  为 `1`。
+
+`remove --project --json`：
+
+```json
+{
+  "version": 1,
+  "results": [{ "name": "my-skill", "status": "removed" }],
+  "summary": { "removed": 1, "failed": 0 }
+}
+```
+
+- `status` ∈ `removed` | `not-found` | `not-a-link`。`not-a-link` 是拒绝删除
+  用户内容，携带 `error`；任何未删除项都让退出码为 `1`。
+- `list --all` 没有 JSON 形态：它为人合并项目链接与 manifest 条目，不属于
+  version 1 契约。机器读取请分别使用 `list --json` 与 `list --project --json`。
+
 ### 错误
 
 - **用法错误**（命令拒绝的 argv）：退出 `2`。若调用方要了 `--json`，stderr 输出
@@ -256,6 +315,9 @@ nexus 暴露五条机器可读路径。五条都是稳定契约；CLI 的其余�
 
 明确写清，好让你绝不去依赖 nexus 并未承诺的表面：
 
+- **写命令没有项目形态。** `add`、`import`、`update`、`export`、`enable`、
+  `disable` 不接受 `--project`；项目作用域只有 `list` / `link` / `remove` /
+  `doctor`，且 `remove --project` 只接受精确链接名（不支持通配或整组）。
 - **`export` / `import` / `adopt` / `switch-version` 没有 `--json`。** 它们刻意不在
   version 1 写契约内：`export` / `import` 涉及包格式，`adopt` / `switch-version` 是
   长任务、其结构化状态属于 HTTP job 通道。请用退出码驱动它们，再用 `list --json`

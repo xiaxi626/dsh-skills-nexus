@@ -18,6 +18,7 @@ src/
 │   ├── glob.ts       # remove 的 * / ? 通配展开
 │   ├── progress.ts   # TTY 门控 spinner（add / update）
 │   ├── prompt.ts     # 交互式确认
+│   ├── project-scope.ts # 解析/校验 --project 项目根
 │   └── commands/     # add · list · update · export · import · adopt · switch-version · remove · toggle · link · doctor · completions
 ├── client/           # 浏览器半边——不参与服务端构建，由 build:client 打包
 │   ├── index.tsx     # 模块形态：name / inject / apply（Settings 槽位）
@@ -29,6 +30,8 @@ src/
 ├── switch-version.ts # 切换编排（fetch → checkout → 重归一化 → 重建链接）
 ├── install.ts        # 唯一的 git 安装阶段（克隆 → 分类 → 归一化 → 注册 → 建链），add / import 共用
 ├── external.ts       # 外部条目通道：entrySkillDir / planLinkLocal / linkLocal / discoverTraeCnSkills
+├── project-root.ts   # detectProjectRoot：最近的 .git 祖先（回退 cwd）
+├── project.ts        # 项目作用域：listProjectSkills / plan/applyProjectLink / removeProjectLink / dangling + UNC 守卫
 ├── adopt.ts          # adopt 编排：给无 git 源条目换源（暂存 → 就位 → 重建链接 → 写回 manifest → 回滚）
 ├── export.ts         # 打包条目 + 来源标签（skills/<name>/… + nexus-package.json）
 ├── import.ts         # 从包重建条目：标签远端可达走 git 通道，否则落快照
@@ -68,6 +71,8 @@ symlink。
 >   只读体检：报告状态/code、退出码、`--json` / `--updates` / `--quiet`、孤立对象与损坏 manifest 的处理。
 > - [验证命令补全（P1–P2）](docs/verify-completions.zh-CN.md) ——
 >   bash / zsh / fish / PowerShell 四套模板：各 shell 驱动方式、分层场景、引擎特性。
+> - [验证项目级技能作用域](docs/verify-project-skills.zh-CN.md) ——
+>   `--project` 的 link/list/remove/doctor、合并视图 `--all`、三条 HTTP 路由与面板区块。
 > 每篇均为覆盖 Windows / Linux / macOS 的可直接复制的验证流程。
 
 质量门禁，本地全部可跑：
@@ -97,7 +102,9 @@ npm run build:client  # tsdown + tsc → lib/client.js + lib/client-types/（浏
 | `src/cli/args.ts` | `test/args.test.ts` | 极简 argv 解析器 |
 | `src/manifest.ts` | `test/manifest.test.ts` | 在临时 `DSH_HOME` 上做 manifest 读写往返 |
 | `src/resolve.ts` | `test/resolve.test.ts` | `previewSkills`（预览 skill）、`isValidSkillName` 校验 |
-| `src/link.ts` | `test/link.test.ts` | 在临时 `DSH_HOME` 上跑 `linkSkill` / `isEntryEnabled` / `unlinkSkill` / `hasCollision`——真实覆盖 Windows junction 与 macOS/Linux symlink 两条代码路径 |
+| `src/link.ts` | `test/link.test.ts` | 在临时 `DSH_HOME` 上跑 `linkSkill` / `linkAt` / `isEntryEnabled` / `unlinkSkill` / `unlinkAt` / `hasCollision`——真实覆盖 Windows junction 与 macOS/Linux symlink 两条代码路径 |
+| `src/project.ts` | `test/project.test.ts`、`test/cli-project.test.ts` | 项目作用域列表、链接计划/执行（命名推导、replace/unchanged/collision）、拒绝删除用户文件、悬空检测、Windows UNC 守卫；CLI 文件覆盖完整进程级链路与退出码 |
+| `src/project-root.ts` | `test/project.test.ts` | 最近的 `.git` 祖先检测，含文件型 `.git`（linked worktree）与 cwd 回退 |
 | `src/ops-io.ts` | `test/ops-io.test.ts` | 经 OpsIO 接缝的字节级 stdout 捕获、双向 TTY 门控、`NeedsConfirm` |
 | `src/install.ts` | `test/add.test.ts` | `add` 实际驱动的共享 git 安装阶段——克隆模式、稀疏 `--subdir`、frontmatter 归一化、大集合护栏 |
 | `src/export.ts` | `test/export.test.ts` | 包内标签与载荷、`--all` 含禁用条目、包内绝无 `.git`、zip 与目录两种输出 |
@@ -106,8 +113,8 @@ npm run build:client  # tsdown + tsc → lib/client.js + lib/client-types/（浏
 | `src/zip.ts` | `test/zip.test.ts` | 手工构造的 zip fixture：`readZip` / `createZip` 往返，及完整拒绝矩阵（zip-slip、体积炸弹、zip64、加密……） |
 | `src/switch-version.ts` | `test/switch-version.test.ts` | 分支↔tag↔sha 端到端、缺 ref 零改动、脏克隆丢弃、链接重建、CLI 包装 |
 | `src/locks.ts` | `test/locks.test.ts` | O_EXCL 写入/释放、活锁拒绝、stale-PID / 超时 / 损坏文件恢复、进程内 single-flight |
-| `src/http/`（routes） | `test/api.test.ts` | 基于 fake req/res 的 13 条路由全表——信封方言、409 confirm-required、toggle 目标归属、已退役的 add-zip 路由、`import` 上传（裸 body + 文件名头、同步 dry-run、202 任务）与 `adopt` 的 §10.4 状态码、hotReload 状态 |
-| `src/client/api.ts` | `test/client-api.test.ts` | 基于录制式 fake fetch 的类型化客户端——信封、confirmable 重试、包上传的请求形状、`pollJob`、`reconcileList` |
+| `src/http/`（routes） | `test/api.test.ts` | 基于 fake req/res 的 18 条路由全表——信封方言、409 confirm-required、toggle 目标归属、已退役的 add-zip 路由、`import` 上传（裸 body + 文件名头、同步 dry-run、202 任务）、`adopt` 的 §10.4 状态码、三条项目路由（root/name 校验、预览与 job、`not-a-link`、UNC）以及 hotReload 状态 |
+| `src/client/api.ts` | `test/client-api.test.ts` | 基于录制式 fake fetch 的类型化客户端——信封、confirmable 重试、包上传的请求形状、`pollJob`、`reconcileList`，以及项目 list/link/remove 方法 |
 | `src/install.ts`（`io.spin`） | `test/install-spin.test.ts` | 安装核心的进度接缝：一次克隆一次 spin、前端未实现时原地执行、以及 `cliIO.spin === withSpinner` 的同一性 |
 | `src/import-decision.ts` | （两侧共同渲染） | §10.2 四态判定只此一处——`src/cli/commands/import.ts` 打印它，`src/client/panel.tsx` 显示它 |
 

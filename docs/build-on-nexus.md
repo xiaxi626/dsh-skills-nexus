@@ -106,10 +106,11 @@ The full meaning of every check and code, with fix hints, lives in
 
 ## The `--json` write interface (version 1)
 
-Six commands emit a versioned report describing what they just did:
+Six lifecycle commands emit a versioned report describing what they just did:
 `list --json`, `add --json`, `update --json`, `remove --json`,
-`enable` / `disable --json`, and `link --json`. They share one contract, and it is deliberately
-narrow:
+`enable` / `disable --json`, and `link --json`. The project scope adds three
+more shapes (`list --project`, `link --project`, `remove --project`, documented
+after them). All of them share one contract, and it is deliberately narrow:
 
 ### What is promised
 
@@ -276,6 +277,70 @@ or `status: "not-found"` / exit `2` for a multi-match glob) rather than silent.
 - With `--dry-run`, no entries are created; the report shows what *would*
   happen.
 
+### The project-scope reports
+
+The project scope is a separate dataset (filesystem links, no manifest), so it
+has its own three report shapes instead of reusing `list --json` /
+`link --json` / `remove --json`:
+
+`list --project --json`:
+
+```json
+{
+  "version": 1,
+  "projectRoot": "/abs/project",
+  "entries": [
+    { "name": "my-skill", "kind": "link", "target": "/abs/skill", "dangling": false }
+  ]
+}
+```
+
+- `kind` ∈ `link` | `files`. A `files` entry is real content the user placed in
+  `<projectRoot>/.dsh/skills`; nexus never removes it.
+- `target` is `null` for `files` and for a link whose target cannot be
+  recovered. `dangling` is `true` when the target is missing or is not a
+  directory.
+- `projectRoot` is the resolved absolute project root.
+
+`link --project --json`:
+
+```json
+{
+  "version": 1,
+  "projectRoot": "/abs/project",
+  "source": "/abs/source",
+  "results": [
+    { "name": "my-skill", "target": "/abs/source", "status": "link" }
+  ],
+  "summary": { "linked": 1, "replaced": 0, "unchanged": 0, "failed": 0 }
+}
+```
+
+- `status` ∈ `link` | `replace` | `unchanged` | `collision` | `invalid`.
+  `collision` means a real directory or file owns the name (it is left in
+  place); `invalid` means no DSH-valid name could be derived or the target is
+  unusable (e.g. a UNC path on Windows). Both carry `error`.
+- With `--dry-run` the same report describes the plan and nothing is written.
+- `summary.failed` counts `collision` / `invalid` / attempted-and-failed
+  items; the exit code is `1` when it is non-zero.
+
+`remove --project --json`:
+
+```json
+{
+  "version": 1,
+  "results": [{ "name": "my-skill", "status": "removed" }],
+  "summary": { "removed": 1, "failed": 0 }
+}
+```
+
+- `status` ∈ `removed` | `not-found` | `not-a-link`. `not-a-link` is the
+  refusal to delete user content and carries `error`; the exit code is `1` for
+  anything that was not removed.
+- `list --all` has no JSON form: it joins project links and manifest entries
+  for humans and is not part of the version-1 contract. Machine consumers read
+  `list --json` and `list --project --json` separately.
+
 ### Errors
 
 - **Usage error** (argv the command rejects): exit `2`. If `--json` was asked
@@ -288,6 +353,10 @@ or `status: "not-found"` / exit `2` for a multi-match glob) rather than silent.
 
 Being explicit so you never depend on a surface nexus has not promised:
 
+- **No project form of the write commands.** `add`, `import`, `update`,
+  `export`, `enable` and `disable` do not accept `--project`; project scope is
+  `list` / `link` / `remove` / `doctor` only, and `remove --project` takes exact
+  link names (no globs or groups).
 - **No `--json` on `export` / `import` / `adopt` / `switch-version`.** They are
   deliberately out of the version-1 write contract: `export` and `import` carry
   a package format, and `adopt` / `switch-version` are long-running jobs whose

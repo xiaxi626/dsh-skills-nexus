@@ -72,6 +72,12 @@ dsh-skills-nexus link <source>  # any registered source
       └─ create symlink → ~/.dsh/skills/<name>/ → points to external dir
    └─ entry carries groupPath for hierarchical grouping
 
+dsh-skills-nexus link --project /path/to/skill-dir
+   └─ resolve <projectRoot> (nearest .git ancestor of cwd, or --project-root)
+   └─ scan the directory: root SKILL.md / one-level subdirs / flat .md
+   └─ create symlink → <projectRoot>/.dsh/skills/<dir-name>/ → points to skill dir
+   └─ no manifest entry, no clone, no copy
+
 DSH filesystem provider (official, built-in)
    └─ scans ~/.dsh/skills/ → discovers all symlinked skills automatically
    └─ reads each SKILL.md's frontmatter + body
@@ -99,6 +105,17 @@ Key design points:
   entries). `remove` deletes only the link and manifest entry, never the
   target directory. External entries carry a `groupPath` for hierarchical
   grouping; `enable`/`disable --group <path>` batch-toggles entries by prefix.
+- **Project scope is filesystem-only**: `link --project` / `list --project` /
+  `remove --project` / `doctor --project` act on `<projectRoot>/.dsh/skills`,
+  the root the provider scans at rank 100 — ahead of the user-level root. There
+  is no manifest entry, no clone and no copy: the directory is the record.
+  `remove --project` only deletes a proven link (`isLinkAt`), so a real
+  directory or file the user vendored is reported as `not-a-link` and left
+  untouched. Link names come from the skill's directory name because that is
+  what the provider keys a skill on; the frontmatter name is only a fallback
+  for a directory with no usable ASCII characters. Writes serialize per
+  project + name through the shared file lock, and the manifest lock is never
+  taken because the manifest is never touched.
 - **Explicit package locks are manifest facts**: `import --locked` records
   `locked: true` after checking out the package's exact commit. Health checks
   do not infer this flag from detached HEAD, so ordinary tag/commit pins remain
@@ -143,11 +160,25 @@ Required: `name`, `description`. Optional, respected by the provider:
                     └── SKILL.md
 ```
 
+A project carries its own root, scanned by the provider before `~/.dsh/skills`:
+
+```
+<projectRoot>/
+└── .dsh/
+    └── skills/                     # provider rank 100 (shadows the user root)
+        ├── my-skill/      → link → /path/to/my-skill/
+        └── vendored-skill/         # real files, committed by the user
+```
+
 **Why two directory layers?**
 
 - `repos/` is nexus's private storage — all git clones live here, keeping their original structure intact. The CLI uses git to clone / pull / checkout these directories. Clones are nexus-managed: `add` / `update` may normalize frontmatter in place (fix invalid names, add missing `description`), and `update` discards local changes before pulling (with a warning) — do not edit clones by hand.
 - `~/.dsh/skills/` is the official DSH skills root — the official filesystem provider only scans this level. Nexus creates one symlink per skill here, pointing to the actual directory in `repos/`. This way the official provider discovers all skills automatically, with no custom provider needed.
 - **External entries** (created by `link <source>`, one of the nineteen registered sources) symlink to directories outside nexus's control — typically `~/.trae-cn/skills/`, `~/.trae/skills/`, `~/.codebuddy/skills/`, `~/.workbuddy/skills/`, `~/.agents/skills/`, `~/.config/opencode/skills/`, `~/.codeium/windsurf/skills/`, `~/.kimi-code/skills/`, or a Qoder skill under `~/.qoder/` or `~/.qoder-cn/` (user-level `skills/`, or a marketplace plugin's declared skill directory). Nexus never clones, updates, or deletes those directories. `remove` only deletes the link and the manifest entry.
+- **Project roots are separate**: `<projectRoot>/.dsh/skills/` is scanned by the
+  provider at a higher rank than `~/.dsh/skills/`. Project scope writes links
+  there and nothing else — no manifest entry, no clone, no copy — so deleting or
+  moving the project leaves no nexus state behind.
 
 The local source registry in `src/external.ts` configures `envVar`,
 `defaultDirName` or ordered `rootCandidates`, and one `discover` function per

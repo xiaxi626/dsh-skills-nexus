@@ -24,6 +24,7 @@ dsh-skills-nexus is a community-maintained DeepSeek Harness (DSH) plugin, not an
 | Git-backed installs | Any `SKILL.md` repo from any git host, pinned to a branch, tag or commit; collection repos install one subdirectory with partial clone + sparse checkout; wrapper detection runs before registering | `add` |
 | Version management | Refresh branch-tracked clones, preview remote changes without a checkout, move a clone to another ref, undo the last version change | `update` / `diff` / `switch-version` / `rollback` |
 | External references | Register skills that already live in another agent's directory — no clone, no copy, no writes there | [`link`](#supported-external-sources-link) / `remove --group` |
+| Project-scope skills | Link directories into `<project>/.dsh/skills` (the root the provider scans first) with no manifest, clone or copy; list and remove links, report dangling ones | [`--project`](#project-skills) |
 | Cross-machine transport | Package entries with their provenance, rebuild them elsewhere (optionally at the exact recorded commit), give a frozen entry its git source back | `export` / `import` / `adopt` |
 | Grouping and toggles | Group by source or a custom L1 name; enable or disable one entry or a whole group prefix | `enable` / `disable` / `--group` |
 | Health and cleanup | Read-only checkup of the manifest, links and clones, with an optional remote update check; purge accumulated artifacts | `doctor` / `purge` |
@@ -194,6 +195,17 @@ dsh-skills-nexus link trae --source-dir /path       # override the source root (
 dsh-skills-nexus remove --group trae --yes          # unlink the group; keep external directories
 dsh-skills-nexus link trae-cn --group custom        # override the L1 group name (default: trae-cn)
 dsh-skills-nexus link trae-cn --force               # replace existing entries on conflict
+
+# project-scope skills: links under <project>/.dsh/skills — no manifest, no copy
+dsh-skills-nexus link --project /path/to/my-skill     # project root = nearest .git ancestor of cwd
+dsh-skills-nexus link --project /path/to/collection   # one link per discovered skill
+dsh-skills-nexus link --project /path/to/my-skill --dry-run
+dsh-skills-nexus list --project                       # KIND / NAME / TARGET, with a (dangling) marker
+dsh-skills-nexus list --project --json                # version-1 project report
+dsh-skills-nexus list --all                           # project + global, overrides/shadowed (human only)
+dsh-skills-nexus remove --project my-skill            # removes the link only; user files are refused
+dsh-skills-nexus doctor --project                     # dangling project links
+dsh-skills-nexus list --project --project-root /path/to/project  # explicit project root
 ```
 
 ### Supported external sources (`link`)
@@ -252,12 +264,65 @@ See [source details](docs/sources-and-packages.md#channel-e-external-reference-l
 For isolated CLI checks and the panel acceptance checklist, see
 [Verifying local source links](docs/verify-link-sources.md).
 
+### Project skills
+
+The DSH filesystem provider scans `<projectRoot>/.dsh/skills` at project rank,
+**before** the user-level `~/.dsh/skills`, so a link placed there shadows a
+global skill of the same name. The `--project` commands manage exactly that
+directory and nothing else:
+
+```bash
+dsh-skills-nexus link   --project /path/to/my-skill      # link one skill directory
+dsh-skills-nexus link   --project /path/to/collection    # one link per discovered skill
+dsh-skills-nexus list   --project                        # KIND / NAME / TARGET (+ dangling)
+dsh-skills-nexus list   --all                            # project + global, overrides/shadowed
+dsh-skills-nexus remove --project my-skill               # removes the link only
+dsh-skills-nexus doctor --project                        # dangling project links
+```
+
+- **Root resolution.** `--project` alone uses the nearest ancestor of the
+  current directory that contains `.git` (falling back to the current
+  directory), the same rule the provider uses. `--project-root <path>` names it
+  explicitly and must accompany `--project`; a bad explicit root is an error
+  instead of a guessed fallback.
+- **Link names.** A skill is keyed by its **directory name**, so
+  `.../my-skill/SKILL.md` becomes `.dsh/skills/my-skill`; each subdirectory of a
+  collection gets its own link; a flat `<name>.md` uses the file stem. Only a
+  directory name with no usable ASCII characters falls back to the frontmatter
+  name — otherwise every such directory would collapse to the same name.
+- **No manifest, no copies.** Project scope never writes `manifest.json`, never
+  clones and never copies; the target directory stays the user's.
+  `remove --project` deletes a proven link and refuses a real directory or file
+  with `refusing to remove user files`. Writes are serialized per project +
+  name through the same cross-process file lock the rest of nexus uses; the
+  manifest lock is not taken because the manifest is not touched.
+- **Conflicts.** An existing link is repointed (`replace`); an existing link to
+  the same directory is `unchanged`; a real directory or file is a `collision`
+  and is left byte-for-byte untouched.
+- **Machine output.** `list --project --json` →
+  `{ version, projectRoot, entries[] }`; `link --project --json` →
+  `{ version, projectRoot, source, results[], summary }`; `remove --project --json`
+  → `{ version, results[], summary }` with the extra `not-a-link` status.
+  `--all` is human-only: it joins two datasets and has no version-1 envelope.
+- **Windows.** Project links are NTFS junctions like every nexus link; a UNC
+  target is refused up front because a junction requires a local absolute path.
+- **Git.** A link records a machine-local absolute path, so do not commit
+  `.dsh/skills/` links for the link-only workflow — add it to `.gitignore`.
+  Vendored real directories are the shareable form.
+- **Not available.** `add` / `import` / `update` / `export` / `enable` /
+  `disable` have no project form; `remove --project` takes exact names only (no
+  globs, no `--group`).
+
+See [Verifying project-scope skills](docs/verify-project-skills.md) for the
+isolated walkthrough and the panel checklist.
+
 ### Options, `--json` and `add` checks
 
 Value options (`--name`, `--ref`, `--subdir`, `--source-dir`) also accept the `--flag=value` form (e.g. `--subdir=skills/foo`, `--name=owner-skills`); the boolean `--yes` takes no value.
 
-For scripts, `--json` turns any of `add`, `list`, `update`, `remove`, `enable`
-and `disable` into a machine interface: a version-1 report on stdout and
+For scripts, `--json` turns any of `add`, `list`, `update`, `remove`, `enable`,
+`disable`, and the project forms `list --project` / `link --project` /
+`remove --project` into a machine interface: a version-1 report on stdout and
 nothing else, diagnostics on stderr, and the same exit codes (`0` ok / `1`
 error or partial failure / `2` usage error). A report tells you what the
 operation *did* — the commit an install landed on, the before→after pair of an
@@ -372,6 +437,13 @@ From the panel you can:
   `update available` badge for branch-tracked entries;
 - preview and link **Trae CN**, **Trae**, **Qoder**, **Qoder CN**, **CodeBuddy** or **WorkBuddy** from the `link local skills` section,
   with an optional server-side source root; changing the root clears the preview;
+- manage **project-scope skills** from the `project skills` section: type a
+  project root, browse the links under `<project>/.dsh/skills` (a `dangling`
+  badge marks a link whose target is gone), preview a directory before
+  confirming the link as a job, and remove a link only — a `user files` row has
+  no remove action. The root is typed per session and never stored — this
+  client context injects only `slots`, with no workspace service to read a
+  project root from;
 - manage **external entries** (created by CLI `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` / `link codebuddy` / `link workbuddy`) alongside
   git-managed ones — the panel displays them with a `linked directory` tag,
   shows their external path, and supports enable/disable and remove (which
@@ -417,9 +489,10 @@ the watcher, the panel says plainly that a change takes effect on the next
 host start.
 
 **HTTP surface (internal).** The panel talks to `/skills-nexus/*` routes —
-ping / list / doctor / job polling on GET; add / import / adopt / remove /
-update / check-updates / switch-version / toggle / toggleGroup / link /
-export / job cancel on POST. Success
+ping / list / doctor / project/list / job polling on GET; add / import /
+adopt / remove / update / check-updates / switch-version / toggle /
+toggleGroup / link / project/link / project/remove / export / job cancel on
+POST. Success
 answers `{ data, hotReload }`, long operations are accepted as
 `202 { data: { jobId } }`, and every mutation is same-origin-checked (remove
 additionally accepts loopback only). These routes are the panel's own
@@ -742,6 +815,13 @@ ls -la ~/.dsh/skills/
   and `disable` accept `--group <path>` to batch-toggle every entry under a
   prefix. The web panel renders grouped entries under collapsible L1 group
   headers with a group-level Switch.
+- **Project-scope links**: `link --project` / `list --project` /
+  `remove --project` / `doctor --project` act on `<project>/.dsh/skills` — the
+  root the provider scans ahead of `~/.dsh/skills`. They write no manifest
+  entry and copy nothing; `remove --project` deletes only a proven link and
+  refuses real user content. Other commands (`add`, `import`, `update`,
+  `export`, `enable`, `disable`) have no project scope. See
+  [Project skills](#project-skills).
 - **Collection repos & `--subdir`**: collection repos (skills nested under
   subdirectories, e.g. `trae-community/trae-skills`) are installed piecemeal
   with `--subdir <path>` — each install is its own entry with its own clone
@@ -835,6 +915,7 @@ change to `src/client/**` or to the module table needs one manual pass:
 - [Verifying the `doctor` command (P0)](docs/verify-doctor.md)
 - [Verifying shell completion](docs/verify-completions.md)
 - [Verifying local source links — current sources, overrides and panel](docs/verify-link-sources.md)
+- [Verifying project-scope skills — links under `<project>/.dsh/skills`](docs/verify-project-skills.md)
 - [Building on nexus — machine interfaces for tool authors](docs/build-on-nexus.md)
 - [Contributing — project layout, testing & CI](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)

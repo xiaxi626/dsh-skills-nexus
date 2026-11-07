@@ -71,6 +71,12 @@ dsh-skills-nexus link <source>  # 任一已注册来源
       └─ 创建 symlink → ~/.dsh/skills/<name>/ → 指向外部目录
    └─ 条目携带 groupPath 用于层级分组
 
+dsh-skills-nexus link --project /path/to/skill-dir
+   └─ 解析 <projectRoot>（cwd 最近的 .git 祖先，或 --project-root）
+   └─ 扫描该目录：根 SKILL.md / 一层子目录 / 扁平 .md
+   └─ 创建 symlink → <projectRoot>/.dsh/skills/<目录名>/ → 指向技能目录
+   └─ 不写 manifest、不克隆、不复制
+
 DSH filesystem provider（官方内置）
    └─ 扫描 ~/.dsh/skills/ → 自动发现所有 symlink 指向的 skill
    └─ 读取每个 SKILL.md 的 frontmatter + body
@@ -84,6 +90,7 @@ DSH filesystem provider（官方内置）
 - **安装时归一化**：修正不合法的 frontmatter 名称，补全缺失的 description，确保官方 provider 不会静默跳过 skill。
 - **enable/disable 轻量**：只是创建/删除 symlink，克隆数据始终保留在 `repos/` 中。
 - **外部条目（`link` 通道）**：`ownership: 'external'` 的条目指向用户拥有的目录。`entrySkillDir(entry)` 对这些条目返回外部目录（对管理条目返回克隆目录）。`remove` 只删除链接和 manifest 条目，不删除目标目录。外部条目携带 `groupPath` 用于层级分组；`enable`/`disable --group <path>` 按前缀批量切换条目。
+- **项目作用域只碰文件系统**：`link --project` / `list --project` / `remove --project` / `doctor --project` 作用于 `<projectRoot>/.dsh/skills`——provider 在 rank 100 扫描、先于用户级根。这里没有 manifest 条目、没有克隆、没有复制：目录本身就是记录。`remove --project` 只删被 `isLinkAt` 证实的链接，用户 vendored 进来的真实目录或文件会被报成 `not-a-link` 并原样保留。链接名取自技能的目录名（provider 就是按目录名识别技能），frontmatter 名只在目录名不含可用 ASCII 字符时兜底。写入按「项目 + 名字」走共享文件锁串行化；因为不碰 manifest，所以不取 manifest 锁。
 - **显式 package lock 是 manifest 事实**：`import --locked` 检出包记录的精确 commit 后写入 `locked: true`。健康检查不会根据 detached HEAD 推导该字段，因此普通 tag/commit pin 仍可区分；成功执行 `switch-version` 后显式锁被清除。
 
 ## SKILL.md 发现规则（每个克隆仓库内）
@@ -123,11 +130,22 @@ DSH filesystem provider（官方内置）
                     └── SKILL.md
 ```
 
+项目自带一个根，provider 在用户级根之前扫描它：
+
+```
+<projectRoot>/
+└── .dsh/
+    └── skills/                     # provider rank 100（覆盖用户级根）
+        ├── my-skill/      → link → /path/to/my-skill/
+        └── vendored-skill/         # 用户提交的真实文件
+```
+
 **为什么有两层目录？**
 
 - `repos/` 是 nexus 的私有存储——所有 git 克隆都放在这里，保持原始结构不变。CLI 通过 git 对这些目录做 clone / pull / checkout 等操作。克隆由 nexus 管理：`add` / `update` 可能原地归一化 frontmatter（修正非法名称、补全缺失的 `description`），`update` 在拉取前会丢弃本地改动（有警告）——请勿手动编辑克隆。
 - `~/.dsh/skills/` 是 DSH 官方的 skills 根目录——官方 filesystem provider 只扫描这一层。nexus 在这里为每个 skill 创建一个 symlink，指向 `repos/` 中的实际目录。这样官方 provider 就能自动发现所有 skill，无需自定义 provider。
 - **外部条目**（由 `link <source>` 创建，来源共十九个）符号链接到 nexus 控制范围之外的目录——通常是 `~/.trae-cn/skills/`、`~/.trae/skills/`、`~/.codebuddy/skills/`、`~/.workbuddy/skills/`、`~/.agents/skills/`、`~/.config/opencode/skills/`、`~/.codeium/windsurf/skills/`、`~/.kimi-code/skills/`，或 `~/.qoder/` 与 `~/.qoder-cn/` 下的某个技能（用户级 `skills/`，或市场插件声明的技能目录）。nexus 不克隆、不更新、不删除那些目录。`remove` 只删除链接和 manifest 条目。
+- **项目根是独立的**：provider 扫描 `<projectRoot>/.dsh/skills/` 的 rank 高于 `~/.dsh/skills/`。项目作用域只往那里写链接，别的什么都不写——没有 manifest 条目、没有克隆、没有复制——所以删除或移动项目不会留下 nexus 状态。
 
 `src/external.ts` 的来源注册表配置 `envVar`、`defaultDirName` 或有序 `rootCandidates`，以及每个来源自带的 `discover`（`(root) => DiscoveredSkill[]`）。
 `trae-cn` 使用 `TRAE_CN_DIR` / `.trae-cn`，`trae` 使用 `TRAE_DIR` / `.trae`，两者都走 `plainDiscovery(['skills'])`。
