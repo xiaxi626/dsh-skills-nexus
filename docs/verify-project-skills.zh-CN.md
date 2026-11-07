@@ -10,7 +10,7 @@
 
 - `list --project`、`link --project <dir>`、`remove --project <name>...`、`doctor --project`；
 - `list --all`（仅供人读的双作用域表，带 `overrides` / `shadowed` 标记）；
-- 三条 HTTP 路由与面板区块；
+- 四条 HTTP 路由与面板区块；
 - 不变量：**不写 manifest、不复制/克隆、绝不删除用户文件**。
 
 ## 项目作用域是什么、不是什么
@@ -162,38 +162,48 @@ cleaned
 - Windows 上 UNC 来源（例如 \\server\share\...）在任何文件系统调用之前就被拒绝，错误信息会说明 junction 需要本地绝对路径。演练脚本用的都是本地目录，因此该守卫由聚焦测试覆盖，而不是脚本。
 - POSIX 上同样步骤走普通目录符号链接；悬空符号链接可经 `readlink` 恢复旧目标，`list --project` 因此仍能显示它。
 
+### 查看器与开关的补充检查
+
+脚本早于项目查看器。要查看它，写入根 `$PROJ/SKILL.md`（合法的
+`name`/`description`）后重跑 `list --project`：`Folder skills` 区会显示解析后的名称与
+描述，而不只是文件名。要验证开关，先链接一个来源，再执行
+`disable --project <name> --json`；断言 `.dsh/skills-disabled/<name>` 存在且目标目录的
+`SKILL.md` 原样未动，然后 `enable --project <name>` 应恢复活动链接。
+
 ## 面板验收清单
 
 需要挂载了插件的 DSH **web** 宿主（见[本地测试步骤](../README_CN.md#本地测试步骤)）。静态渲染由测试套件覆盖；下面是 UI 集成门禁。
 
 1. 打开**设置 → Skills Nexus**。该 section 有两个页签：**全局技能**（默认）与**项目技能**。
-2. 切到**项目技能**页签。项目根输入为空时，页签显示 `enter the project root to list its skills`，且**不发请求**。
-3. 填入临时项目的绝对路径，点 **refresh**。空的 `.dsh/skills` 显示 `no project skills yet — link a directory below.`
-4. 粘贴技能目录路径，点 **preview**。计划为每个发现的技能列一行，带计划状态（`link` / `replace` / `unchanged` / `collision` / `invalid`）。此时磁盘上还没有任何变化。
-5. 点 **link to project**。job 运行，列表刷新出 `link` 徽标与绝对目标。
+2. 切到**项目技能**页签。文件夹输入为空时，页签显示 `enter a project folder to see its skills`，且**不发请求**。
+3. 填入临时项目的绝对路径（例如 `D:\theme-port-skill`），点 **refresh**。**skills in this folder** 区显示解析后的 frontmatter 名称与描述，而不是只有 `SKILL.md`；**project skills root** 区列出 `.dsh/skills` 条目（没有则显示为空）。
+4. 在 folder skill 行点 **link**。job 运行，folder 行变成 `linked`，project skills root 下出现对应链接行，带解析名称与绝对目标。
+5. 把该链接行的 **Switch** 关掉：行变成 `disabled`，链接移到 `.dsh/skills-disabled`，目标目录仍然存在；再打开即移回。
 6. 删除目标目录后再次 **refresh**：该行变成 `dangling` 徽标（warning 色调）。
-7. 你自己放进 `.dsh/skills` 的真实目录显示 `user files` 徽标，**没有 remove 按钮**。
+7. 你自己放进 `.dsh/skills` 的真实目录显示 `user files` 徽标，**没有 Switch、没有 remove**。
 8. 在 link 行点 **remove**：确认浮层写明只删链接；确认后该行消失，目标目录仍然存在。
-9. 修改项目根：旧列表立即清空（不会残留上一个项目的行）。
+9. 修改项目文件夹：旧列表立即清空（不会残留上一个项目的行）。
 
 ## HTTP 接口
 
-面板与三条路由通信；它们是面板内部管道，不是稳定机器接口（稳定接口是 CLI 的 `--json` 报告）。
+面板与四条路由通信；它们是面板内部管道，不是稳定机器接口（稳定接口是 CLI 的 `--json` 报告）。
 
 | 路由 | Body / query | 返回 |
 |---|---|---|
-| `GET /skills-nexus/project/list` | `?root=<绝对路径>` | `{ projectRoot, entries }` |
+| `GET /skills-nexus/project/list` | `?root=<绝对路径>` | `{ projectRoot, folderSkills, entries }` |
 | `POST /skills-nexus/project/link` | `{ root, dir }` | 同步计划 `{ projectRoot, source, results }` |
 | `POST /skills-nexus/project/link` | `{ root, dir, confirm: true }` | `202 { data: { jobId } }`；轮询 `GET /job?id=` |
+| `POST /skills-nexus/project/toggle` | `{ root, name, enabled }` | `{ projectRoot, name, enabled, status }` |
 | `POST /skills-nexus/project/remove` | `{ root, name, confirm: true }` | `{ projectRoot, name, status: 'removed' }` |
 
-三条路由都要求同源且 socket 为 loopback。`root` 不是已存在目录返回 `400 invalid-root`；name 含路径分隔符返回 `400 invalid-name`；真实目录/文件返回 `409 not-a-link`；缺字段返回 `400 missing-field`；Windows 下 UNC 来源返回 `400 unsupported-source`。
+四条路由都要求同源且 socket 为 loopback。`root` 不是已存在目录返回 `400 invalid-root`；name 含路径分隔符返回 `400 invalid-name`；真实目录/文件返回 `409 not-a-link`（另一位置被占用时返回 `409 collision`）；缺字段返回 `400 missing-field`；Windows 下 UNC 来源返回 `400 unsupported-source`。
 
 ## 已知边界
 
 - **无状态。** manifest 里没有 `projectRoot`，没有迁移，也没有「projectRoot 失效」故障类。目录本身就是记录。
-- **链接是机器本地的。** 它记录绝对路径；把 `.dsh/skills/` 下的链接提交进 git 对队友没有意义（Windows 上 git 还可能把 junction 当普通目录遍历）。纯 link 用法建议把 `.dsh/skills/` 加入 `.gitignore`；要共享就把真实文件 vendored 进去。
-- **名字来自目录。** 技能按目录名识别，而不是 frontmatter `name`，因为 provider 就是这么识别的。目录名没有任何可用 ASCII 字符时才回退 frontmatter 名；两者都不可用才是 `invalid`。
+- **链接是机器本地的。** 它记录绝对路径；把 `.dsh/skills/` 或 `.dsh/skills-disabled/` 下的链接提交进 git 对队友没有意义（Windows 上 git 还可能把 junction 当普通目录遍历）。纯 link 用法建议把两者加入 `.gitignore`；要共享就把真实文件 vendored 进去。
+- **名字。** DSH 的目录名来自 `SKILL.md` 的 frontmatter；链接的**条目名**是文件系统键，优先取目录名（目录名不含可用 ASCII 字符时回退 frontmatter 名）。面板与 CLI 展示解析后的名称，扁平 `SKILL.md` 行不再匿名。
+- **停用 = 移动链接。** 链接移到同级的 `.dsh/skills-disabled/`，目标与悬空状态都保留；停用同名项目技能会让全局同名技能重新可见。不会编辑任何 `SKILL.md`。
 - **只按精确名删除。** `remove --project` 只接受名字，不接受通配或组前缀；这个拒绝是刻意的，把破坏面限制在单条链接上。
 - **`list --all` 仅供人读。** 它合并两个数据集（文件系统链接与 manifest 条目），不属于 version-1 JSON 契约；机器读取请分别用 `list --json` 与 `list --project --json`。
 - **Windows junction 目标。** junction 需要本地绝对路径；UNC 共享会被前置拒绝，而不是抛出原生 `EPERM`。

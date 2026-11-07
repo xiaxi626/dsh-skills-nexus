@@ -33,7 +33,7 @@ src/
 ├── install.ts        # the one git install phase (clone → classify → normalize → register → link), shared by add / import
 ├── external.ts       # external entry channel: entrySkillDir / planLinkLocal / linkLocal / discoverTraeCnSkills
 ├── project-root.ts   # detectProjectRoot: nearest .git ancestor (cwd fallback)
-├── project.ts        # project scope: listProjectSkills / plan/applyProjectLink / removeProjectLink / dangling + UNC guard
+├── project.ts        # project scope: listProjectSkills / scanProjectFolder / projectReport / plan/applyProjectLink / setProjectLinkEnabled / removeProjectLink / dangling + UNC guard
 ├── adopt.ts          # adopt orchestration: re-source a source-less entry (stage → swap → relink → manifest → rollback)
 ├── export.ts         # package entries plus the provenance label (skills/<name>/… + nexus-package.json)
 ├── import.ts         # rebuild entries from a package: git channel when the label's remote answers, snapshot otherwise
@@ -75,7 +75,7 @@ rules), see **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 > - [Verifying shell completion (P1–P2)](docs/verify-completions.md) —
 >   bash / zsh / fish / PowerShell templates: per-shell drivers, layered scenarios, engine quirks.
 > - [Verifying project-scope skills](docs/verify-project-skills.md) —
->   `--project` link/list/remove/doctor, the joined `--all` view, the three HTTP routes and the panel section.
+>   `--project` link/list/enable/disable/remove/doctor, the joined `--all` view, the four HTTP routes and the panel section.
 > Each is a copy-paste walkthrough for Windows / Linux / macOS.
 
 Quality gates, all runnable locally:
@@ -107,7 +107,7 @@ The test suite lives in `test/` and targets the pure-logic modules:
 | `src/manifest.ts` | `test/manifest.test.ts` | manifest read/write round-trips against a temp `DSH_HOME` |
 | `src/resolve.ts` | `test/resolve.test.ts` | `previewSkills` (preview skills), `isValidSkillName` validation |
 | `src/link.ts` | `test/link.test.ts` | `linkSkill` / `linkAt` / `isEntryEnabled` / `unlinkSkill` / `unlinkAt` / `hasCollision` against a temp `DSH_HOME` — exercises the real Windows junction vs macOS/Linux symlink code paths |
-| `src/project.ts` | `test/project.test.ts`, `test/cli-project.test.ts` | project-scope listing, link planning/apply (name derivation, replace/unchanged/collision), removal refusing user files, dangling detection, the Windows UNC guard; the CLI file covers the full process-level chain and exit codes |
+| `src/project.ts` | `test/project.test.ts`, `test/cli-project.test.ts` | project-scope listing with parsed SKILL.md metadata, folder scanning, link planning/apply (name derivation, replace/unchanged/collision), enable/disable by moving the link to `skills-disabled`, removal refusing user files, dangling detection, the Windows UNC guard; the CLI file covers the full process-level chain and exit codes |
 | `src/project-root.ts` | `test/project.test.ts` | nearest-`.git` ancestor detection, including a file `.git` (linked worktree) and the cwd fallback |
 | `src/ops-io.ts` | `test/ops-io.test.ts` | byte-equal stdout capture through the OpsIO seam, TTY gating in both directions, `NeedsConfirm` |
 | `src/install.ts` | `test/add.test.ts` | the shared git install phase as `add` drives it — clone modes, sparse `--subdir`, frontmatter normalization, large-collection guard |
@@ -117,7 +117,7 @@ The test suite lives in `test/` and targets the pure-logic modules:
 | `src/zip.ts` | `test/zip.test.ts` | hand-built zip fixtures: `readZip` / `createZip` round trip plus the full rejection matrix (zip-slip, size bombs, zip64, encrypted, …) |
 | `src/switch-version.ts` | `test/switch-version.test.ts` | branch↔tag↔sha end-to-end, missing ref leaves zero changes, dirty-clone discard, link rebuild, CLI wrapper |
 | `src/locks.ts` | `test/locks.test.ts` | O_EXCL write/release, live-lock refusal, stale-PID / timeout / corrupt-file recovery, in-process single-flight |
-| `src/http/` (routes) | `test/api.test.ts` | the 18-route table over fake req/res — envelope dialects, 409 confirm-required, toggle target attribution, the retired add-zip route, the `import` upload (raw body + filename header, sync dry-run, 202 job), `adopt`'s §10.4 statuses, the three project routes (root/name validation, preview vs job, `not-a-link`, UNC) and hotReload states |
+| `src/http/` (routes) | `test/api.test.ts` | the 19-route table over fake req/res — envelope dialects, 409 confirm-required, toggle target attribution, the retired add-zip route, the `import` upload (raw body + filename header, sync dry-run, 202 job), `adopt`'s §10.4 statuses, the four project routes (root/name validation, preview vs job, `not-a-link`/`collision`, toggle, UNC) and hotReload states |
 | `src/client/api.ts` | `test/client-api.test.ts` | the typed client over a recording fake fetch — envelopes, confirmable retry, the package upload's request shape, `pollJob`, `reconcileList`, and the project list/link/remove methods |
 | `src/install.ts` (`io.spin`) | `test/install-spin.test.ts` | the install core's progress seam: one spin per clone, inline fallback when a front end has none, and `cliIO.spin === withSpinner` by identity |
 | `src/import-decision.ts` | (rendered by both faces) | the four §10.2 verdicts in one place — `src/cli/commands/import.ts` prints them, `src/client/panel.tsx` shows them |

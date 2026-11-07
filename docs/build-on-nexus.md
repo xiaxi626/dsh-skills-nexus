@@ -108,9 +108,10 @@ The full meaning of every check and code, with fix hints, lives in
 
 Six lifecycle commands emit a versioned report describing what they just did:
 `list --json`, `add --json`, `update --json`, `remove --json`,
-`enable` / `disable --json`, and `link --json`. The project scope adds three
-more shapes (`list --project`, `link --project`, `remove --project`, documented
-after them). All of them share one contract, and it is deliberately narrow:
+`enable` / `disable --json`, and `link --json`. The project scope adds four
+more shapes (`list --project`, `link --project`, `enable|disable --project`,
+`remove --project`, documented after them). All of them share one contract, and
+it is deliberately narrow:
 
 ### What is promised
 
@@ -280,8 +281,8 @@ or `status: "not-found"` / exit `2` for a multi-match glob) rather than silent.
 ### The project-scope reports
 
 The project scope is a separate dataset (filesystem links, no manifest), so it
-has its own three report shapes instead of reusing `list --json` /
-`link --json` / `remove --json`:
+has its own four report shapes instead of reusing `list --json` /
+`link --json` / `remove --json` / `enable --json`:
 
 `list --project --json`:
 
@@ -289,17 +290,51 @@ has its own three report shapes instead of reusing `list --json` /
 {
   "version": 1,
   "projectRoot": "/abs/project",
+  "folderSkills": [
+    {
+      "name": "theme-port-skill",
+      "description": "migrate Hexo themes",
+      "skillFile": "/abs/project/SKILL.md",
+      "resourceBase": "/abs/project",
+      "valid": true,
+      "linked": false,
+      "linkName": null,
+      "disabled": false
+    }
+  ],
   "entries": [
-    { "name": "my-skill", "kind": "link", "target": "/abs/skill", "dangling": false }
+    {
+      "name": "my-skill",
+      "path": "/abs/project/.dsh/skills/my-skill",
+      "kind": "link",
+      "target": "/abs/skill",
+      "dangling": false,
+      "enabled": true,
+      "skill": {
+        "name": "my-skill",
+        "description": "…",
+        "skillFile": "/abs/skill/SKILL.md",
+        "resourceBase": "/abs/skill",
+        "valid": true
+      }
+    }
   ]
 }
 ```
 
+- `folderSkills` is the read-only scan of the project folder itself (root
+  `SKILL.md`, one-level subdirectories, flat `.md`). `linked` means an active
+  link points at that resource base; `disabled` means the only link is parked;
+  `valid` is the DSH name+description check.
 - `kind` ∈ `link` | `files`. A `files` entry is real content the user placed in
   `<projectRoot>/.dsh/skills`; nexus never removes it.
 - `target` is `null` for `files` and for a link whose target cannot be
   recovered. `dangling` is `true` when the target is missing or is not a
   directory.
+- `enabled` is `false` for a link parked under `.dsh/skills-disabled`.
+  `skill` carries parsed frontmatter metadata (or `null` when the entry is not
+  a valid skill); the **name** shown in the UI comes from there, not from the
+  filesystem entry name.
 - `projectRoot` is the resolved absolute project root.
 
 `link --project --json`:
@@ -323,6 +358,27 @@ has its own three report shapes instead of reusing `list --json` /
 - With `--dry-run` the same report describes the plan and nothing is written.
 - `summary.failed` counts `collision` / `invalid` / attempted-and-failed
   items; the exit code is `1` when it is non-zero.
+
+`enable --project --json` / `disable --project --json`:
+
+```json
+{
+  "version": 1,
+  "projectRoot": "/abs/project",
+  "results": [{ "name": "my-skill", "status": "disabled", "enabled": false }],
+  "summary": { "enabled": 0, "disabled": 1, "failed": 0 }
+}
+```
+
+- `status` ∈ `enabled` | `disabled` | `already-enabled` |
+  `already-disabled` | `not-found` | `not-a-link` | `collision` |
+  `failed`; `enabled` echoes the requested direction.
+- Disabling moves the link to `<projectRoot>/.dsh/skills-disabled/<name>`;
+  enabling moves it back. The target directory is never touched, so the report
+  carries no target or backup path.
+- `already-*` is success (exit 0); every other non-moved status is a per-item
+  failure (exit 1). `not-a-link` / `collision` mean real user content occupied
+  one of the two locations.
 
 `remove --project --json`:
 
@@ -353,10 +409,11 @@ has its own three report shapes instead of reusing `list --json` /
 
 Being explicit so you never depend on a surface nexus has not promised:
 
-- **No project form of the write commands.** `add`, `import`, `update`,
-  `export`, `enable` and `disable` do not accept `--project`; project scope is
-  `list` / `link` / `remove` / `doctor` only, and `remove --project` takes exact
-  link names (no globs or groups).
+- **No project form of the write commands.** `add`, `import`, `update` and
+  `export` do not accept `--project`; project scope is `list` / `link` /
+  `remove` / `doctor` / `enable` / `disable`, and its destructive operations
+  take exact link names (no globs or groups). Project toggles move links only;
+  no `SKILL.md` is edited.
 - **No `--json` on `export` / `import` / `adopt` / `switch-version`.** They are
   deliberately out of the version-1 write contract: `export` and `import` carry
   a package format, and `adopt` / `switch-version` are long-running jobs whose

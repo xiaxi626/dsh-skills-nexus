@@ -165,9 +165,11 @@ A project carries its own root, scanned by the provider before `~/.dsh/skills`:
 ```
 <projectRoot>/
 └── .dsh/
-    └── skills/                     # provider rank 100 (shadows the user root)
-        ├── my-skill/      → link → /path/to/my-skill/
-        └── vendored-skill/         # real files, committed by the user
+    ├── skills/                     # provider rank 100 (shadows the user root)
+    │   ├── my-skill/      → link → /path/to/my-skill/
+    │   └── vendored-skill/         # real files, committed by the user
+    └── skills-disabled/            # parked links; the provider does not scan this
+        └── old-skill/     → link → /path/to/old-skill/
 ```
 
 **Why two directory layers?**
@@ -178,7 +180,12 @@ A project carries its own root, scanned by the provider before `~/.dsh/skills`:
 - **Project roots are separate**: `<projectRoot>/.dsh/skills/` is scanned by the
   provider at a higher rank than `~/.dsh/skills/`. Project scope writes links
   there and nothing else — no manifest entry, no clone, no copy — so deleting or
-  moving the project leaves no nexus state behind.
+  moving the project leaves no nexus state behind. The project page is also a
+  read-only viewer: it parses the folder's own `SKILL.md` files (and the links'
+  targets) for display, and `disable` merely moves a link to the sibling
+  `.dsh/skills-disabled/` (outside the scanned root); `enable` moves it back.
+  The link keeps its target, so no state file is needed and no `SKILL.md` is
+  ever edited.
 
 The local source registry in `src/external.ts` configures `envVar`,
 `defaultDirName` or ordered `rootCandidates`, and one `discover` function per

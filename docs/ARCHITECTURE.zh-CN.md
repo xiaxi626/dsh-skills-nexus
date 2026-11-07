@@ -135,9 +135,11 @@ DSH filesystem provider（官方内置）
 ```
 <projectRoot>/
 └── .dsh/
-    └── skills/                     # provider rank 100（覆盖用户级根）
-        ├── my-skill/      → link → /path/to/my-skill/
-        └── vendored-skill/         # 用户提交的真实文件
+    ├── skills/                     # provider rank 100（覆盖用户级根）
+    │   ├── my-skill/      → link → /path/to/my-skill/
+    │   └── vendored-skill/         # 用户提交的真实文件
+    └── skills-disabled/            # 停用的链接；provider 不扫描这里
+        └── old-skill/     → link → /path/to/old-skill/
 ```
 
 **为什么有两层目录？**
@@ -145,7 +147,7 @@ DSH filesystem provider（官方内置）
 - `repos/` 是 nexus 的私有存储——所有 git 克隆都放在这里，保持原始结构不变。CLI 通过 git 对这些目录做 clone / pull / checkout 等操作。克隆由 nexus 管理：`add` / `update` 可能原地归一化 frontmatter（修正非法名称、补全缺失的 `description`），`update` 在拉取前会丢弃本地改动（有警告）——请勿手动编辑克隆。
 - `~/.dsh/skills/` 是 DSH 官方的 skills 根目录——官方 filesystem provider 只扫描这一层。nexus 在这里为每个 skill 创建一个 symlink，指向 `repos/` 中的实际目录。这样官方 provider 就能自动发现所有 skill，无需自定义 provider。
 - **外部条目**（由 `link <source>` 创建，来源共十九个）符号链接到 nexus 控制范围之外的目录——通常是 `~/.trae-cn/skills/`、`~/.trae/skills/`、`~/.codebuddy/skills/`、`~/.workbuddy/skills/`、`~/.agents/skills/`、`~/.config/opencode/skills/`、`~/.codeium/windsurf/skills/`、`~/.kimi-code/skills/`，或 `~/.qoder/` 与 `~/.qoder-cn/` 下的某个技能（用户级 `skills/`，或市场插件声明的技能目录）。nexus 不克隆、不更新、不删除那些目录。`remove` 只删除链接和 manifest 条目。
-- **项目根是独立的**：provider 扫描 `<projectRoot>/.dsh/skills/` 的 rank 高于 `~/.dsh/skills/`。项目作用域只往那里写链接，别的什么都不写——没有 manifest 条目、没有克隆、没有复制——所以删除或移动项目不会留下 nexus 状态。
+- **项目根是独立的**：provider 扫描 `<projectRoot>/.dsh/skills/` 的 rank 高于 `~/.dsh/skills/`。项目作用域只往那里写链接，别的什么都不写——没有 manifest 条目、没有克隆、没有复制——所以删除或移动项目不会留下 nexus 状态。项目页同时也是只读查看器：解析文件夹自身的 `SKILL.md` 与链接目标用于展示；`disable` 只是把链接移到同级的 `.dsh/skills-disabled/`（扫描根之外），`enable` 再移回。链接保留目标，因此不需要状态文件，也从不编辑任何 `SKILL.md`。
 
 `src/external.ts` 的来源注册表配置 `envVar`、`defaultDirName` 或有序 `rootCandidates`，以及每个来源自带的 `discover`（`(root) => DiscoveredSkill[]`）。
 `trae-cn` 使用 `TRAE_CN_DIR` / `.trae-cn`，`trae` 使用 `TRAE_DIR` / `.trae`，两者都走 `plainDiscovery(['skills'])`。

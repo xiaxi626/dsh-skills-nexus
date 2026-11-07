@@ -10,7 +10,7 @@ This guide verifies:
 
 - `list --project`, `link --project <dir>`, `remove --project <name>...` and `doctor --project`;
 - `list --all`, the human-only joined view with `overrides` / `shadowed` markers;
-- the three HTTP routes and the panel section;
+- the four HTTP routes and the panel section;
 - the invariants: **no manifest write, no copy or clone, and never a user-file deletion**.
 
 ## What project scope is and is not
@@ -63,7 +63,7 @@ Every command should exit 0. To check committed artifact freshness, run `git dif
 | `project.test.ts` | `detectProjectRoot` (directory and file `.git`, fallback to cwd); listing (empty root, link, user files, dangling link with recovered target); name derivation for the three layouts and the non-ASCII fallback; `replace` / `unchanged` / `collision` / duplicate-name plans; apply and re-plan; removal refusing real directories; path-traversal rejection; the Windows UNC refusal |
 | `cli-project.test.ts` | The process-level chain: cwd root detection, `link --project` → `list --project` → `remove --project`, JSON purity, exit codes, no manifest created, user files refused, dangling `doctor` warning, `list --all`, bad explicit root, registry flags rejected, UNC refused |
 | `args.test.ts` | `--project` / `--project-root` / `--all` parsing, the "root requires project" rule, mutual exclusions, project-mode flag/glob refusals |
-| `api.test.ts` | The three routes: root validation, loopback and origin guards, preview vs `202` job, `confirm-required`, `404 not-found`, `409 not-a-link`, `400 invalid-name`, UNC refusal |
+| `api.test.ts` | The four routes: root validation, loopback and origin guards, preview vs `202` job, `confirm-required`, toggle, `404 not-found`, `409 not-a-link`/`collision`, `400 invalid-name`, UNC refusal |
 | `client-api.test.ts` | `projectList` URL encoding, `projectLink` preview/job bodies, `projectRemove` confirm flag |
 | `panel-render.test.tsx` | The project section renders its root input and gated form; a `link` row has `remove`, a `user files` row never does; a dangling row shows the `dangling` badge |
 | `completions.test.ts` | `--project` / `--project-root` / `--all` offered by all four templates; the `--project-root` value is skipped when counting positionals |
@@ -162,38 +162,50 @@ Notes on platform behavior:
 - A UNC source (`\\server\share\...`) is refused on Windows before any filesystem call, with a message that says junctions need a local absolute path. The walkthrough's sources are local, so this guard is covered by the focused tests rather than the script.
 - On POSIX the same steps exercise plain directory symlinks; a dangling symlink is recoverable through `readlink`, which is what lets `list --project` show its old target.
 
+### Viewer and switch extras
+
+The script pre-dates the project viewer. To see it, write a root `$PROJ/SKILL.md`
+with a valid `name`/`description` and rerun `list --project`: the
+`Folder skills` section shows the parsed name and description, not just the
+filename. To exercise the switch, link a source and run
+`disable --project <name> --json`; assert `.dsh/skills-disabled/<name>` exists
+and the target's `SKILL.md` is untouched, then `enable --project <name>`
+restores the active link.
+
 ## Panel acceptance checklist
 
 Requires a DSH **web** host with the plugin mounted (see [Local testing steps](../README.md#local-testing-steps)). Static rendering is covered by the test suite; the checklist below is the UI integration gate.
 
 1. Open **Settings → Skills Nexus**. The section has two tabs: **Global skills** (the default) and **Project skills**.
-2. Switch to **Project skills**. With the project root field empty, the tab says `enter the project root to list its skills`, and **no request** is sent.
-3. Enter the temporary project's absolute path, press **refresh**. An empty `.dsh/skills` shows `no project skills yet — link a directory below.`
-4. Paste a skill directory path, press **preview**. The plan lists one row per discovered skill with the planned status (`link` / `replace` / `unchanged` / `collision` / `invalid`). Nothing is on disk yet.
-5. Press **link to project**. The job runs and the list refreshes with a `link` badge and the absolute target.
+2. Switch to **Project skills**. With the folder field empty, the tab says `enter a project folder to see its skills`, and **no request** is sent.
+3. Enter the temporary project's absolute path (for example `D:\theme-port-skill`) and press **refresh**. The **skills in this folder** section shows the parsed frontmatter name and description, not just `SKILL.md`; the **project skills root** section lists `.dsh/skills` entries (or says it is empty).
+4. Press **link** on a folder-skill row. The job runs, the folder row gains a `linked` badge, and a matching link row appears under the project skills root with its parsed name and absolute target.
+5. Toggle the link's **Switch** off: the row becomes `disabled`, the link moves to `.dsh/skills-disabled`, and the target directory still exists. Toggle it on again and the link returns.
 6. Remove the target directory, press **refresh** again: the row turns into a `dangling` badge (warning tone).
-7. A real directory you placed in `.dsh/skills` shows a `user files` badge and **no remove button**.
+7. A real directory you placed in `.dsh/skills` shows a `user files` badge, **no Switch** and **no remove button**.
 8. Press **remove** on a link row: the confirmation overlay says only the link is deleted; after confirming, the row disappears and the target directory still exists.
-9. Change the project root: the old list is cleared immediately (no stale rows from the previous project).
+9. Change the project folder: the old lists are cleared immediately (no stale rows from the previous folder).
 
 ## HTTP surface
 
-The panel talks to three routes; they are internal plumbing, not the stable machine interface (that is the CLI `--json` reports).
+The panel talks to four routes; they are internal plumbing, not the stable machine interface (that is the CLI `--json` reports).
 
 | Route | Body / query | Answer |
 |---|---|---|
-| `GET /skills-nexus/project/list` | `?root=<absolute path>` | `{ projectRoot, entries }` |
+| `GET /skills-nexus/project/list` | `?root=<absolute path>` | `{ projectRoot, folderSkills, entries }` |
 | `POST /skills-nexus/project/link` | `{ root, dir }` | synchronous plan `{ projectRoot, source, results }` |
 | `POST /skills-nexus/project/link` | `{ root, dir, confirm: true }` | `202 { data: { jobId } }`; poll `GET /job?id=` |
+| `POST /skills-nexus/project/toggle` | `{ root, name, enabled }` | `{ projectRoot, name, enabled, status }` |
 | `POST /skills-nexus/project/remove` | `{ root, name, confirm: true }` | `{ projectRoot, name, status: 'removed' }` |
 
-All three require same-origin and a loopback socket. A `root` that is not an existing directory answers `400 invalid-root`; a name with a path separator answers `400 invalid-name`; a real directory or file answers `409 not-a-link`; a missing route input answers `400 missing-field`; a UNC source on Windows answers `400 unsupported-source`.
+All four require same-origin and a loopback socket. A `root` that is not an existing directory answers `400 invalid-root`; a name with a path separator answers `400 invalid-name`; a real directory or file answers `409 not-a-link` (or `409 collision` when the other location is occupied); a missing route input answers `400 missing-field`; a UNC source on Windows answers `400 unsupported-source`.
 
 ## Known boundaries
 
 - **No state.** There is no `projectRoot` in the manifest, no migration and no "stale project" failure class. The folder is the record.
-- **Links are machine-local.** They store an absolute path; committing `.dsh/skills/` links is meaningless for teammates (and Git on Windows may walk a junction as a directory). Add `.dsh/skills/` to `.gitignore` for the link-only workflow; vendored real directories are the shareable form.
-- **Names come from directories.** A skill is keyed by its directory name, not its frontmatter `name`, because that is how the provider identifies it. A directory with no usable ASCII name falls back to the frontmatter name; only when both fail is the entry `invalid`.
+- **Links are machine-local.** They store an absolute path; committing `.dsh/skills/` or `.dsh/skills-disabled/` links is meaningless for teammates (and Git on Windows may walk a junction as a directory). Add both to `.gitignore` for the link-only workflow; vendored real directories are the shareable form.
+- **Names.** DSH's catalog name comes from the `SKILL.md` frontmatter; the link **entry name** is a filesystem key derived from the directory (frontmatter fallback for a non-ASCII directory). The panel and CLI show the parsed name, so a flat `SKILL.md` row is not anonymous.
+- **Disable is a link move.** The link goes to the sibling `.dsh/skills-disabled/`; the target and dangling state survive, and disabling un-shadows a global skill of the same name. No `SKILL.md` is edited.
 - **Exact-name removal.** `remove --project` accepts names, not globs or group prefixes; the refusal is deliberate, to keep the destructive surface one link wide.
 - **`list --all` is human-only.** It joins two datasets (filesystem links and manifest entries) and is not part of the version-1 JSON contract; use `list --json` and `list --project --json` for machines.
 - **Windows junction targets.** A junction needs a local absolute path; UNC shares are refused up front instead of surfacing a raw `EPERM`.

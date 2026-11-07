@@ -24,7 +24,7 @@ dsh-skills-nexus 是社区维护的 DeepSeek Harness (DSH) 插件，非 DeepSeek
 | Git 安装 | 任意 git 主机上的 `SKILL.md` 仓库，可锁到分支、tag 或 commit；集合仓库用部分克隆 + 稀疏检出只装一个子目录；注册前先识别包装层 | `add` |
 | 版本管理 | 刷新分支跟踪的克隆、不检出就预览远端变更、把克隆切到另一个 ref、撤销最近一次版本变更 | `update` / `diff` / `switch-version` / `rollback` |
 | 外部引用 | 把已经装在别的 agent 目录里的技能登记进来——不克隆、不复制、不写那些目录 | [`link`](#支持-link-的外部来源) / `remove --group` |
-| 项目级技能 | 把目录链接进 `<project>/.dsh/skills`（provider 优先扫描的根）——不写 manifest、不克隆、不复制；可列出、删除链接并报告悬空 | [`--project`](#项目技能) |
+| 项目级技能 | 查看任意项目文件夹的技能（解析名称/描述），把目录链接进 `<project>/.dsh/skills`（provider 优先扫描的根），可启停/删除链接并报告悬空——不写 manifest、不克隆、不复制 | [`--project`](#项目技能) |
 | 跨机器搬运 | 把条目连同来路打包，在别处重建（可选恢复到记录的精确 commit），给冻结条目补回来路 | `export` / `import` / `adopt` |
 | 分组与开关 | 按来源或自定义 L1 组名分组，按单条目或整组前缀启停 | `enable` / `disable` / `--group` |
 | 体检与清理 | 只读检查清单、链接与克隆（可选比对远端更新），清理累积产物 | `doctor` / `purge` |
@@ -156,13 +156,15 @@ dsh-skills-nexus remove --group trae --yes          # 卸载整组链接，保�
 dsh-skills-nexus link trae-cn --group custom        # 覆盖 L1 组名（默认 trae-cn）
 dsh-skills-nexus link trae-cn --force               # 冲突时替换已有条目
 
-# 项目级技能：链接放在 <project>/.dsh/skills——不写 manifest、不复制
+# 项目作用域：任意项目文件夹 + <project>/.dsh/skills 下的链接
 dsh-skills-nexus link --project /path/to/my-skill     # 项目根 = cwd 最近的 .git 祖先
 dsh-skills-nexus link --project /path/to/collection   # 每个发现的技能一条链接
 dsh-skills-nexus link --project /path/to/my-skill --dry-run
-dsh-skills-nexus list --project                       # KIND / NAME / TARGET，悬空标 (dangling)
+dsh-skills-nexus list --project                       # 文件夹技能 + .dsh/skills 条目（解析名称）
 dsh-skills-nexus list --project --json                # version-1 项目报告
 dsh-skills-nexus list --all                           # 项目 + 全局，overrides/shadowed（仅人读）
+dsh-skills-nexus disable --project my-skill           # 移出链接；目标目录不动
+dsh-skills-nexus enable --project my-skill            # 移回链接
 dsh-skills-nexus remove --project my-skill            # 只删链接；用户文件会被拒绝
 dsh-skills-nexus doctor --project                     # 悬空的项目链接
 dsh-skills-nexus list --project --project-root /path/to/project  # 显式项目根
@@ -212,42 +214,53 @@ Copilot、Cursor、Gemini CLI 与 Kimi Code 的官方跨工具位置。两个 Qo
 ### 项目技能
 
 DSH filesystem provider 按项目 rank 扫描 `<projectRoot>/.dsh/skills`，**先于**用户级
-`~/.dsh/skills`，所以放在这里的同名链接会覆盖全局技能。`--project` 系列命令只管理
-这个目录，别的什么都不写：
+`~/.dsh/skills`，所以放在这里的同名链接会覆盖全局技能。项目页签现在是一个
+**查看器 + 链接管理器**：填入**任意文件夹**（不必是已登记的 DSH 工作区），它会展示该
+文件夹自身提供的技能，以及 `<projectRoot>/.dsh/skills` 下的条目。
 
 ```bash
-dsh-skills-nexus link   --project /path/to/my-skill      # 链接一个技能目录
-dsh-skills-nexus link   --project /path/to/collection    # 每个发现的技能一条链接
-dsh-skills-nexus list   --project                        # KIND / NAME / TARGET（含 dangling）
-dsh-skills-nexus list   --all                            # 项目 + 全局，overrides/shadowed
-dsh-skills-nexus remove --project my-skill               # 只删链接
-dsh-skills-nexus doctor --project                        # 悬空的项目链接
+dsh-skills-nexus link    --project /path/to/my-skill     # 链接一个技能目录
+dsh-skills-nexus link    --project /path/to/collection   # 每个发现的技能一条链接
+dsh-skills-nexus list    --project                       # 文件夹技能 + 项目条目（解析名称/描述）
+dsh-skills-nexus list    --all                           # 项目 + 全局，overrides/shadowed
+dsh-skills-nexus disable --project my-skill              # 把链接移出扫描根
+dsh-skills-nexus enable  --project my-skill              # 再移回来
+dsh-skills-nexus remove  --project my-skill              # 只删链接
+dsh-skills-nexus doctor  --project                       # 悬空的项目链接
 ```
 
 - **根解析。** 只给 `--project` 时，从当前目录向上找最近含 `.git` 的祖先（找不到回退
   当前目录），与 provider 规则一致。`--project-root <path>` 显式指定，必须与
   `--project` 同时出现；显式根写错会直接报错，不会猜测兜底。
-- **链接名。** 技能按**目录名**识别，因此 `.../my-skill/SKILL.md` 生成
-  `.dsh/skills/my-skill`；集合仓库的每个子目录各自成链；扁平 `<name>.md` 用文件名
-  主干。只有目录名不含任何可用 ASCII 字符时才回退 frontmatter 名——否则这类目录会
-  全部塌缩成同一个名字。
-- **不写 manifest、不复制。** 项目作用域从不写 `manifest.json`、不克隆、不复制；目标
-  目录始终归用户。`remove --project` 只删被证实的链接，遇到真实目录或文件会以
-  `refusing to remove user files` 拒绝。写入按「项目 + 名字」走 nexus 同一套跨进程
-  文件锁串行化；因为不碰 manifest，所以不取 manifest 锁。
-- **冲突。** 已有链接会被改指向（`replace`）；已指向同一目录是 `unchanged`；真实
+- **名字。** DSH 目录里的技能名来自 `SKILL.md` 的 frontmatter；链接的**条目名**是
+  nexus 的文件系统键，优先取目录名（目录名不含可用 ASCII 字符时回退 frontmatter 名）。
+  项目页签展示解析后的名称与描述，不会只显示 `SKILL.md`。布局：根 `SKILL.md` → 文件夹
+  名；一级子目录 → 各子目录；扁平 `.md` → 文件主干。
+- **不写 manifest、不复制、不改 skill 文件。** 项目作用域从不写 `manifest.json`、不克隆、
+  不复制、不编辑任何 `SKILL.md`。`.dsh/skills` 下的真实目录/文件只读展示，不提供删除。
+  `remove --project` 只删被证实的链接，遇到用户内容会以 `refusing to remove user files`
+  拒绝。写入按「项目 + 名字」走 nexus 同一套跨进程文件锁；因为不碰 manifest，所以不取
+  manifest 锁。
+- **启停 = 移动链接。** 停用把 `.dsh/skills/<name>` 移到同级的
+  `.dsh/skills-disabled/<name>`（provider 不扫描这个目录）；启用再移回来。链接自身携带
+  目标（以及悬空状态），所以不需要记住路径、不需要状态文件，目标目录一个字节都不动。
+  停用项目同名技能后，全局同名技能会重新可见。
+- **冲突。** 已有活动链接会被改指向（`replace`）；已指向同一目录是 `unchanged`；真实
   目录或文件是 `collision`，内容原样保留。
 - **机器输出。** `list --project --json` →
-  `{ version, projectRoot, entries[] }`；`link --project --json` →
-  `{ version, projectRoot, source, results[], summary }`；`remove --project --json`
-  → `{ version, results[], summary }`，多一个 `not-a-link` 状态。`--all` 仅人读：
-  它合并两个数据集，没有定义 version-1 信封。
+  `{ version, projectRoot, folderSkills[], entries[] }`，每个 folder skill / entry 都带解析
+  元数据与 `enabled`/`disabled` 状态；`link --project --json` →
+  `{ version, projectRoot, source, results[], summary }`；`enable|disable --project --json` →
+  `{ version, projectRoot, results[], summary }`；`remove --project --json` →
+  `{ version, results[], summary }`，多一个 `not-a-link` 状态。`--all` 仅人读。
 - **Windows。** 项目链接和全局链接一样是 NTFS junction；UNC 目标会被前置拒绝，因为
   junction 需要本地绝对路径。
-- **Git。** 链接记录的是机器本地绝对路径，纯 link 用法不要把 `.dsh/skills/` 下的链接
-  提交进 git——把它加入 `.gitignore`。要共享就把真实文件 vendored 进去。
-- **不支持。** `add` / `import` / `update` / `export` / `enable` / `disable` 没有
-  项目形态；`remove --project` 只接受精确名（不支持通配与 `--group`）。
+- **Git。** 链接记录的是机器本地绝对路径，纯 link 用法不要把 `.dsh/skills/` 与
+  `.dsh/skills-disabled/` 下的链接提交进 git——把两者加入 `.gitignore`。要共享就把真实
+  文件 vendored 进去。
+- **不支持。** `add` / `import` / `update` / `export` 没有项目形态；`remove --project`
+  与项目开关只接受精确链接名（不支持通配与 `--group`）。
+
 
 隔离演练与面板验收见[验证项目级技能作用域](docs/verify-project-skills.zh-CN.md)。
 
@@ -318,10 +331,11 @@ dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo --subdir skill
 
 - 浏览条目卡片——链接名、启用状态、固定的 commit、`no source` / `linked directory` / `disabled` 等状态标签，以及分支跟踪条目的「有更新」徽标；
 - 在 `link local skills` 区选择 **Trae CN**、**Trae**、**Qoder**、**Qoder CN**、**CodeBuddy** 或 **WorkBuddy**，可填写服务端来源根目录，先预览再链接；更改路径会清除旧预览；
-- 在 **项目技能**页签管理**项目级技能**：填入项目根，浏览 `<project>/.dsh/skills`
-  下的链接（目标消失的链接带 `dangling` 徽标），先预览目录再确认建链（job），删除时
-  只删链接——`user files` 行没有 remove 按钮。项目根按会话手填、不持久化（该客户端
-  上下文只注入 `slots`，没有可读取项目根的 workspace 服务）；
+- 在 **项目技能**页签查看并管理项目文件夹：填入任意绝对路径（不必是 DSH 工作区），
+  页签会列出该文件夹自身的技能（解析后的名称/描述，逐行提供 **link**），以及
+  `.dsh/skills` 下的条目（链接 vs 用户文件）。链接行带启停 **Switch**——停用会把链接移到
+  `.dsh/skills-disabled`，目标目录不动——以及 **remove**；`user files` 行只读。项目根按
+  会话手填、不持久化（该客户端上下文只注入 `slots`，没有可读取项目根的 workspace 服务）；
 - 管理**外部条目**（由 CLI `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` / `link codebuddy` / `link workbuddy` 创建）——面板以 `linked directory` 标签显示它们及其外部路径，支持启用/禁用和删除（删除只移除链接，不碰用户目录）；
 - 带 `groupPath` 的条目（如来自 `link trae-cn`）渲染在可折叠的 L1 组头下，带组级 Switch（✓/○/◐ 表示 on/off/mixed）——切换组 Switch 批量启用或禁用该组所有条目；
 - 在工具栏过滤列表——搜索框按名字或 url 匹配；右侧的徽标在有待更新条目时显示待更新数量，并常驻显示已注册技能总数；
@@ -571,11 +585,12 @@ ls -la ~/.dsh/skills/
 - **版本固定与更新**：用 `#分支名`、`#tag名` 或 `#commit-hash` 固定 ref。安装时 manifest 会记录实际解析到的 commit（`commit` 字段）——一个轻量锁，`list` 会显示它。`update` 只对**分支** pin 的 skill 做快进拉取（并打印 commit 变化）；**tag/commit** pin 的 skill 是固定点：只校验当前 checkout 是否仍等于 pin（漂移则自动恢复），不做 pull——被固定的版本永远不会静默漂移。不加 `#ref` 时，CLI 会通过 `git ls-remote --symref` 自动探测远程默认分支（探测失败回落到 `main`）。
 - **仅用于 skill 内容仓库**：这不是 `dsh plugin add` 的替代品。如果仓库本身就有 `dsh.bundle.patch`，请用正常方式安装——nexus 是给那些没有封装的仓库用的。完整决策指南见 [nexus 与 `dsh plugin`——什么时候用哪个](docs/nexus-vs-plugin.zh-CN.md)。
 - **外部条目（`link` 通道）**：`link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` / `link codebuddy` / `link workbuddy` 创建*外部*条目，符号链接到用户已有的目录（`~/.trae-cn/skills/`、`~/.trae/skills/`、`~/.codebuddy/skills/`、`~/.workbuddy/skills/`，或 `~/.qoder` 与 `~/.qoder-cn` 下的用户级与市场插件技能目录）。nexus 不克隆、不更新、不删除这些目录——`remove` 只删除链接和 manifest 条目。外部条目携带 `groupPath`（如 `['trae-cn', 'skills', 'brainstorming']`）用于层级分组；`enable` 和 `disable` 接受 `--group <path>` 按前缀批量切换。Web 面板将分组条目渲染在可折叠的 L1 组头下，带组级 Switch。
-- **项目级链接**：`link --project` / `list --project` / `remove --project` /
-  `doctor --project` 作用于 `<project>/.dsh/skills`——provider 先于
-  `~/.dsh/skills` 扫描的根。它们不写 manifest、不复制；`remove --project` 只删
-  被证实的链接，拒绝真实用户内容。其他命令（`add`、`import`、`update`、
-  `export`、`enable`、`disable`）没有项目作用域。详见[项目技能](#项目技能)。
+- **项目作用域**：`link` / `list` / `enable` / `disable` / `remove` /
+  `doctor --project` 作用于任意项目文件夹的 `<project>/.dsh/skills`——provider
+  先于 `~/.dsh/skills` 扫描的根。页签还会解析文件夹自身的 `SKILL.md` 做只读预览。
+  启停只是把链接移到 `.dsh/skills-disabled` 再移回，目标目录不动。它们不写 manifest、
+  不复制、不编辑任何 `SKILL.md`；`remove --project` 只删被证实的链接，拒绝真实用户
+  内容。`add`、`import`、`update`、`export` 没有项目作用域。详见[项目技能](#项目技能)。
 - **集合仓库与 `--subdir`**：skill 藏在子目录的集合仓库用 `--subdir <path>` 按需安装——每次安装是一个独立条目、独立克隆（独立克隆设计，P1/P2 权衡见 [docs/subdir-design.md](docs/subdir-design.md)）。新装的 `--subdir` 条目在 Git 和远端支持时为**稀疏检出**：部分克隆加 cone 模式 `sparse-checkout`（安装输出里报 `checkout: sparse`），无关 skill 目录不落盘——远端支持 blob 过滤时通常可减少下载与磁盘占用，实际收益取决于仓库布局（无硬性流量上限：cone 会保留仓库根与祖先目录的直属文件；远端忽略 filter 时可能整仓下载，nexus 会给出可见警告）。想退出稀疏：`git -C <克隆目录> sparse-checkout disable`（会把剩余内容全部拉取检出；后续 `update` 不会重新强制稀疏）；稀疏流程需要 **Git 2.35+**（更旧的 Git 其 `sparse-checkout set` 不提供 `--cone`），本机 Git 缺少该能力时，会在警告后把同一克隆补成整仓检出，不重复下载。不带 `--subdir` 全量安装时，根目录无可用 skill 会被拒绝；超过 20 个 skill 会弹确认提示。从同一仓库挑装的多个条目各自保留独立克隆，但 `list` 会显示 **SOURCE** 列（来源 `owner/repo`），同一仓库挑出的条目一眼可辨。
 - **平铺 md 过滤**：没有 frontmatter `name` **且**没有 `description` 的平铺 `*.md` 不会被当作 skill——集合仓库的文档（`README.zh-CN.md`、`CONTRIBUTING.md`、`community-leaderboard.md` 等）永远不会被"假装安装"。发现阶段的跳过名单也按前缀模式覆盖 `readme*`、`contributing*`、`license*`、`changelog*`、`code-of-conduct*`、`security*`。
 - **同名不消歧**：DSH 按名称索引 skill，后安装的同名 skill 会覆盖前者。用 `--name` 区分条目，或用 `--subdir` 只装需要的。`--subdir` 安装时显式传入的 `--name` 若归一化后与默认条目名（subdir 末段）相同，安装成功后会提示可省略该参数。enable/disable 按条目（即按安装的 subdir）生效，`remove` 删除整个条目的克隆及其所有 symlink。

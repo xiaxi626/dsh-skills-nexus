@@ -93,8 +93,9 @@ nexus 暴露五条机器可读路径。五条都是稳定契约；CLI 的其余�
 
 六个生命周期命令会输出带版本号的报告，描述它们**刚才做了什么**：`list --json`、
 `add --json`、`update --json`、`remove --json`、`enable` / `disable --json`，
-以及 `link --json`。项目作用域另有三种形状（`list --project` / `link --project` /
-`remove --project`，见下文），它们共用同一份刻意保持窄小的契约：
+以及 `link --json`。项目作用域另有四种形状（`list --project` / `link --project` /
+`enable|disable --project` / `remove --project`，见下文），它们共用同一份刻意保持
+窄小的契约：
 
 ### 承诺的部分
 
@@ -247,8 +248,8 @@ nexus 暴露五条机器可读路径。五条都是稳定契约；CLI 的其余�
 
 ### 项目作用域报告
 
-项目作用域是另一套数据集（文件系统链接，无 manifest），因此它用三种独立形状，而不是
-复用 `list --json` / `link --json` / `remove --json`：
+项目作用域是另一套数据集（文件系统链接，无 manifest），因此它用四种独立形状，而不是
+复用 `list --json` / `link --json` / `remove --json` / `enable --json`：
 
 `list --project --json`：
 
@@ -256,16 +257,48 @@ nexus 暴露五条机器可读路径。五条都是稳定契约；CLI 的其余�
 {
   "version": 1,
   "projectRoot": "/abs/project",
+  "folderSkills": [
+    {
+      "name": "theme-port-skill",
+      "description": "migrate Hexo themes",
+      "skillFile": "/abs/project/SKILL.md",
+      "resourceBase": "/abs/project",
+      "valid": true,
+      "linked": false,
+      "linkName": null,
+      "disabled": false
+    }
+  ],
   "entries": [
-    { "name": "my-skill", "kind": "link", "target": "/abs/skill", "dangling": false }
+    {
+      "name": "my-skill",
+      "path": "/abs/project/.dsh/skills/my-skill",
+      "kind": "link",
+      "target": "/abs/skill",
+      "dangling": false,
+      "enabled": true,
+      "skill": {
+        "name": "my-skill",
+        "description": "…",
+        "skillFile": "/abs/skill/SKILL.md",
+        "resourceBase": "/abs/skill",
+        "valid": true
+      }
+    }
   ]
 }
 ```
 
+- `folderSkills` 是项目文件夹自身的只读扫描（根 `SKILL.md`、一级子目录、扁平
+  `.md`）。`linked` 表示有活动链接指向该资源根；`disabled` 表示唯一的链接被停用；
+  `valid` 是 DSH 名称+描述校验。
 - `kind` ∈ `link` | `files`。`files` 是用户自己放进
   `<projectRoot>/.dsh/skills` 的真实内容，nexus 永不删除。
 - `target` 对 `files` 以及目标无法恢复的链接为 `null`；目标缺失或不是目录时
   `dangling` 为 `true`。
+- `enabled` 对停在 `.dsh/skills-disabled` 下的链接为 `false`。`skill` 携带解析后的
+  frontmatter 元数据（不是有效技能时为 `null`）；UI 展示的**名称**来自它，而不是文件
+  系统条目名。
 - `projectRoot` 是解析后的绝对项目根。
 
 `link --project --json`：
@@ -288,6 +321,25 @@ nexus 暴露五条机器可读路径。五条都是稳定契约；CLI 的其余�
 - 带 `--dry-run` 时同一份报告描述计划，不写任何东西。
 - `summary.failed` 统计 `collision` / `invalid` / 尝试后失败的项目；非零时退出码
   为 `1`。
+
+`enable --project --json` / `disable --project --json`：
+
+```json
+{
+  "version": 1,
+  "projectRoot": "/abs/project",
+  "results": [{ "name": "my-skill", "status": "disabled", "enabled": false }],
+  "summary": { "enabled": 0, "disabled": 1, "failed": 0 }
+}
+```
+
+- `status` ∈ `enabled` | `disabled` | `already-enabled` |
+  `already-disabled` | `not-found` | `not-a-link` | `collision` |
+  `failed`；`enabled` 回显请求方向。
+- 停用把链接移到 `<projectRoot>/.dsh/skills-disabled/<name>`；启用再移回。目标目录
+  从不被触碰，所以报告不携带 target 或备份路径。
+- `already-*` 视为成功（退出 0）；其他非移动状态都是单项失败（退出 1）。
+  `not-a-link` / `collision` 表示两个位置之一被真实用户内容占用。
 
 `remove --project --json`：
 
@@ -315,9 +367,10 @@ nexus 暴露五条机器可读路径。五条都是稳定契约；CLI 的其余�
 
 明确写清，好让你绝不去依赖 nexus 并未承诺的表面：
 
-- **写命令没有项目形态。** `add`、`import`、`update`、`export`、`enable`、
-  `disable` 不接受 `--project`；项目作用域只有 `list` / `link` / `remove` /
-  `doctor`，且 `remove --project` 只接受精确链接名（不支持通配或整组）。
+- **写命令没有项目形态。** `add`、`import`、`update`、`export` 不接受
+  `--project`；项目作用域是 `list` / `link` / `remove` / `doctor` /
+  `enable` / `disable`，破坏性操作只接受精确链接名（不支持通配或整组）。项目开关只
+  移动链接，不编辑任何 `SKILL.md`。
 - **`export` / `import` / `adopt` / `switch-version` 没有 `--json`。** 它们刻意不在
   version 1 写契约内：`export` / `import` 涉及包格式，`adopt` / `switch-version` 是
   长任务、其结构化状态属于 HTTP job 通道。请用退出码驱动它们，再用 `list --json`
