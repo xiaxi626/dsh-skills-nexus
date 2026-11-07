@@ -118,7 +118,7 @@ export interface DoctorReport {
   summary: { errors: number; warnings: number; updates: number }
 }
 
-export type JobKind = 'add' | 'import' | 'adopt' | 'update' | 'switch-version' | 'link'
+export type JobKind = 'add' | 'import' | 'adopt' | 'update' | 'switch-version' | 'link' | 'project-link'
 export type JobStatus = 'running' | 'done' | 'error' | 'cancelled'
 
 /** §7.5 Job schema as `GET /job` serves it. */
@@ -248,7 +248,48 @@ export interface GroupState {
   count: number
 }
 
-/** Options of `POST /import`; the package travels beside them, as the body. */
+/* ------------------------------------------------------------------ */
+/* Project scope (three filesystem routes)                             */
+/* ------------------------------------------------------------------ */
+
+/** One entry under `<project>/.dsh/skills`, as `GET /project/list` serves it. */
+export interface ProjectSkillEntry {
+  name: string
+  /** Absolute path of the entry itself. */
+  path: string
+  kind: 'link' | 'files'
+  /** Absolute link target; null for user files and unrecoverable links. */
+  target: string | null
+  /** True when a link's target is missing or is not a directory. */
+  dangling: boolean
+}
+
+export type ProjectLinkStatus = 'link' | 'replace' | 'unchanged' | 'collision' | 'invalid'
+
+/** One planned/executed project link (server mirror of `ProjectLinkResult`). */
+export interface ProjectLinkResult {
+  name: string
+  target: string | null
+  status: ProjectLinkStatus
+  error?: string
+}
+
+/** The synchronous `POST /project/link` preview. */
+export interface ProjectLinkPlan {
+  projectRoot: string
+  source: string
+  results: ProjectLinkResult[]
+}
+
+/** `POST /project/link` answers either the preview or a `202` job. */
+export type ProjectLinkResponse = ProjectLinkPlan | { jobId: string }
+
+/** True when a project-link response is the preview rather than a job. */
+export function isProjectLinkPlan(value: ProjectLinkResponse): value is ProjectLinkPlan {
+  return 'results' in value
+}
+
+/** Body of `POST /import`; the package travels beside them, as the body. */
 export interface ImportBody {
   /** Preview only: answers the plan synchronously, touches no nexus state. */
   dryRun?: boolean
@@ -298,6 +339,12 @@ export interface NexusApi {
   toggleGroup(group: string, enabled: boolean): Promise<Envelope<{ group: string; results: Array<{ name: string; enabled: boolean; changed: boolean }> }>>
   linkPreview(source: string, opts?: Omit<LinkBody, 'source' | 'confirm'>): Promise<Envelope<{ plan: LinkPlan }>>
   linkLocal(source: string, opts?: Omit<LinkBody, 'source' | 'confirm'>): Promise<Envelope<{ jobId: string }>>
+  /** `GET /project/list?root=` — the filesystem truth for one project. */
+  projectList(root: string): Promise<Envelope<{ projectRoot: string; entries: ProjectSkillEntry[] }>>
+  /** Without `confirm` a preview; with it a job that creates the links. */
+  projectLink(root: string, dir: string, confirm?: boolean): Promise<Envelope<ProjectLinkResponse>>
+  /** Removes one proven link; the target directory is never touched. */
+  projectRemove(root: string, name: string, confirm?: boolean): Promise<Envelope<{ projectRoot: string; name: string; status: 'removed' }>>
   job(id: string): Promise<Envelope<{ job: Job }>>
   cancelJob(id: string): Promise<Envelope<{ id: string; status: JobStatus }>>
   export(body: ExportBody): Promise<Envelope<ExportResult>>
@@ -391,6 +438,12 @@ export function createApi(fetchImpl: ApiFetch = (input, init) => fetch(input, in
       postJson(fetchImpl, '/skills-nexus/link', { source, ...opts, confirm: false }),
     linkLocal: (source, opts = {}) =>
       postJson(fetchImpl, '/skills-nexus/link', { source, ...opts, confirm: true }),
+    projectList: (root) =>
+      request(fetchImpl, `/skills-nexus/project/list?root=${encodeURIComponent(root)}`),
+    projectLink: (root, dir, confirm) =>
+      postJson(fetchImpl, '/skills-nexus/project/link', { root, dir, confirm: confirm === true }),
+    projectRemove: (root, name, confirm) =>
+      postJson(fetchImpl, '/skills-nexus/project/remove', { root, name, confirm: confirm === true }),
     job: (id) => request(fetchImpl, `/skills-nexus/job?id=${encodeURIComponent(id)}`),
     cancelJob: (id) => postJson(fetchImpl, '/skills-nexus/job/cancel', { id }),
     export: (body) => postJson(fetchImpl, '/skills-nexus/export', body as unknown as Record<string, unknown>),

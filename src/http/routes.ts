@@ -28,7 +28,7 @@
  */
 
 import { stat, mkdir, rm, writeFile, mkdtemp } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { ExportError, exportSkills } from '../export.js'
 import { HttpError, PLUGIN_ID } from './types.js'
 import type { RouteRequest, RouteResponse, RouteSpec } from './types.js'
@@ -87,6 +87,13 @@ import { AdoptError, adoptSkill, assertAdoptable } from '../adopt.js'
 import type { AdoptErrorCode } from '../adopt.js'
 import { LinkError, planLinkLocal, linkLocal } from '../external.js'
 import type { LinkErrorCode, LinkOptions } from '../external.js'
+import {
+  applyProjectLink,
+  listProjectSkills,
+  planProjectLink,
+  removeProjectLink,
+  summarizeProjectLink,
+} from '../project.js'
 import { createJob, getJob, requestCancel, runJob } from './jobs.js'
 import type { JobKind } from './jobs.js'
 import { quietIO } from './io.js'
@@ -957,6 +964,122 @@ async function linkRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
 }
 
 /* ------------------------------------------------------------------ */
+/* Project scope (filesystem only — no manifest, no job record)        */
+/* ------------------------------------------------------------------ */
+
+/** Validate the `root` of a project route; 400 when it is not a directory. */
+async function projectRootOf(raw: string | undefined): Promise<string> {
+  if (raw === undefined) throw new HttpError(400, 'missing-field', { field: 'root' })
+  const root = resolve(raw)
+  try {
+    if ((await stat(root)).isDirectory()) return root
+  } catch {
+    // fall through to the shared error
+  }
+  throw new HttpError(400, 'invalid-root', { root })
+}
+
+/** Method + same-origin + loopback, the guard all three project routes share. */
+function projectGuard(req: RouteRequest, res: RouteResponse, method: 'GET' | 'POST'): boolean {
+  if (!requireMethod(req, res, method)) return false
+  if (!requireMutationSafe(req, res)) return false
+  if (!isLoopback(req)) {
+    sendError(res, 403, 'loopback only')
+    return false
+  }
+  return true
+}
+
+/** GET /skills-nexus/project/list?root= → `{ projectRoot, entries }`. */
+async function projectListRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
+  if (!projectGuard(req, res, 'GET')) return
+  const root = await projectRootOf(queryOf(req).get('root') ?? undefined)
+  const entries = await listProjectSkills(root)
+  sendData(res, { projectRoot: root, entries }, 'done')
+}
+
+/**
+ * POST /skills-nexus/project/link — `{ root, dir, confirm? }`.
+ *
+ * Without `confirm` this is the synchronous preview: the plan the panel shows
+ * before the user commits. With `confirm` the same plan runs as a job, since a
+ * collection directory may yield many links and the panel needs pollable
+ * progress — the same two-shape contract as `/import` and `/link`.
+ */
+async function projectLinkRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
+  if (!projectGuard(req, res, 'POST')) return
+  const body = await readJson(req)
+  const root = await projectRootOf(strField(body, 'root'))
+  const dir = strField(body, 'dir')
+  if (dir === undefined) throw new HttpError(400, 'missing-field', { field: 'dir' })
+
+  const source = resolve(dir)
+  let isDir = false
+  try {
+    isDir = (await stat(source)).isDirectory()
+  } catch {
+    isDir = false
+  }
+  if (!isDir) throw new HttpError(400, 'no-source', { dir: source })
+
+  const plan = await planProjectLink(root, source)
+  if (boolField(body, 'confirm') !== true) {
+    sendData(res, { projectRoot: root, source, results: plan.results }, 'done')
+    return
+  }
+
+  requireConfirm(
+    res,
+    body,
+    `Link ${plan.results.length} skill(s) from "${source}" into the project skills directory?`,
+  )
+  await accept(res, 'project-link', `${root}+${source}`, async (io) => {
+    await applyProjectLink(plan, io)
+    const summary = summarizeProjectLink(plan)
+    io.emit(
+      `Linked ${summary.linked} skill(s) into ${root}/.dsh/skills ` +
+        `(${summary.replaced} replaced, ${summary.failed} failed)\n`,
+    )
+    for (const result of plan.results) {
+      if (result.status === 'link' || result.status === 'replace') {
+        io.emit(`  + ${result.name} → ${result.target ?? '?'}\n`)
+      } else if (result.error !== undefined) {
+        io.emit(`  ✗ ${result.name}: ${result.error}\n`)
+      }
+    }
+  })
+}
+
+/**
+ * POST /skills-nexus/project/remove — `{ root, name, confirm }`.
+ *
+ * Synchronous (one link deletion is a single `rmdir`). A real directory or file
+ * answers `409 not-a-link` — the refusal is the contract, not an internal
+ * detail the client has to guess.
+ */
+async function projectRemoveRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
+  if (!projectGuard(req, res, 'POST')) return
+  const body = await readJson(req)
+  const root = await projectRootOf(strField(body, 'root'))
+  const name = strField(body, 'name')
+  if (name === undefined) throw new HttpError(400, 'missing-field', { field: 'name' })
+  if (name === '.' || name === '..' || name.includes('/') || name.includes('\\')) {
+    throw new HttpError(400, 'invalid-name', { name })
+  }
+
+  requireConfirm(
+    res,
+    body,
+    `Remove the project link "${name}"? Only the link is deleted; its target directory is untouched.`,
+  )
+  const status = await removeProjectLink(root, name)
+  if (status === 'not-found') throw new HttpError(404, 'not-found', { name })
+  if (status === 'not-a-link') throw new HttpError(409, 'not-a-link', { name })
+  // A link change wakes the host watcher; there is no manifest to re-read.
+  sendData(res, { projectRoot: root, name, status }, 'pending')
+}
+
+/* ------------------------------------------------------------------ */
 /* Export (channel C — package to zip, sync, loopback-only)             */
 /* ------------------------------------------------------------------ */
 
@@ -1090,6 +1213,9 @@ export function createNexusRoutes(): RouteSpec[] {
     { kind: 'exact', path: '/skills-nexus/switch-version', handler: wrap(switchVersionRoute) },
     { kind: 'exact', path: '/skills-nexus/toggle', handler: wrap(toggleRoute) },
     { kind: 'exact', path: '/skills-nexus/link', handler: wrap(linkRoute) },
+    { kind: 'exact', path: '/skills-nexus/project/list', handler: wrap(projectListRoute) },
+    { kind: 'exact', path: '/skills-nexus/project/link', handler: wrap(projectLinkRoute) },
+    { kind: 'exact', path: '/skills-nexus/project/remove', handler: wrap(projectRemoveRoute) },
     { kind: 'exact', path: '/skills-nexus/export', handler: wrap(exportRoute) },
     { kind: 'exact', path: '/skills-nexus/job', handler: wrap(jobStatus) },
     { kind: 'exact', path: '/skills-nexus/job/cancel', handler: wrap(jobCancel) },

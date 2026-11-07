@@ -103,7 +103,7 @@ export interface DoctorReport {
         updates: number;
     };
 }
-export type JobKind = 'add' | 'import' | 'adopt' | 'update' | 'switch-version' | 'link';
+export type JobKind = 'add' | 'import' | 'adopt' | 'update' | 'switch-version' | 'link' | 'project-link';
 export type JobStatus = 'running' | 'done' | 'error' | 'cancelled';
 /** §7.5 Job schema as `GET /job` serves it. */
 export interface Job {
@@ -227,7 +227,38 @@ export interface GroupState {
     state: 'on' | 'off' | 'mixed';
     count: number;
 }
-/** Options of `POST /import`; the package travels beside them, as the body. */
+/** One entry under `<project>/.dsh/skills`, as `GET /project/list` serves it. */
+export interface ProjectSkillEntry {
+    name: string;
+    /** Absolute path of the entry itself. */
+    path: string;
+    kind: 'link' | 'files';
+    /** Absolute link target; null for user files and unrecoverable links. */
+    target: string | null;
+    /** True when a link's target is missing or is not a directory. */
+    dangling: boolean;
+}
+export type ProjectLinkStatus = 'link' | 'replace' | 'unchanged' | 'collision' | 'invalid';
+/** One planned/executed project link (server mirror of `ProjectLinkResult`). */
+export interface ProjectLinkResult {
+    name: string;
+    target: string | null;
+    status: ProjectLinkStatus;
+    error?: string;
+}
+/** The synchronous `POST /project/link` preview. */
+export interface ProjectLinkPlan {
+    projectRoot: string;
+    source: string;
+    results: ProjectLinkResult[];
+}
+/** `POST /project/link` answers either the preview or a `202` job. */
+export type ProjectLinkResponse = ProjectLinkPlan | {
+    jobId: string;
+};
+/** True when a project-link response is the preview rather than a job. */
+export declare function isProjectLinkPlan(value: ProjectLinkResponse): value is ProjectLinkPlan;
+/** Body of `POST /import`; the package travels beside them, as the body. */
 export interface ImportBody {
     /** Preview only: answers the plan synchronously, touches no nexus state. */
     dryRun?: boolean;
@@ -320,6 +351,19 @@ export interface NexusApi {
     }>>;
     linkLocal(source: string, opts?: Omit<LinkBody, 'source' | 'confirm'>): Promise<Envelope<{
         jobId: string;
+    }>>;
+    /** `GET /project/list?root=` — the filesystem truth for one project. */
+    projectList(root: string): Promise<Envelope<{
+        projectRoot: string;
+        entries: ProjectSkillEntry[];
+    }>>;
+    /** Without `confirm` a preview; with it a job that creates the links. */
+    projectLink(root: string, dir: string, confirm?: boolean): Promise<Envelope<ProjectLinkResponse>>;
+    /** Removes one proven link; the target directory is never touched. */
+    projectRemove(root: string, name: string, confirm?: boolean): Promise<Envelope<{
+        projectRoot: string;
+        name: string;
+        status: 'removed';
     }>>;
     job(id: string): Promise<Envelope<{
         job: Job;

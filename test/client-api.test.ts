@@ -6,13 +6,14 @@ import {
   confirmable,
   createApi,
   isConfirmRequired,
+  isProjectLinkPlan,
   jobConfirmationQuestion,
   pollJob,
   PollTimeoutError,
   reconcileList,
   ReconcileTimeoutError,
 } from '../src/client/api.js'
-import type { ApiFetch, ApiFetchInit, GroupState, Job, ListEntry } from '../src/client/api.js'
+import type { ApiFetch, ApiFetchInit, GroupState, Job, ListEntry, ProjectSkillEntry } from '../src/client/api.js'
 
 /**
  * Unit tests for the browser-half api client (src/client/api.ts, §10.1).
@@ -627,3 +628,53 @@ test('reconcileList makes exactly k list calls for k polls — no redundant post
   assert.deepEqual(result.entries[0]!.enabled, false)
   assert.deepEqual(result.groupStates, [{ path: ['g'], state: 'off', count: 1 }])
 })
+
+/* ------------------------------------------------------------------ */
+/* Project scope methods                                               */
+/* ------------------------------------------------------------------ */
+
+test('projectList encodes the root into the query string', async () => {
+  const entries: ProjectSkillEntry[] = [
+    { name: 'proj-skill', path: '/p/.dsh/skills/proj-skill', kind: 'link', target: '/s', dangling: false },
+  ]
+  const { fetchFn, calls } = fakeFetch([ok({ projectRoot: '/p', entries }, 'done')])
+  const api = createApi(fetchFn)
+
+  const env = await api.projectList('/a b/c?d')
+  assert.equal(calls[0]!.input, '/skills-nexus/project/list?root=%2Fa%20b%2Fc%3Fd')
+  assert.equal(calls[0]!.init, undefined)
+  assert.deepEqual(env.data, { projectRoot: '/p', entries })
+})
+
+test('projectLink posts a preview, then a confirmed job', async () => {
+  const { fetchFn, calls } = fakeFetch([
+    ok({ projectRoot: '/p', source: '/s', results: [{ name: 's', target: '/s', status: 'link' }] }, 'done'),
+    { status: 202, body: { data: { jobId: 'job-p' } } },
+  ])
+  const api = createApi(fetchFn)
+
+  const preview = await api.projectLink('/p', '/s')
+  assert.equal(JSON.parse(String(calls[0]!.init?.body)).confirm, false)
+  assert.ok(isProjectLinkPlan(preview.data))
+  assert.equal(preview.data.results[0]!.status, 'link')
+
+  const accepted = await api.projectLink('/p', '/s', true)
+  assert.equal(JSON.parse(String(calls[1]!.init?.body)).confirm, true)
+  assert.deepEqual(accepted.data, { jobId: 'job-p' })
+  assert.equal(isProjectLinkPlan(accepted.data), false)
+})
+
+test('projectRemove posts the name and the confirm flag', async () => {
+  const { fetchFn, calls } = fakeFetch([ok({ projectRoot: '/p', name: 's', status: 'removed' }, 'pending')])
+  const api = createApi(fetchFn)
+
+  const env = await api.projectRemove('/p', 's', true)
+  assert.equal(calls[0]!.input, '/skills-nexus/project/remove')
+  assert.deepEqual(JSON.parse(String(calls[0]!.init?.body)), {
+    root: '/p',
+    name: 's',
+    confirm: true,
+  })
+  assert.equal(env.hotReload, 'pending')
+})
+

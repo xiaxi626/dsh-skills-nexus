@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { lstat, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { RouteRequest, RouteResponse, RouteSpec } from '../src/http/types.js'
 import type { Job } from '../src/http/jobs.js'
 import type { SkillEntry } from '../src/types.js'
@@ -987,10 +987,10 @@ test('the add-zip route is gone: zip is not an installation method any more', ()
     'no route may answer /skills-nexus/add-zip',
   )
   // The package channel took that row over with exactly two routes (import and
-  // the adopt action), export adds one more, and the link channel adds one —
-  // so the table is 11 + 2 + 1 + 1.
+  // the adopt action), export adds one more, the link channel adds one, and the
+  // project scope adds three (list/link/remove) — so the table is 11 + 2 + 1 + 1 + 3.
   // The upload path itself is a raw body, not a restored multipart endpoint.
-  assert.equal(table.length, 15, 'the §7.1 table plus import/adopt/export/link')
+  assert.equal(table.length, 18, 'the §7.1 table plus import/adopt/export/link/project')
   assert.deepEqual(
     table.filter((s) => s.path.startsWith('/skills-nexus/import')).map((s) => s.path),
     ['/skills-nexus/import'],
@@ -1537,3 +1537,177 @@ test('link rejects unknown source', async () => {
   assert.equal(res.status, 400)
   assert.equal(errorsOf(res).error, 'resolve-failed')
 })
+/* ------------------------------------------------------------------ */
+/* Project scope routes                                                */
+/* ------------------------------------------------------------------ */
+
+/** A project with a `.git` marker and one source skill directory. */
+async function projectFixture(
+  name: string,
+  skillName: string,
+): Promise<{ root: string; source: string }> {
+  const root = join(home, 'projects', name)
+  await mkdir(join(root, '.git'), { recursive: true })
+  const source = join(home, 'sources', name, skillName)
+  await mkdir(source, { recursive: true })
+  await writeFile(join(source, 'SKILL.md'), skillMd(skillName), 'utf8')
+  return { root, source }
+}
+
+const projectSkillsPath = (root: string, name: string): string =>
+  join(root, '.dsh', 'skills', name)
+
+test('project/list answers the entries and validates the root parameter', async () => {
+  await clearEntries()
+  const { root, source } = await projectFixture('api-proj-list', 'proj-skill')
+  await link.linkAt(projectSkillsPath(root, 'proj-skill'), source)
+
+  const listed = await call('/skills-nexus/project/list', {
+    url: `/skills-nexus/project/list?root=${encodeURIComponent(root)}`,
+  })
+  assert.equal(listed.status, 200)
+  const data = dataOf<{
+    projectRoot: string
+    entries: Array<{ name: string; kind: string; target: string; dangling: boolean }>
+  }>(listed)
+  assert.equal(resolve(data.projectRoot), resolve(root))
+  assert.equal(data.entries.length, 1)
+  assert.equal(data.entries[0]!.name, 'proj-skill')
+  assert.equal(data.entries[0]!.kind, 'link')
+  assert.equal(data.entries[0]!.dangling, false)
+
+  const missing = await call('/skills-nexus/project/list', {
+    url: '/skills-nexus/project/list',
+  })
+  assert.equal(missing.status, 400)
+  assert.equal(errorsOf(missing).error, 'missing-field')
+
+  const invalid = await call('/skills-nexus/project/list', {
+    url: `/skills-nexus/project/list?root=${encodeURIComponent(join(home, 'does-not-exist'))}`,
+  })
+  assert.equal(invalid.status, 400)
+  assert.equal(errorsOf(invalid).error, 'invalid-root')
+})
+
+test('project/list rejects non-loopback sockets with 403', async () => {
+  const { root } = await projectFixture('api-proj-loopback', 'x')
+  const res = await call('/skills-nexus/project/list', {
+    url: `/skills-nexus/project/list?root=${encodeURIComponent(root)}`,
+    remoteAddress: '10.0.0.7',
+  })
+  assert.equal(res.status, 403)
+})
+
+test('project/link previews without writing, then creates the link as a job', async () => {
+  await clearEntries()
+  const { root, source } = await projectFixture('api-proj-link', 'link-skill')
+
+  const preview = await call('/skills-nexus/project/link', {
+    method: 'POST',
+    body: JSON.stringify({ root, dir: source }),
+  })
+  assert.equal(preview.status, 200)
+  const plan = dataOf<{
+    projectRoot: string
+    source: string
+    results: Array<{ name: string; status: string }>
+  }>(preview)
+  assert.equal(resolve(plan.projectRoot), resolve(root))
+  assert.deepEqual(plan.results.map((r) => [r.name, r.status]), [['link-skill', 'link']])
+  assert.equal(await exists(projectSkillsPath(root, 'link-skill')), false)
+
+  const accepted = await call('/skills-nexus/project/link', {
+    method: 'POST',
+    body: JSON.stringify({ root, dir: source, confirm: true }),
+  })
+  assert.equal(accepted.status, 202)
+  const job = await waitForJob(dataOf<{ jobId: string }>(accepted).jobId)
+  assert.equal(job.status, 'done')
+  assert.equal(job.kind, 'project-link')
+  assert.equal(await exists(projectSkillsPath(root, 'link-skill')), true)
+
+  await link.unlinkAt(projectSkillsPath(root, 'link-skill'))
+})
+
+test('project/link validates its fields and the source directory', async () => {
+  const { root } = await projectFixture('api-proj-link-bad', 'x')
+
+  const missingRoot = await call('/skills-nexus/project/link', {
+    method: 'POST',
+    body: JSON.stringify({ dir: root }),
+  })
+  assert.equal(missingRoot.status, 400)
+  assert.equal(errorsOf(missingRoot).error, 'missing-field')
+
+  const missingDir = await call('/skills-nexus/project/link', {
+    method: 'POST',
+    body: JSON.stringify({ root }),
+  })
+  assert.equal(missingDir.status, 400)
+  assert.equal(errorsOf(missingDir).error, 'missing-field')
+
+  const noSource = await call('/skills-nexus/project/link', {
+    method: 'POST',
+    body: JSON.stringify({ root, dir: join(home, 'no-such-source') }),
+  })
+  assert.equal(noSource.status, 400)
+  assert.equal(errorsOf(noSource).error, 'no-source')
+})
+
+test('project/link rejects a cross-origin request before reading the body (403)', async () => {
+  const res = await call('/skills-nexus/project/link', {
+    method: 'POST',
+    headers: { origin: 'http://evil.example' },
+    body: '{}',
+  })
+  assert.equal(res.status, 403)
+  assert.equal(errorsOf(res).error, 'untrusted origin')
+})
+
+test('project/remove requires confirmation, removes only links, and refuses user files', async () => {
+  const { root, source } = await projectFixture('api-proj-remove', 'remove-skill')
+  await link.linkAt(projectSkillsPath(root, 'remove-skill'), source)
+
+  const noConfirm = await call('/skills-nexus/project/remove', {
+    method: 'POST',
+    body: JSON.stringify({ root, name: 'remove-skill' }),
+  })
+  assert.equal(noConfirm.status, 409)
+  assert.equal(errorsOf(noConfirm).error, 'confirm-required')
+  assert.equal(await exists(projectSkillsPath(root, 'remove-skill')), true)
+
+  const removed = await call('/skills-nexus/project/remove', {
+    method: 'POST',
+    body: JSON.stringify({ root, name: 'remove-skill', confirm: true }),
+  })
+  assert.equal(removed.status, 200)
+  assert.equal(dataOf<{ status: string }>(removed).status, 'removed')
+  assert.equal(await exists(projectSkillsPath(root, 'remove-skill')), false)
+  assert.equal(await exists(join(source, 'SKILL.md')), true)
+
+  const notFound = await call('/skills-nexus/project/remove', {
+    method: 'POST',
+    body: JSON.stringify({ root, name: 'nope', confirm: true }),
+  })
+  assert.equal(notFound.status, 404)
+  assert.equal(errorsOf(notFound).error, 'not-found')
+
+  const vendored = projectSkillsPath(root, 'vendored')
+  await mkdir(vendored, { recursive: true })
+  await writeFile(join(vendored, 'SKILL.md'), skillMd('vendored'), 'utf8')
+  const refused = await call('/skills-nexus/project/remove', {
+    method: 'POST',
+    body: JSON.stringify({ root, name: 'vendored', confirm: true }),
+  })
+  assert.equal(refused.status, 409)
+  assert.equal(errorsOf(refused).error, 'not-a-link')
+  assert.equal(await exists(join(vendored, 'SKILL.md')), true)
+
+  const traversal = await call('/skills-nexus/project/remove', {
+    method: 'POST',
+    body: JSON.stringify({ root, name: '../escape', confirm: true }),
+  })
+  assert.equal(traversal.status, 400)
+  assert.equal(errorsOf(traversal).error, 'invalid-name')
+})
+
