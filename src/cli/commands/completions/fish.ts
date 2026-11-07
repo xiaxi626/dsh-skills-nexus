@@ -21,8 +21,9 @@
  * The names rule counts the non-flag words of the command line: the command
  * name, the subcommand, and nothing else - hence `-eq 2`. Counting rather than
  * looking at a position keeps `remove --yes <TAB>` working, because `--yes` is
- * accepted before the names; none of these commands has a value-taking flag,
- * so a flag value can never be miscounted as a positional. The words are
+ * accepted before the names; the one value-taking flag in that set,
+ * `--project-root`, has its value skipped explicitly so a path can never be
+ * miscounted as a name. The words are
  * filtered one at a time, each expansion quoted: quoting the whole list makes
  * fish join its elements with spaces into a single argument, so `string match`
  * would see one word and the count could never come out right, and an unquoted
@@ -53,9 +54,14 @@ export const fishTemplate = [
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from list ls' -l names",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from list ls' -l json",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from list ls' -l filter -r",
+  "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from list ls' -l project",
+  "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from list ls' -l project-root -r",
+  "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from list ls' -l all",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from remove rm' -l yes",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from remove rm' -l json",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from remove rm' -l group -r",
+  "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from remove rm' -l project",
+  "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from remove rm' -l project-root -r",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from update pull rollback' -l json",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from diff' -l stat",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from enable disable' -l group -r",
@@ -66,6 +72,8 @@ export const fishTemplate = [
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from link' -l trae-cn-dir -r",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from link' -l force",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from link' -l json",
+  "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from link' -l project",
+  "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from link' -l project-root -r",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from export' -l all",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from export' -l out -r",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from import' -l dry-run",
@@ -86,6 +94,8 @@ export const fishTemplate = [
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from doctor' -l json",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from doctor' -l updates",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from doctor' -l quiet",
+  "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from doctor' -l project",
+  "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from doctor' -l project-root -r",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from completions' -l shell -r -a 'bash zsh fish powershell'",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from purge' -l yes",
   "complete -c dsh-skills-nexus -f -n '__fish_seen_subcommand_from purge' -l json",
@@ -95,5 +105,5 @@ export const fishTemplate = [
   '# export and adopt take names too, but they are the commands with',
   '# value-taking flags (--out, --url), so they are left out here rather than',
   '# making this count flag values.',
-  "complete -c dsh-skills-nexus -f -n 'set -l t (commandline -opc); set -l p; for i in (seq (count $t)); if not string match -qr -- ^- \"$t[$i]\"; set -a p \"$t[$i]\"; end; end; contains -- \"$t[2]\" update pull rollback diff remove rm enable disable; and test (count $p) -eq 2' -a '(dsh-skills-nexus list --names 2>/dev/null)'"
+  "complete -c dsh-skills-nexus -f -n 'set -l t (commandline -opc); set -l p; set -l skip 0; for i in (seq (count $t)); if test $skip -eq 1; set skip 0; else if string match -qr -- ^--project-root$ \"$t[$i]\"; set skip 1; else if not string match -qr -- ^- \"$t[$i]\"; set -a p \"$t[$i]\"; end; end; contains -- \"$t[2]\" update pull rollback diff remove rm enable disable; and test (count $p) -eq 2' -a '(dsh-skills-nexus list --names 2>/dev/null)'"
 ].join("\n") + "\n"

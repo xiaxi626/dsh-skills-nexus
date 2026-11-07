@@ -21,8 +21,9 @@
  * The names rule counts the non-flag words of the command line: the command
  * name, the subcommand, and nothing else - hence `-eq 2`. Counting rather than
  * looking at a position keeps `remove --yes <TAB>` working, because `--yes` is
- * accepted before the names; none of these commands has a value-taking flag,
- * so a flag value can never be miscounted as a positional. The words are
+ * accepted before the names; the one value-taking flag in that set,
+ * `--project-root`, has its value skipped explicitly so a path can never be
+ * miscounted as a name. The words are
  * filtered one at a time, each expansion quoted: quoting the whole list makes
  * fish join its elements with spaces into a single argument, so `string match`
  * would see one word and the count could never come out right, and an unquoted

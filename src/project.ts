@@ -258,17 +258,15 @@ export async function applyProjectLink(plan: ProjectLinkPlan, io: OpsIO): Promis
     if (result.status !== 'link' && result.status !== 'replace') continue
     if (result.target === null) {
       result.error = 'no target directory'
-      io.error(`  ✗ ${result.name}: no target directory`)
       continue
     }
+    io.progress('linking', `${result.name} → ${result.target}`)
     try {
       await withSkillFileLock(`${rootTag}-${result.name}`, () =>
         linkAt(join(dir, result.name), result.target!),
       )
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      result.error = message
-      io.error(`  ✗ ${result.name}: ${message}`)
+      result.error = err instanceof Error ? err.message : String(err)
     }
   }
 

@@ -403,7 +403,7 @@ test('parseLinkArgs --group without a value throws', () => {
 for (const source of ['trae', 'trae-cn']) {
   test(`parseLinkArgs ${source} accepts source-dir in space and equals forms`, () => {
     const path = 'C:/custom skills/root=one'
-    const expected = { source, dirOverride: path, force: false, dryRun: false, json: false }
+    const expected = { source, dirOverride: path, force: false, dryRun: false, json: false, project: false }
     assert.deepEqual(parseLinkArgs([source, '--source-dir', path]), expected)
     assert.deepEqual(parseLinkArgs([`--source-dir=${path}`, source]), expected)
   })
@@ -411,7 +411,7 @@ for (const source of ['trae', 'trae-cn']) {
 
 test('parseLinkArgs keeps the directory alias separately for core precedence', () => {
   assert.deepEqual(parseLinkArgs(['trae-cn', '--source-dir', '/new', '--trae-cn-dir', '/old']), {
-    source: 'trae-cn', dirOverride: '/new', traeCnDir: '/old', force: false, dryRun: false, json: false,
+    source: 'trae-cn', dirOverride: '/new', traeCnDir: '/old', force: false, dryRun: false, json: false, project: false,
   })
   assert.equal(parseLinkArgs(['trae', '--source-dir', '/first', '--source-dir=/last']).dirOverride, '/last')
 })
@@ -421,3 +421,86 @@ test('parseLinkArgs rejects absent or empty source-dir without swallowing anothe
     assert.throws(() => parseLinkArgs(['trae', ...flags]), /--source-dir requires a path/)
   }
 })
+
+/* ------------------------------------------------------------------ */
+/* --project / --project-root / --all                                  */
+/* ------------------------------------------------------------------ */
+
+test('parseListArgs defaults to the global scope', () => {
+  const opts = parseListArgs([])
+  assert.equal(opts.project, false)
+  assert.equal(opts.all, false)
+  assert.equal(opts.projectRoot, undefined)
+})
+
+test('parseListArgs reads --project and --project-root in both value forms', () => {
+  assert.equal(parseListArgs(['--project']).project, true)
+  assert.equal(parseListArgs(['--project', '--project-root', '/p']).projectRoot, '/p')
+  assert.equal(parseListArgs(['--project', '--project-root=/p']).projectRoot, '/p')
+})
+
+test('parseListArgs --project-root requires --project', () => {
+  assert.throws(() => parseListArgs(['--project-root', '/p']), /requires --project/)
+  assert.throws(() => parseListArgs(['--project-root=/p']), /requires --project/)
+})
+
+test('parseListArgs --project-root without a value throws', () => {
+  for (const argv of [['--project-root'], ['--project', '--project-root'], ['--project', '--project-root='], ['--project', '--project-root', '--json']]) {
+    assert.throws(() => parseListArgs(argv), /--project-root requires a path/)
+  }
+})
+
+test('parseListArgs --all is human-only', () => {
+  assert.equal(parseListArgs(['--all']).all, true)
+  assert.throws(() => parseListArgs(['--all', '--json']), /cannot be combined with --names or --json/)
+  assert.throws(() => parseListArgs(['--names', '--all']), /cannot be combined with --names or --json/)
+})
+
+test('parseLinkArgs --project takes a directory positional', () => {
+  const opts = parseLinkArgs(['--project', '/skills'])
+  assert.equal(opts.project, true)
+  assert.equal(opts.source, '/skills')
+  assert.equal(parseLinkArgs(['--project', '--project-root', '/p', '/skills']).projectRoot, '/p')
+})
+
+test('parseLinkArgs --project rejects the source-registry flags', () => {
+  for (const flag of ['--group', '--force', '--source-dir', '--trae-cn-dir']) {
+    assert.throws(
+      () => parseLinkArgs([...flagValue(flag), '--project', '/skills']),
+      /do not apply|not available/,
+    )
+  }
+})
+
+test('parseLinkArgs --project-root requires --project', () => {
+  assert.throws(() => parseLinkArgs(['trae', '--project-root', '/p']), /requires --project/)
+})
+
+test('parseLinkArgs names a directory when --project has no positional', () => {
+  assert.throws(() => parseLinkArgs(['--project']), /missing directory/)
+})
+
+test('parseRemoveArgs --project carries exact names', () => {
+  const opts = parseRemoveArgs(['--project', 'one', 'two'])
+  assert.equal(opts.project, true)
+  assert.deepEqual(opts.patterns, ['one', 'two'])
+})
+
+test('parseRemoveArgs --project rejects --group and globs', () => {
+  assert.throws(() => parseRemoveArgs(['--project', '--group', 'g']), /not available with --project/)
+  assert.throws(() => parseRemoveArgs(['--project', 'theme-*']), /looks like a glob; remove --project takes exact link names only/)
+  assert.throws(() => parseRemoveArgs(['--project', 'skill-?']), /looks like a glob; remove --project takes exact link names only/)
+})
+
+test('parseRemoveArgs --project-root requires --project', () => {
+  assert.throws(() => parseRemoveArgs(['a', '--project-root', '/p']), /requires --project/)
+})
+
+/** `--flag value` for a value-taking option, `--flag` for a boolean one. */
+function flagValue(flag: string): string[] {
+  return flag === '--group'
+    ? ['--group', 'g']
+    : flag === '--source-dir' || flag === '--trae-cn-dir'
+      ? [flag, '/x']
+      : [flag]
+}

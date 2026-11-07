@@ -316,12 +316,20 @@ test('every template counts positionals, so flags do not consume the slot', () =
   // `remove --yes <TAB>` must still offer names, because --yes is accepted
   // before the names. Every template counts the words that do not start with
   // `-` instead of comparing a raw slot index - the slot comparison was the
-  // bug this pins. bash, zsh and fish are also executed below; PowerShell has
-  // no runner in this project's CI, so its rule is pinned as text only.
+  // bug this pins - and the value of --project-root is skipped so a path can
+  // never be counted as a name. bash, zsh and fish are also executed below;
+  // PowerShell has no runner in this project's CI, so its rule is pinned as
+  // text only.
   assert.match(bashTemplate, /nargs=\$\(\(nargs \+ 1\)\)/)
   assert.match(zshTemplate, /nargs=\$\(\( nargs \+ 1 \)\)/)
   assert.match(fishTemplate, /string match -qr -- \^- "\$t\[\$i\]"/)
-  assert.match(powershellTemplate, /\$nargs = @\(\$els\[2\.\.\(\$done - 1\)\] \| Where-Object \{ \$_ -notlike '-\*' \}\)\.Count/)
+  // The one value-taking flag these commands accept is skipped explicitly, so
+  // a --project-root path can never be counted as a positional name.
+  for (const template of [bashTemplate, zshTemplate, fishTemplate, powershellTemplate]) {
+    assert.match(template, /--project-root/)
+  }
+  assert.match(powershellTemplate, /if \(\$token -eq '--project-root'\)/)
+  assert.match(powershellTemplate, /if \(\$token -notlike '-\*'\) \{ \$nargs = \$nargs \+ 1 \}/)
   assert.doesNotMatch(powershellTemplate, /\$slot -eq /)
 })
 

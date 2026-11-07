@@ -36,6 +36,10 @@ export interface RemoveOptions {
      * confirmed first (or pass `--yes`).
      */
     group?: string;
+    /** Remove links from `<project>/.dsh/skills` instead of manifest entries. */
+    project: boolean;
+    /** Explicit project root; requires `project`. */
+    projectRoot?: string;
 }
 /**
  * Parse `remove` args: one or more names/globs plus an optional `--group` and
@@ -55,6 +59,12 @@ export interface ListOptions {
     json: boolean;
     /** Case-insensitive substring filter over name / url / subdir. */
     filter?: string;
+    /** List `<project>/.dsh/skills` instead of the manifest. */
+    project: boolean;
+    /** Explicit project root; requires `project`. */
+    projectRoot?: string;
+    /** Join the project links and the global entries into one human table. */
+    all: boolean;
 }
 /**
  * Parse `list` args. `list` has no positional form and two boolean flags,
@@ -224,6 +234,13 @@ export interface LinkCLIOptions {
     dryRun: boolean;
     /** Emit a machine-readable report on stdout. */
     json: boolean;
+    /**
+     * Directory-style project link: the positional is a source **directory**, and
+     * the link lands in `<project>/.dsh/skills` with no manifest write.
+     */
+    project: boolean;
+    /** Explicit project root; requires `project`. */
+    projectRoot?: string;
 }
 /**
  * Parse `link` args: one source positional plus optional flags.

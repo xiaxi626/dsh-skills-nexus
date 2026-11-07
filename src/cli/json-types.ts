@@ -32,6 +32,9 @@ export type JsonReport =
   | RemoveJsonReport
   | ToggleJsonReport
   | PurgeJsonReport
+  | ProjectListJsonReport
+  | ProjectLinkJsonReport
+  | ProjectRemoveJsonReport
 
 /**
  * The unexpected-fatal payload (P0 §4.6): written to **stderr** with exit 1
@@ -92,6 +95,61 @@ export interface ListJsonEntry {
 export interface ListJsonReport {
   version: 1
   entries: ListJsonEntry[]
+}
+
+/* ------------------------------------------------------------------ */
+/* project scope (list/link/remove --project)                          */
+/* ------------------------------------------------------------------ */
+
+/** One entry in `<project>/.dsh/skills`, as the filesystem reports it. */
+export interface ProjectListJsonEntry {
+  name: string
+  kind: 'link' | 'files'
+  /** Absolute link target, or null for user files and unrecoverable links. */
+  target: string | null
+  /** True when a link's target is missing or is not a directory. */
+  dangling: boolean
+}
+
+export interface ProjectListJsonReport {
+  version: 1
+  projectRoot: string
+  entries: ProjectListJsonEntry[]
+}
+
+/**
+ * One planned/executed project link. The status keeps the plan's verdict after
+ * execution — `link` and `replace` mean "created" and "repointed", and an
+ * `error` marks a result that was attempted and failed.
+ */
+export interface ProjectLinkJsonResult {
+  name: string
+  target: string | null
+  status: 'link' | 'replace' | 'unchanged' | 'collision' | 'invalid'
+  error?: string
+}
+
+export interface ProjectLinkJsonReport {
+  version: 1
+  projectRoot: string
+  source: string
+  results: ProjectLinkJsonResult[]
+  summary: { linked: number; replaced: number; unchanged: number; failed: number }
+}
+
+/** `not-a-link` is the project scope's extra outcome: user content was refused. */
+export type ProjectRemoveJsonStatus = 'removed' | 'not-found' | 'not-a-link'
+
+export interface ProjectRemoveJsonResult {
+  name: string
+  status: ProjectRemoveJsonStatus
+  error?: string
+}
+
+export interface ProjectRemoveJsonReport {
+  version: 1
+  results: ProjectRemoveJsonResult[]
+  summary: { removed: number; failed: number }
 }
 
 /* ------------------------------------------------------------------ */

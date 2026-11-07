@@ -1,4 +1,4 @@
-﻿import { test, before, after, beforeEach } from 'node:test'
+import { test, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -447,9 +447,26 @@ test('parseDoctorArgs parses boolean flags and rejects values', () => {
     json: true,
     updates: true,
     quiet: true,
+    project: false,
   })
   assert.throws(() => doctorMod.parseDoctorArgs(['--json=1']))
   assert.throws(() => doctorMod.parseDoctorArgs(['x']))
+})
+
+test('parseDoctorArgs parses the project scope flags', () => {
+  assert.deepEqual(doctorMod.parseDoctorArgs(['--project', '--project-root', '/p']), {
+    json: false,
+    updates: false,
+    quiet: false,
+    project: true,
+    projectRoot: '/p',
+  })
+  assert.equal(doctorMod.parseDoctorArgs(['--project-root=/p', '--project']).projectRoot, '/p')
+  // An explicit root is only meaningful with --project; --updates is a global
+  // manifest check and has no project meaning.
+  assert.throws(() => doctorMod.parseDoctorArgs(['--project-root', '/p']), /requires --project/)
+  assert.throws(() => doctorMod.parseDoctorArgs(['--project', '--updates']), /not available with --project/)
+  assert.throws(() => doctorMod.parseDoctorArgs(['--project-root']), /requires a path/)
 })
 
 test('formatHuman renders status labels and fix hints', () => {

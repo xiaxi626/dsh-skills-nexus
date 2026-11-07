@@ -5,8 +5,11 @@ import type { OpsIO } from '../../ops-io.js'
 import { withSkillFileLock, SkillLockedError } from '../../locks.js'
 import { hasMeta, matchNames } from '../glob.js'
 import { parseRemoveArgs } from '../args.js'
+import type { RemoveOptions } from '../args.js'
 import { emitJson, fatalJsonError, jsonIO } from '../json-io.js'
-import type { RemoveJsonResult } from '../json-types.js'
+import type { ProjectRemoveJsonResult, RemoveJsonResult } from '../json-types.js'
+import { removeProjectLink } from '../../project.js'
+import { resolveProjectScope } from '../project-scope.js'
 
 /**
  * `remove <name-or-pattern>...` — delete cloned dirs, remove symlinks, and
@@ -40,16 +43,9 @@ import type { RemoveJsonResult } from '../json-types.js'
  * because the caller wants structured output. Pass `--yes` to proceed.
  */
 export async function remove(argv: string[], io: OpsIO = cliIO): Promise<number> {
-  let patterns: string[]
-  let yes: boolean
-  let json: boolean
-  let group: string | undefined
+  let opts: RemoveOptions
   try {
-    const opts = parseRemoveArgs(argv)
-    patterns = opts.patterns
-    yes = opts.yes
-    json = opts.json
-    group = opts.group
+    opts = parseRemoveArgs(argv)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (jsonRequested(argv)) {
@@ -59,7 +55,16 @@ export async function remove(argv: string[], io: OpsIO = cliIO): Promise<number>
     io.error(`error: ${message}`)
     return 2
   }
+  const { patterns, yes, json, group } = opts
 
+  // Project scope: exact link names only, no manifest read, no clone deletion.
+  if (opts.project) {
+    if (patterns.length === 0) {
+      io.error('Usage: dsh-skills-nexus remove --project <name>... [--project-root <path>] [--json]')
+      return 2
+    }
+    return removeProject(opts, io)
+  }
   if (group !== undefined && patterns.length > 0) {
     io.error('error: --group cannot be combined with name patterns')
     return 2
@@ -251,6 +256,51 @@ function emitRemovalReport(io: OpsIO, results: RemoveJsonResult[]): number {
     results,
     summary: { removed: results.length - failed, failed },
   })
+  return failed === 0 ? 0 : 1
+}
+
+/**
+ * `remove --project <name>...`: remove links from `<project>/.dsh/skills`.
+ *
+ * Each name is handled independently — a missing name or user content does not
+ * stop the rest — and only a proven link is ever deleted. The `not-a-link`
+ * refusal is the whole point of project scope: a vendored directory or file is
+ * reported in the same words the CLI uses for user content, and the exit code
+ * is non-zero so a script cannot mistake the refusal for a removal.
+ */
+async function removeProject(opts: RemoveOptions, io: OpsIO): Promise<number> {
+  const scope = await resolveProjectScope(opts.projectRoot)
+  if ('error' in scope) {
+    io.error(`error: ${scope.error}`)
+    return 1
+  }
+
+  // Machine mode keeps stdout pure: the one report is the only stdout writer.
+  const out = opts.json ? jsonIO(io) : io
+  const results: ProjectRemoveJsonResult[] = []
+  let removed = 0
+  for (const name of opts.patterns) {
+    const status = await removeProjectLink(scope.root, name)
+    if (status === 'removed') {
+      removed++
+      out.emit(`Removed link "${name}" — its target directory is untouched.\n`)
+      results.push({ name, status })
+    } else if (status === 'not-found') {
+      io.error(`No project skill named "${name}".`)
+      results.push({ name, status })
+    } else {
+      const message = `"${name}" is not a link — refusing to remove user files`
+      io.error(message)
+      results.push({ name, status, error: message })
+    }
+  }
+
+  const failed = results.length - removed
+  if (opts.json) {
+    emitJson(io, { version: 1, results, summary: { removed, failed } })
+    return failed === 0 ? 0 : 1
+  }
+  if (results.length > 1) out.emit(`\n${removed}/${results.length} link(s) removed.\n`)
   return failed === 0 ? 0 : 1
 }
 

@@ -17,6 +17,8 @@ import type { OrphanLink, UpdateCheck } from '../../health.js'
 import { cliIO } from '../../ops-io.js'
 import type { OpsIO } from '../../ops-io.js'
 import type { Manifest, SkillEntry } from '../../types.js'
+import { projectDanglingLinks } from '../../project.js'
+import { resolveProjectScope } from '../project-scope.js'
 
 /**
  * `doctor [--json] [--updates] [--quiet]` — a proactive, read-only full checkup
@@ -60,6 +62,10 @@ export interface DoctorOptions {
   json: boolean
   updates: boolean
   quiet: boolean
+  /** Check `<project>/.dsh/skills` instead of global nexus state. */
+  project: boolean
+  /** Explicit project root; requires `project`. */
+  projectRoot?: string
 }
 
 /* ------------------------------------------------------------------ */
@@ -76,19 +82,28 @@ export function parseDoctorArgs(argv: string[]): DoctorOptions {
   let json = false
   let updates = false
   let quiet = false
+  let project = false
+  let projectRoot: string | undefined
 
-  for (const a of argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!
     const eqIdx = a.indexOf('=')
     const flag = eqIdx !== -1 ? a.slice(0, eqIdx) : a
     const inlineVal = eqIdx !== -1 ? a.slice(eqIdx + 1) : undefined
 
-    if (flag === '--json' || flag === '--updates' || flag === '--quiet') {
+    if (flag === '--json' || flag === '--updates' || flag === '--quiet' || flag === '--project') {
       if (inlineVal !== undefined) {
         throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
       }
       if (flag === '--json') json = true
       else if (flag === '--updates') updates = true
-      else quiet = true
+      else if (flag === '--quiet') quiet = true
+      else project = true
+    } else if (flag === '--project-root') {
+      projectRoot = inlineVal ?? argv[++i]
+      if (!projectRoot || (inlineVal === undefined && projectRoot.startsWith('--'))) {
+        throw new Error('--project-root requires a path, e.g. --project-root /path/to/project')
+      }
     } else if (!a.startsWith('-')) {
       throw new Error(`doctor takes no positional arguments (got "${a}")`)
     } else {
@@ -96,7 +111,20 @@ export function parseDoctorArgs(argv: string[]): DoctorOptions {
     }
   }
 
-  return { json, updates, quiet }
+  if (projectRoot !== undefined && !project) {
+    throw new Error('--project-root requires --project (it would otherwise be silently ignored)')
+  }
+  if (project && updates) {
+    throw new Error('--updates is not available with --project; project scope checks links only')
+  }
+
+  return {
+    json,
+    updates,
+    quiet,
+    project,
+    ...(projectRoot === undefined ? {} : { projectRoot }),
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -627,6 +655,72 @@ export function formatHuman(report: DoctorReport): string {
 }
 
 /* ------------------------------------------------------------------ */
+/* Project scope                                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `doctor --project`: check one project's skills root.
+ *
+ * Global checks are deliberately not run — they describe the manifest and the
+ * user-level root, which this command neither reads nor changes. The only
+ * question here is whether a link still points at a directory: a dangling link
+ * is a warning (it may be a temporarily unmounted target), while a link whose
+ * recorded target is provably not a directory is an error.
+ */
+async function projectReport(opts: DoctorOptions): Promise<DoctorReport> {
+  const scope = await resolveProjectScope(opts.projectRoot)
+  if ('error' in scope) {
+    const check = finalize('project-links', 'project root is unusable', [
+      {
+        severity: 'error',
+        code: 'invalid-project-root',
+        name: opts.projectRoot ?? '',
+        detail: scope.error,
+      },
+    ])
+    return { version: 1, checks: [check], summary: summarize([check]) }
+  }
+
+  const dangling = await projectDanglingLinks(scope.root)
+  const issues: DoctorIssue[] = []
+  for (const link of dangling) {
+    const state = await targetState(link.target)
+    // A missing target is a warning: the directory may simply be gone for now,
+    // and the link itself is removable. A target that resolves to a *file* is
+    // an error — it will never be a skill directory.
+    const error = state === 'file'
+    issues.push({
+      severity: error ? 'error' : 'warn',
+      code: error ? 'project-link-not-directory' : 'project-link-missing',
+      name: link.name,
+      detail:
+        link.target === null
+          ? 'link target cannot be resolved'
+          : state === 'missing'
+            ? `target "${link.target}" is missing`
+            : `target "${link.target}" is not a directory`,
+      fix: `remove the link with: dsh-skills-nexus remove --project ${link.name}`,
+    })
+  }
+  const check = finalize(
+    'project-links',
+    dangling.length === 0 ? 'none' : `${dangling.length} dangling link(s)`,
+    issues,
+  )
+  return { version: 1, checks: [check], summary: summarize([check]) }
+}
+
+/** What a link target currently is: absent, a non-directory, or a directory. */
+async function targetState(target: string | null): Promise<'missing' | 'file' | 'dir'> {
+  if (target === null) return 'missing'
+  try {
+    return (await stat(target)).isDirectory() ? 'dir' : 'file'
+  } catch {
+    return 'missing'
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Command entry                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -639,7 +733,7 @@ export async function doctor(argv: string[], io: OpsIO = cliIO): Promise<number>
     return 2
   }
 
-  const report = await runChecks(opts.updates, io)
+  const report = opts.project ? await projectReport(opts) : await runChecks(opts.updates, io)
   const hasErrors = report.summary.errors > 0
 
   // --quiet: stay silent unless something is actually broken.

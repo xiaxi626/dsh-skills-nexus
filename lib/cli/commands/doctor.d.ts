@@ -40,6 +40,10 @@ export interface DoctorOptions {
     json: boolean;
     updates: boolean;
     quiet: boolean;
+    /** Check `<project>/.dsh/skills` instead of global nexus state. */
+    project: boolean;
+    /** Explicit project root; requires `project`. */
+    projectRoot?: string;
 }
 /**
  * Parse `doctor` args. All three flags are boolean and reject an inline value

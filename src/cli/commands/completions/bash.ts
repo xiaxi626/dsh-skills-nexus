@@ -18,10 +18,9 @@
  *
  * "First positional" counts the words before the cursor that do not start with
  * `-`, instead of comparing the word index: `remove --yes <TAB>` must still
- * offer names, because `--yes` is accepted before the names. Only update/pull/
- * rollback/diff/remove/rm/enable/disable reach that branch and none has a
- * value-taking flag, so a flag value can never be miscounted as a positional —
- * giving one of them a value flag would break that invariant. `export` and
+ * offer names, because `--yes` is accepted before the names. The one
+ * value-taking flag those commands accept, `--project-root`, has its value
+ * skipped explicitly so a path can never be miscounted as a name. `export` and
  * `adopt` also take a positional (a name), but each has value-taking flags
  * (`--out`, `--url`), so they are deliberately outside that branch.
  *
@@ -44,7 +43,7 @@ export const bashTemplate = [
   '# bash completion for dsh-skills-nexus - enable with:',
   '#   eval "$(dsh-skills-nexus completions --shell bash)"',
   '_dsh_skills_nexus() {',
-  '  local cur cmd prev flags skills i nargs',
+  '  local cur cmd prev flags skills i nargs skip',
   '  cur="${COMP_WORDS[COMP_CWORD]}"',
   '  prev="${COMP_WORDS[COMP_CWORD-1]}"',
   '',
@@ -57,16 +56,16 @@ export const bashTemplate = [
   '  cmd="${COMP_WORDS[1]}"',
   '  case "$cmd" in',
   '    add)         flags="--name --ref --subdir --yes --json" ;;',
-  '    list|ls)     flags="--names --json --filter" ;;',
+  '    list|ls)     flags="--names --json --filter --project --project-root --all" ;;',
   '    update|pull|rollback) flags="--json" ;;',
   '    diff)        flags="--stat" ;;',
-  '    remove|rm)   flags="--yes --json --group" ;;',
+  '    remove|rm)   flags="--yes --json --group --project --project-root" ;;',
   '    enable|disable) flags="--group --json" ;;',
-  '    link)        flags="--dry-run --group --source-dir --trae-cn-dir --force --json" ;;',
+  '    link)        flags="--dry-run --group --source-dir --trae-cn-dir --force --json --project --project-root" ;;',
   '    export)      flags="--all --out" ;;',
   '    import)      flags="--dry-run --subdir --each --force --locked --no-remote --no-net-check --name --yes" ;;',
   '    adopt)       flags="--url --ref --subdir --force --prune" ;;',
-  '    doctor)      flags="--json --updates --quiet" ;;',
+  '    doctor)      flags="--json --updates --quiet --project --project-root" ;;',
   '    purge)       flags="--yes --json" ;;',
   '    switch-version) flags="--type" ;;',
   '    completions) flags="--shell" ;;',
@@ -90,9 +89,15 @@ export const bashTemplate = [
   '      # instead of making the positional count flag-value aware.',
   '      # Positional arguments typed so far, ignoring flags.',
   '      nargs=0',
+  '      skip=0',
   '      i=2',
   '      while [ "$i" -lt "$COMP_CWORD" ]; do',
-  '        case "${COMP_WORDS[i]}" in -*) ;; *) nargs=$((nargs + 1)) ;; esac',
+  '        if [ "$skip" -eq 1 ]; then skip=0; i=$((i + 1)); continue; fi',
+  '        case "${COMP_WORDS[i]}" in',
+  '          --project-root) skip=1 ;;',
+  '          -*) ;;',
+  '          *) nargs=$((nargs + 1)) ;;',
+  '        esac',
   '        i=$((i + 1))',
   '      done',
   '      if [ "$nargs" -eq 0 ]; then',

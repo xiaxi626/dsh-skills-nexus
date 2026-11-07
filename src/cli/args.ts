@@ -89,6 +89,10 @@ export interface RemoveOptions {
    * confirmed first (or pass `--yes`).
    */
   group?: string
+  /** Remove links from `<project>/.dsh/skills` instead of manifest entries. */
+  project: boolean
+  /** Explicit project root; requires `project`. */
+  projectRoot?: string
 }
 
 /**
@@ -106,6 +110,8 @@ export function parseRemoveArgs(argv: string[]): RemoveOptions {
   let yes = false
   let json = false
   let group: string | undefined
+  let project = false
+  let projectRoot: string | undefined
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!
@@ -113,7 +119,17 @@ export function parseRemoveArgs(argv: string[]): RemoveOptions {
     const flag = eqIdx !== -1 ? a.slice(0, eqIdx) : a
     const inlineVal = eqIdx !== -1 ? a.slice(eqIdx + 1) : undefined
 
-    if (flag === '--yes' || flag === '-y' || flag === '--force') {
+    if (flag === '--project') {
+      if (inlineVal !== undefined) {
+        throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
+      }
+      project = true
+    } else if (flag === '--project-root') {
+      projectRoot = inlineVal ?? argv[++i]
+      if (!projectRoot || (inlineVal === undefined && projectRoot.startsWith('--'))) {
+        throw new Error('--project-root requires a path, e.g. --project-root /path/to/project')
+      }
+    } else if (flag === '--yes' || flag === '-y' || flag === '--force') {
       if (inlineVal !== undefined) {
         throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
       }
@@ -132,7 +148,29 @@ export function parseRemoveArgs(argv: string[]): RemoveOptions {
     }
   }
 
-  return { patterns, yes, json, ...(group === undefined ? {} : { group }) }
+  if (projectRoot !== undefined && !project) {
+    throw new Error('--project-root requires --project (it would otherwise be silently ignored)')
+  }
+  if (project) {
+    if (group !== undefined) {
+      throw new Error('--group is not available with --project; project scope removes exact names only')
+    }
+    const glob = patterns.find((p) => p.includes('*') || p.includes('?'))
+    if (glob !== undefined) {
+      throw new Error(
+        `"${glob}" looks like a glob; remove --project takes exact link names only`,
+      )
+    }
+  }
+
+  return {
+    patterns,
+    yes,
+    json,
+    project,
+    ...(group === undefined ? {} : { group }),
+    ...(projectRoot === undefined ? {} : { projectRoot }),
+  }
 }
 
 export interface ListOptions {
@@ -142,6 +180,12 @@ export interface ListOptions {
   json: boolean
   /** Case-insensitive substring filter over name / url / subdir. */
   filter?: string
+  /** List `<project>/.dsh/skills` instead of the manifest. */
+  project: boolean
+  /** Explicit project root; requires `project`. */
+  projectRoot?: string
+  /** Join the project links and the global entries into one human table. */
+  all: boolean
 }
 
 /**
@@ -163,6 +207,9 @@ export function parseListArgs(argv: string[]): ListOptions {
   let names = false
   let json = false
   let filter: string | undefined
+  let project = false
+  let projectRoot: string | undefined
+  let all = false
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!
@@ -183,8 +230,26 @@ export function parseListArgs(argv: string[]): ListOptions {
     } else if (flag === '--filter') {
       filter = inlineVal ?? argv[++i]
       if (!filter) throw new Error('--filter requires a query string, e.g. --filter trae')
+    } else if (flag === '--project') {
+      if (inlineVal !== undefined) {
+        throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
+      }
+      project = true
+    } else if (flag === '--project-root') {
+      projectRoot = inlineVal ?? argv[++i]
+      if (!projectRoot || (inlineVal === undefined && projectRoot.startsWith('--'))) {
+        throw new Error('--project-root requires a path, e.g. --project-root /path/to/project')
+      }
+    } else if (flag === '--all') {
+      if (inlineVal !== undefined) {
+        throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
+      }
+      all = true
     } else {
-      throw new Error(`unknown argument "${a}"; usage: dsh-skills-nexus list [--names | --json] [--filter <query>]`)
+      throw new Error(
+        `unknown argument "${a}"; usage: ` +
+          'dsh-skills-nexus list [--names | --json] [--filter <query>] [--project | --all] [--project-root <path>]',
+      )
     }
   }
 
@@ -194,8 +259,23 @@ export function parseListArgs(argv: string[]): ListOptions {
         '--json the structured report',
     )
   }
+  if (all && (names || json)) {
+    throw new Error(
+      '--all is the human scope-joined table; it cannot be combined with --names or --json',
+    )
+  }
+  if (projectRoot !== undefined && !project) {
+    throw new Error('--project-root requires --project (it would otherwise be silently ignored)')
+  }
 
-  return { names, json, ...(filter === undefined ? {} : { filter }) }
+  return {
+    names,
+    json,
+    all,
+    project,
+    ...(filter === undefined ? {} : { filter }),
+    ...(projectRoot === undefined ? {} : { projectRoot }),
+  }
 }
 
 export interface UpdateOptions {
@@ -668,6 +748,13 @@ export interface LinkCLIOptions {
   dryRun: boolean
   /** Emit a machine-readable report on stdout. */
   json: boolean
+  /**
+   * Directory-style project link: the positional is a source **directory**, and
+   * the link lands in `<project>/.dsh/skills` with no manifest write.
+   */
+  project: boolean
+  /** Explicit project root; requires `project`. */
+  projectRoot?: string
 }
 
 /**
@@ -685,6 +772,8 @@ export function parseLinkArgs(argv: string[]): LinkCLIOptions {
   let force = false
   let dryRun = false
   let json = false
+  let project = false
+  let projectRoot: string | undefined
 
   const boolean = (flag: string, inlineVal: string | undefined): void => {
     if (inlineVal !== undefined) {
@@ -725,24 +814,47 @@ export function parseLinkArgs(argv: string[]): LinkCLIOptions {
         boolean(flag, inlineVal)
         json = true
         break
+      case '--project':
+        boolean(flag, inlineVal)
+        project = true
+        break
+      case '--project-root':
+        projectRoot = inlineVal ?? argv[++i]
+        if (!projectRoot || (inlineVal === undefined && projectRoot.startsWith('--'))) {
+          throw new Error('--project-root requires a path, e.g. --project-root /path/to/project')
+        }
+        break
       default:
         if (a.startsWith('-')) {
           throw new Error(
-            `unknown argument "${a}"; usage: dsh-skills-nexus link <source> [--dry-run] [--group <name>] [--force] [--json]`,
+            `unknown argument "${a}"; usage: dsh-skills-nexus link <source> [--dry-run] [--group <name>] [--force] [--json]` +
+              ' or: dsh-skills-nexus link --project <dir> [--project-root <path>] [--dry-run] [--json]',
           )
         }
         positionals.push(a)
     }
   }
 
+  if (projectRoot !== undefined && !project) {
+    throw new Error('--project-root requires --project (it would otherwise be silently ignored)')
+  }
+  if (project && (dirOverride !== undefined || traeCnDir !== undefined || group !== undefined || force)) {
+    throw new Error(
+      '--project links a directory: --group, --source-dir, --trae-cn-dir and --force do not apply',
+    )
+  }
+
   if (positionals.length === 0) {
     throw new Error(
-      'missing source; usage: dsh-skills-nexus link <source> [--dry-run] [--group <name>] [--force] [--json]',
+      project
+        ? 'missing directory; usage: dsh-skills-nexus link --project <dir> [--dry-run] [--json]'
+        : 'missing source; usage: dsh-skills-nexus link <source> [--dry-run] [--group <name>] [--force] [--json]',
     )
   }
   if (positionals.length > 1) {
+    const what = project ? 'directory' : 'source'
     throw new Error(
-      `link takes one source at a time (got ${positionals.length}); run it once per source`,
+      `link takes one ${what} at a time (got ${positionals.length}); run it once per ${what}`,
     )
   }
 
@@ -751,8 +863,10 @@ export function parseLinkArgs(argv: string[]): LinkCLIOptions {
     force,
     dryRun,
     json,
+    project,
     ...(dirOverride === undefined ? {} : { dirOverride }),
     ...(traeCnDir === undefined ? {} : { traeCnDir }),
     ...(group === undefined ? {} : { group }),
+    ...(projectRoot === undefined ? {} : { projectRoot }),
   }
 }

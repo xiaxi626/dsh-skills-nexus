@@ -1,14 +1,18 @@
 import { listEntries, readManifest } from '../../manifest.js'
-import { REPOS_DIR, OFFICIAL_SKILLS_DIR } from '../../paths.js'
+import { REPOS_DIR, OFFICIAL_SKILLS_DIR, projectSkillsDir } from '../../paths.js'
 import { entrySkillDir } from '../../external.js'
 import { stat } from 'node:fs/promises'
 import { scanEntryLinks } from '../../link.js'
+import { listProjectSkills } from '../../project.js'
 import { cliIO } from '../../ops-io.js'
 import type { OpsIO } from '../../ops-io.js'
 import { parseListArgs } from '../args.js'
+import type { ListOptions } from '../args.js'
 import { emitJson, fatalJsonError } from '../json-io.js'
 import type { ListJsonEntry, ListJsonReport } from '../json-types.js'
 import { matchesQuery } from '../../filter.js'
+import { resolveProjectScope } from '../project-scope.js'
+import { detectProjectRoot } from '../../project-root.js'
 
 /**
  * `list [--names | --json]` — show registered skills and their status.
@@ -30,14 +34,9 @@ import { matchesQuery } from '../../filter.js'
  * Exit codes: 0 = listed, 1 = manifest unreadable, 2 = usage error.
  */
 export async function list(argv: string[], io: OpsIO = cliIO): Promise<number> {
-  let names: boolean
-  let json: boolean
-  let filter: string | undefined
+  let opts: ListOptions
   try {
-    const opts = parseListArgs(argv)
-    names = opts.names
-    json = opts.json
-    filter = opts.filter
+    opts = parseListArgs(argv)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (jsonRequested(argv)) {
@@ -48,6 +47,12 @@ export async function list(argv: string[], io: OpsIO = cliIO): Promise<number> {
     return 2
   }
 
+  // Project scope is a filesystem scan, not a manifest read, so it branches
+  // before everything below (and before the global --json path).
+  if (opts.project) return listProject(io, opts)
+  if (opts.all) return listAll(io, opts)
+
+  const { names, json, filter } = opts
   if (json) return listJson(io, filter)
 
   const manifest = await readManifest()
@@ -135,6 +140,153 @@ export async function list(argv: string[], io: OpsIO = cliIO): Promise<number> {
     `  Symlinks in: ${OFFICIAL_SKILLS_DIR} (on = linked to catalog)\n`,
   )
   return 0
+}
+
+/**
+ * `list --project`: scan `<project>/.dsh/skills` — the same directory the DSH
+ * provider reads at project rank — and report what is there.
+ *
+ * The data source is the filesystem, never the manifest: a project skill is a
+ * link (or user content) somebody put in that directory, and nexus has no
+ * record of it. `--names` stays a newline stream; `--json` emits the
+ * project-scope report; the human table keeps the `(dangling)` marker beside a
+ * link whose target has disappeared.
+ */
+async function listProject(io: OpsIO, opts: ListOptions): Promise<number> {
+  const scope = await resolveProjectScope(opts.projectRoot)
+  if ('error' in scope) {
+    io.error(`error: ${scope.error}`)
+    return 1
+  }
+
+  const query = opts.filter?.toLowerCase()
+  const entries = (await listProjectSkills(scope.root)).filter(
+    (entry) =>
+      query === undefined ||
+      entry.name.toLowerCase().includes(query) ||
+      (entry.target ?? '').toLowerCase().includes(query),
+  )
+
+  if (opts.json) {
+    emitJson(io, {
+      version: 1,
+      projectRoot: scope.root,
+      entries: entries.map((entry) => ({
+        name: entry.name,
+        kind: entry.kind,
+        target: entry.target,
+        dangling: entry.dangling,
+      })),
+    })
+    return 0
+  }
+
+  if (opts.names) {
+    for (const entry of entries) io.emit(`${entry.name}\n`)
+    return 0
+  }
+
+  const root = projectSkillsDir(scope.root)
+  if (entries.length === 0) {
+    io.emit(`No project skills in ${root}.\n`)
+    return 0
+  }
+
+  const kindW = Math.max(4, ...entries.map((entry) => entry.kind.length))
+  const nameW = Math.max(4, ...entries.map((entry) => entry.name.length))
+  io.emit(`${'KIND'.padEnd(kindW)}  ${'NAME'.padEnd(nameW)}  TARGET\n`)
+  for (const entry of entries) {
+    const target = entry.target ?? '—'
+    const marker = entry.dangling ? '   (dangling)' : ''
+    io.emit(`${entry.kind.padEnd(kindW)}  ${entry.name.padEnd(nameW)}  ${target}${marker}\n`)
+  }
+  io.emit(
+    `\n${entries.length} project skill(s) · ${root}\n` +
+      '  Project links shadow global skills of the same name (the provider scans this root first).\n',
+  )
+  return 0
+}
+
+/** One row of the scope-joined `list --all` table. */
+interface ScopeRow {
+  scope: 'project' | 'global'
+  name: string
+  state: string
+  target: string
+}
+
+/**
+ * `list --all`: the human-only joined view. Project entries and manifest
+ * entries are joined by name, so a name present in both scopes is marked
+ * `overrides` on the project side and `shadowed` on the global side — the
+ * provider's own precedence, made visible.
+ *
+ * Machine consumers keep using `list --json` (manifest) and
+ * `list --project --json` (filesystem): joining two different datasets into
+ * one version-1 envelope would have changed neither contract for the better.
+ */
+async function listAll(io: OpsIO, opts: ListOptions): Promise<number> {
+  const root = detectProjectRoot(process.cwd())
+  const [projectEntries, global] = await Promise.all([
+    listProjectSkills(root),
+    listEntries(),
+  ])
+  const query = opts.filter
+
+  const projectNames = new Set(projectEntries.map((entry) => entry.name))
+  const globalNames = new Set(global.map((listed) => listed.entry.name))
+  const rows: ScopeRow[] = []
+
+  for (const entry of projectEntries) {
+    if (!matchesProjectEntry(entry.name, entry.target, query)) continue
+    rows.push({
+      scope: 'project',
+      name: entry.name,
+      state: globalNames.has(entry.name)
+        ? 'overrides'
+        : entry.kind === 'files'
+          ? 'user files'
+          : '—',
+      target: entry.target ?? '—',
+    })
+  }
+  for (const listed of global) {
+    if (query !== undefined && !matchesQuery(listed.entry, query)) continue
+    rows.push({
+      scope: 'global',
+      name: listed.entry.name,
+      state: projectNames.has(listed.entry.name) ? 'shadowed' : '—',
+      target: sourceLabel(listed.entry.gitUrl || listed.entry.url),
+    })
+  }
+
+  if (rows.length === 0) {
+    io.emit(query === undefined ? 'No skills found.\n' : `No entries match "${query}".\n`)
+    return 0
+  }
+
+  const scopeW = Math.max(5, ...rows.map((row) => row.scope.length))
+  const nameW = Math.max(4, ...rows.map((row) => row.name.length))
+  const stateW = Math.max(5, ...rows.map((row) => row.state.length))
+  io.emit(
+    `${'SCOPE'.padEnd(scopeW)}  ${'NAME'.padEnd(nameW)}  ${'STATE'.padEnd(stateW)}  TARGET\n`,
+  )
+  for (const row of rows) {
+    io.emit(
+      `${row.scope.padEnd(scopeW)}  ${row.name.padEnd(nameW)}  ${row.state.padEnd(stateW)}  ${row.target}\n`,
+    )
+  }
+  io.emit(
+    `\n${projectEntries.length} project skill(s) · ${global.length} global entry(ies) · project root: ${root}\n`,
+  )
+  return 0
+}
+
+/** Does a project entry match a `--filter` query (name or target)? */
+function matchesProjectEntry(name: string, target: string | null, query: string | undefined): boolean {
+  if (query === undefined) return true
+  const q = query.toLowerCase()
+  return name.toLowerCase().includes(q) || (target ?? '').toLowerCase().includes(q)
 }
 
 /**

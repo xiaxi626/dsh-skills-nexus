@@ -21,11 +21,11 @@
  *
  * The first positional argument is counted as "words before the cursor that do
  * not start with `-`", not as a fixed slot: `remove --yes <TAB>` must still
- * offer names, because `--yes` is accepted before the names. Only update/pull/
- * rollback/diff/remove/rm/enable/disable reach that branch and none has a
- * value-taking flag, so a flag value can never be miscounted as a positional.
- * `export` and `adopt` also take a positional (a name), but each has
- * value-taking flags (`--out`, `--url`), so both are deliberately outside it.
+ * offer names, because `--yes` is accepted before the names. The one
+ * value-taking flag those commands accept, `--project-root`, has its value
+ * skipped explicitly so a path can never be miscounted as a name. `export` and
+ * `adopt` also take a positional (a name), but each has value-taking flags
+ * (`--out`, `--url`), so both are deliberately outside it.
  *
  * Layer 3 shells out to `list --names` instead of reading `manifest.json`, so
  * an internal schema change cannot silently break completion.
@@ -67,30 +67,38 @@ export const powershellTemplate = [
   "  } else {",
   "    $cmd = $els[1]",
   "    $prev = $els[$done - 1]",
-  "    # Positional arguments typed so far, ignoring flags.",
+  "    # Positional arguments typed so far, ignoring flags. --project-root",
+  "    # consumes its value, which must not be counted as a name.",
   "    $nargs = 0",
-  "    if ($done -gt 2) { $nargs = @($els[2..($done - 1)] | Where-Object { $_ -notlike '-*' }).Count }",
+  "    if ($done -gt 2) {",
+  "      $skip = $false",
+  "      foreach ($token in @($els[2..($done - 1)])) {",
+  "        if ($skip) { $skip = $false; continue }",
+  "        if ($token -eq '--project-root') { $skip = $true; continue }",
+  "        if ($token -notlike '-*') { $nargs = $nargs + 1 }",
+  "      }",
+  "    }",
   "    if ($wordToComplete -like '-*') {",
   "      # Flags, filtered by subcommand; update/pull/enable/disable take only",
   "      # the machine-report flag.",
   "      $candidates = switch ($cmd) {",
   "        'add'         { '--name','--ref','--subdir','--yes','--json' }",
-  "        'list'        { '--names','--json','--filter' }",
-  "        'ls'          { '--names','--json','--filter' }",
+  "        'list'        { '--names','--json','--filter','--project','--project-root','--all' }",
+  "        'ls'          { '--names','--json','--filter','--project','--project-root','--all' }",
   "        'update'      { '--json' }",
   "        'pull'        { '--json' }",
   "        'rollback'    { '--json' }",
   "        'diff'        { '--stat' }",
-  "        'remove'      { '--yes','--json','--group' }",
-  "        'rm'          { '--yes','--json','--group' }",
+  "        'remove'      { '--yes','--json','--group','--project','--project-root' }",
+  "        'rm'          { '--yes','--json','--group','--project','--project-root' }",
   "        'enable'      { '--group','--json' }",
   "        'disable'     { '--group','--json' }",
   "        'export'      { '--all','--out' }",
   "        'import'      { '--dry-run','--subdir','--each','--force','--locked','--no-remote','--no-net-check','--name','--yes' }",
   "        'adopt'       { '--url','--ref','--subdir','--force','--prune' }",
   "        'switch-version' { '--type' }",
-  "        'link'        { '--dry-run','--group','--source-dir','--trae-cn-dir','--force','--json' }",
-  "        'doctor'      { '--json','--updates','--quiet' }",
+  "        'link'        { '--dry-run','--group','--source-dir','--trae-cn-dir','--force','--json','--project','--project-root' }",
+  "        'doctor'      { '--json','--updates','--quiet','--project','--project-root' }",
   "        'purge'       { '--yes','--json' }",
   "        'completions' { '--shell' }",
   "        default       { @() }",
