@@ -981,7 +981,7 @@ async function projectRootOf(raw: string | undefined): Promise<string> {
   throw new HttpError(400, 'invalid-root', { root })
 }
 
-/** Method + same-origin + loopback, the guard all three project routes share. */
+/** Method + same-origin + loopback, the guard all four project routes share. */
 function projectGuard(req: RouteRequest, res: RouteResponse, method: 'GET' | 'POST'): boolean {
   if (!requireMethod(req, res, method)) return false
   if (!requireMutationSafe(req, res)) return false
