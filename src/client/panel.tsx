@@ -85,7 +85,6 @@ import {
   ReconcileTimeoutError,
   confirmable,
   createApi,
-  isProjectLinkPlan,
   jobConfirmationQuestion,
   pollJob,
   reconcileList,
@@ -99,7 +98,7 @@ import type {
   LinkPlan,
   ListEntry,
   NexusApi,
-  ProjectLinkPlan,
+  ProjectFolderSkill,
   ProjectSkillEntry,
 } from './api.js'
 import css from './panel.module.css'
@@ -347,11 +346,10 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
    */
   const [scope, setScope] = useState<'global' | 'project'>('global')
   const [projectRoot, setProjectRoot] = useState('')
+  const [folderSkills, setFolderSkills] = useState<ProjectFolderSkill[]>([])
   const [projectEntries, setProjectEntries] = useState<ProjectSkillEntry[]>([])
   const [projectError, setProjectError] = useState<string | null>(null)
   const [projectBusy, setProjectBusy] = useState(false)
-  const [projectLinkDir, setProjectLinkDir] = useState('')
-  const [projectPlan, setProjectPlan] = useState<ProjectLinkPlan | null>(null)
   const [projectLinkBusy, setProjectLinkBusy] = useState(false)
   /** The project link awaiting a removal decision. */
   const [pendingProjectRemoval, setPendingProjectRemoval] = useState<ProjectSkillEntry | null>(null)
@@ -681,6 +679,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   const refreshProject = useCallback(async (): Promise<void> => {
     const root = projectRoot.trim()
     if (root.length === 0) {
+      setFolderSkills([])
       setProjectEntries([])
       setProjectError(null)
       return
@@ -689,6 +688,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     try {
       const env = await api.projectList(root)
       if (!alive.current) return
+      setFolderSkills(env.data.folderSkills)
       setProjectEntries(env.data.entries)
       setProjectError(null)
     } catch (err) {
@@ -727,33 +727,18 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     [api, patchJob, refreshProject],
   )
 
-  /** Step 1: ask the server what a directory would link (touches nothing). */
-  const onPreviewProjectLink = (): void => {
+  /**
+   * Link one skill the project folder itself provides. The folder scan already
+   * showed what would be created, so this confirms directly — no second input
+   * whose value could disagree with the row the user clicked.
+   */
+  const onLinkFolderSkill = (skill: ProjectFolderSkill): void => {
     const root = projectRoot.trim()
-    const dir = projectLinkDir.trim()
-    if (root.length === 0 || dir.length === 0) return
-    setProjectPlan(null)
+    if (root.length === 0 || projectLinkBusy) return
     void run('project-link', async () => {
       setProjectLinkBusy(true)
       try {
-        const env = await api.projectLink(root, dir)
-        if (!alive.current) return
-        if (isProjectLinkPlan(env.data)) setProjectPlan(env.data)
-      } finally {
-        setProjectLinkBusy(false)
-      }
-    })
-  }
-
-  /** Step 2: run the same preview with `confirm`, as a pollable job. */
-  const onLinkProject = (): void => {
-    const plan = projectPlan
-    if (plan === null) return
-    void run('project-link', async () => {
-      setProjectLinkBusy(true)
-      try {
-        const env = await api.projectLink(projectRoot.trim(), plan.source, true)
-        setProjectPlan(null)
+        const env = await api.projectLink(root, skill.resourceBase, true)
         if ('jobId' in env.data) await trackProjectLink('project link', env.data)
       } finally {
         setProjectLinkBusy(false)
@@ -1415,25 +1400,25 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
         className={css.tabPanel}
       >
         <p className={css.lede}>
-          Links under <code>&lt;project&gt;/.dsh/skills</code> — the root the
-          provider scans before the global catalog. Only links are created and
-          removed; the target directory is never copied, moved or deleted.
+          Skills in a project folder and the links under its{' '}
+          <code>.dsh/skills</code>. Read-only unless you link or remove a link:
+          nexus never edits a skill file and never deletes user content.
         </p>
 
         <div className={css.formRow}>
           <label className={css.fieldLabel}>
-            project root
+            project folder
             <Input
               type="text"
               aria-label="project root"
-              placeholder="absolute path, e.g. /home/you/dev/my-project"
+              placeholder="absolute path, e.g. D:\\theme-port-skill"
               value={projectRoot}
               disabled={projectBusy}
               onChange={(e: ChangeEvent<HTMLInputElement>) => {
                 setProjectRoot(e.target.value)
+                setFolderSkills([])
                 setProjectEntries([])
                 setProjectError(null)
-                setProjectPlan(null)
               }}
             />
           </label>
@@ -1447,84 +1432,53 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
           </Button>
         </div>
         <p className={css.hint}>
-          absolute path on the server — this scope has no workspace service to
-          infer one from, and the value is deliberately not stored
+          any absolute folder — it does not have to be a registered DSH workspace
         </p>
 
         {projectRoot.trim().length === 0 ? (
-          <p className={css.hint}>enter the project root to list its skills</p>
+          <p className={css.hint}>enter a project folder to see its skills</p>
         ) : projectError !== null ? (
           <p className={css.error}>{projectError}</p>
-        ) : projectEntries.length === 0 ? (
-          <p className={css.empty}>no project skills yet — link a directory below.</p>
         ) : (
-          <ul className={css.entries}>
-            {projectEntries.map((entry) => (
-              <li key={entry.name} className={css.entryRow}>
-                <ProjectSkillRow entry={entry} busy={projectBusy} onRemove={onRemoveProject} />
-              </li>
-            ))}
-          </ul>
-        )}
+          <>
+            <section>
+              <h4 className={css.groupTitle}>skills in this folder</h4>
+              {folderSkills.length === 0 ? (
+                <p className={css.empty}>no SKILL.md found in this folder itself.</p>
+              ) : (
+                <ul className={css.entries}>
+                  {folderSkills.map((skill) => (
+                    <li key={`${skill.resourceBase}:${skill.name}`} className={css.entryRow}>
+                      <ProjectFolderSkillRow
+                        skill={skill}
+                        busy={projectLinkBusy}
+                        onLink={onLinkFolderSkill}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
 
-        <div className={css.formRow}>
-          <label className={css.fieldLabel}>
-            link a directory
-            <Input
-              type="text"
-              aria-label="project link source directory"
-              placeholder="absolute path to a skill directory or collection"
-              value={projectLinkDir}
-              disabled={projectLinkBusy}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                setProjectLinkDir(e.target.value)
-                setProjectPlan(null)
-              }}
-            />
-          </label>
-          <Button
-            type="button"
-            onClick={onPreviewProjectLink}
-            disabled={
-              projectLinkBusy ||
-              projectRoot.trim().length === 0 ||
-              projectLinkDir.trim().length === 0
-            }
-          >
-            preview
-          </Button>
-        </div>
-
-        {projectPlan !== null && (
-          <div className={css.plan}>
-            <p className={css.hint}>
-              {`source: ${projectPlan.source} · ${projectPlan.results.length} skill(s)`}
-            </p>
-            <ul className={css.planList}>
-              {projectPlan.results.map((result) => (
-                <li key={result.name}>
-                  <strong>{result.name}</strong>
-                  {` — ${result.status}`}
-                  {result.error !== undefined ? ` (${result.error})` : ''}
-                </li>
-              ))}
-            </ul>
-            <div className={css.entryActions}>
-              <Button
-                type="button"
-                variant="primary"
-                onClick={onLinkProject}
-                disabled={
-                  projectLinkBusy ||
-                  !projectPlan.results.some(
-                    (result) => result.status === 'link' || result.status === 'replace',
-                  )
-                }
-              >
-                link to project
-              </Button>
-            </div>
-          </div>
+            <section>
+              <h4 className={css.groupTitle}>project skills root</h4>
+              <p className={css.hint}>
+                entries under <code>.dsh/skills</code> — links are managed; user
+                files are shown read-only
+              </p>
+              {projectEntries.length === 0 ? (
+                <p className={css.empty}>no entries in the project skills root yet.</p>
+              ) : (
+                <ul className={css.entries}>
+                  {projectEntries.map((entry) => (
+                    <li key={entry.name} className={css.entryRow}>
+                      <ProjectSkillRow entry={entry} busy={projectBusy} onRemove={onRemoveProject} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </>
         )}
       </div>
 
@@ -1621,25 +1575,66 @@ interface ProjectSkillRowProps {
 }
 
 /**
- * One project-scope row: name, kind/dangling badge, target, and a remove action
- * **only for links**.
+ * One entry under `<project>/.dsh/skills`: the parsed skill name (falling back
+ * to the filesystem name), a kind badge, the description/target, and a remove
+ * action **only for links**.
  *
  * Exported for the static render test: "a user-files row has no remove action"
  * is the project scope's safety contract in the UI, and it is pure props →
  * markup — no request, no mounted effect.
  */
 export function ProjectSkillRow({ entry, busy, onRemove }: ProjectSkillRowProps): ReactElement {
+  const name = entry.skill?.name ?? entry.name
+  const invalid = entry.kind === 'files' && entry.skill?.valid === false
+  const meta =
+    [entry.skill?.description, entry.target].filter((part) => part).join(' · ') ||
+    entry.skill?.error ||
+    '—'
   return (
     <div className={css.entryHead}>
-      <span className={css.entryName}>{entry.name}</span>
-      <Tag tone={entry.dangling ? 'warning' : 'neutral'}>
-        {entry.kind === 'link' ? (entry.dangling ? 'dangling' : 'link') : 'user files'}
+      <span className={css.entryName}>{name}</span>
+      <Tag tone={entry.dangling || invalid ? 'warning' : 'neutral'}>
+        {entry.kind === 'link' ? (entry.dangling ? 'dangling' : 'link') : invalid ? 'invalid' : 'user files'}
       </Tag>
-      <span className={css.entryMeta}>{entry.target ?? '—'}</span>
+      <span className={css.entryMeta}>{meta}</span>
       <span className={css.toolbarSpacer} />
       {entry.kind === 'link' && (
         <Button type="button" size="sm" onClick={() => onRemove(entry)} disabled={busy}>
           remove
+        </Button>
+      )}
+    </div>
+  )
+}
+
+interface ProjectFolderSkillRowProps {
+  skill: ProjectFolderSkill
+  busy: boolean
+  onLink: (skill: ProjectFolderSkill) => void
+}
+
+/**
+ * One skill the project **folder itself** provides. This is the source side:
+ * the row can create a project link when the skill is valid and not linked
+ * yet, and is otherwise read-only. Exported for the static render test.
+ */
+export function ProjectFolderSkillRow({
+  skill,
+  busy,
+  onLink,
+}: ProjectFolderSkillRowProps): ReactElement {
+  const meta = skill.description || skill.error || '—'
+  return (
+    <div className={css.entryHead}>
+      <span className={css.entryName}>{skill.name}</span>
+      <Tag tone={skill.valid ? 'neutral' : 'warning'}>
+        {skill.linked ? 'linked' : skill.valid ? 'folder skill' : 'invalid'}
+      </Tag>
+      <span className={css.entryMeta}>{meta}</span>
+      <span className={css.toolbarSpacer} />
+      {!skill.linked && skill.valid && (
+        <Button type="button" size="sm" onClick={() => onLink(skill)} disabled={busy}>
+          link
         </Button>
       )}
     </div>

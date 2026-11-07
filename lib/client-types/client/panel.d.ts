@@ -43,7 +43,7 @@
 import type { ReactElement } from 'react';
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives';
 import { matchesQuery } from '../filter.js';
-import type { DoctorReport, Job, ListEntry, NexusApi, ProjectSkillEntry } from './api.js';
+import type { DoctorReport, Job, ListEntry, NexusApi, ProjectFolderSkill, ProjectSkillEntry } from './api.js';
 /** Map route errors to one-line user-readable text (codes are the route contract). */
 export declare function errorText(err: unknown): string;
 /**
@@ -78,14 +78,26 @@ interface ProjectSkillRowProps {
     onRemove: (entry: ProjectSkillEntry) => void;
 }
 /**
- * One project-scope row: name, kind/dangling badge, target, and a remove action
- * **only for links**.
+ * One entry under `<project>/.dsh/skills`: the parsed skill name (falling back
+ * to the filesystem name), a kind badge, the description/target, and a remove
+ * action **only for links**.
  *
  * Exported for the static render test: "a user-files row has no remove action"
  * is the project scope's safety contract in the UI, and it is pure props →
  * markup — no request, no mounted effect.
  */
 export declare function ProjectSkillRow({ entry, busy, onRemove }: ProjectSkillRowProps): ReactElement;
+interface ProjectFolderSkillRowProps {
+    skill: ProjectFolderSkill;
+    busy: boolean;
+    onLink: (skill: ProjectFolderSkill) => void;
+}
+/**
+ * One skill the project **folder itself** provides. This is the source side:
+ * the row can create a project link when the skill is valid and not linked
+ * yet, and is otherwise read-only. Exported for the static render test.
+ */
+export declare function ProjectFolderSkillRow({ skill, busy, onLink, }: ProjectFolderSkillRowProps): ReactElement;
 interface EntryCardProps {
     entry: ListEntry;
     refValue: string;

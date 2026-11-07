@@ -227,6 +227,21 @@ export interface GroupState {
     state: 'on' | 'off' | 'mixed';
     count: number;
 }
+/** Read-only metadata parsed from a SKILL.md (or flat .md) file. */
+export interface ProjectSkillInfo {
+    name: string;
+    description: string;
+    skillFile: string;
+    resourceBase: string;
+    valid: boolean;
+    invalidName?: string;
+    error?: string;
+}
+/** A skill the project folder itself provides, with its link state. */
+export interface ProjectFolderSkill extends ProjectSkillInfo {
+    linked: boolean;
+    linkName: string | null;
+}
 /** One entry under `<project>/.dsh/skills`, as `GET /project/list` serves it. */
 export interface ProjectSkillEntry {
     name: string;
@@ -237,6 +252,14 @@ export interface ProjectSkillEntry {
     target: string | null;
     /** True when a link's target is missing or is not a directory. */
     dangling: boolean;
+    /** Parsed metadata when the entry (or a link's target) is a skill, else null. */
+    skill: ProjectSkillInfo | null;
+}
+/** The project page's one read-only report. */
+export interface ProjectReport {
+    projectRoot: string;
+    folderSkills: ProjectFolderSkill[];
+    entries: ProjectSkillEntry[];
 }
 export type ProjectLinkStatus = 'link' | 'replace' | 'unchanged' | 'collision' | 'invalid';
 /** One planned/executed project link (server mirror of `ProjectLinkResult`). */
@@ -352,11 +375,8 @@ export interface NexusApi {
     linkLocal(source: string, opts?: Omit<LinkBody, 'source' | 'confirm'>): Promise<Envelope<{
         jobId: string;
     }>>;
-    /** `GET /project/list?root=` — the filesystem truth for one project. */
-    projectList(root: string): Promise<Envelope<{
-        projectRoot: string;
-        entries: ProjectSkillEntry[];
-    }>>;
+    /** `GET /project/list?root=` — folder skills plus the project skills root. */
+    projectList(root: string): Promise<Envelope<ProjectReport>>;
     /** Without `confirm` a preview; with it a job that creates the links. */
     projectLink(root: string, dir: string, confirm?: boolean): Promise<Envelope<ProjectLinkResponse>>;
     /** Removes one proven link; the target directory is never touched. */

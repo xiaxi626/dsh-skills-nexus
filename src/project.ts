@@ -19,8 +19,9 @@
  */
 
 import { createHash } from 'node:crypto'
-import { lstat, readdir, stat } from 'node:fs/promises'
-import { basename, join, resolve } from 'node:path'
+import { lstat, readFile, readdir, stat } from 'node:fs/promises'
+import { basename, dirname, join, resolve } from 'node:path'
+import { parseFrontmatter } from './frontmatter.js'
 import { sanitizeName } from './git.js'
 import {
   hasCollision,
@@ -32,7 +33,7 @@ import {
 } from './link.js'
 import { withSkillFileLock } from './locks.js'
 import { projectSkillsDir } from './paths.js'
-import { previewSkills } from './resolve.js'
+import { isValidSkillName, previewSkills } from './resolve.js'
 import type { ParsedSkill } from './resolve.js'
 import type { OpsIO } from './ops-io.js'
 
@@ -58,6 +59,21 @@ export function projectSourceError(source: string): string | undefined {
   return undefined
 }
 
+/** Parsed metadata of a skill file, read-only. */
+export interface ProjectSkillInfo {
+  /** Catalog name: a valid frontmatter `name`, or a sanitized fallback. */
+  name: string
+  description: string
+  skillFile: string
+  resourceBase: string
+  /** True when frontmatter carries a valid name and a non-empty description. */
+  valid: boolean
+  /** Frontmatter name that failed DSH's kebab-case rule, when one was present. */
+  invalidName?: string
+  /** Why this file is not a usable skill (missing name/description, unreadable). */
+  error?: string
+}
+
 /** One entry found directly under `<projectRoot>/.dsh/skills/`. */
 export interface ProjectSkillEntry {
   name: string
@@ -69,6 +85,28 @@ export interface ProjectSkillEntry {
   target: string | null
   /** True when a link's target is missing or is not a directory. */
   dangling: boolean
+  /** Read-only metadata parsed from the entry (or a link's target), when it is a skill. */
+  skill: ProjectSkillInfo | null
+}
+
+/**
+ * A skill **provided by the project folder itself** — the `SKILL.md` at the
+ * root, one-level subdirectories, or flat `.md` files. This is the source side
+ * of the project page: it is what `link --project` would link, and it is shown
+ * even when the folder is not registered as a DSH workspace.
+ */
+export interface ProjectFolderSkill extends ProjectSkillInfo {
+  /** True when a link in `<root>/.dsh/skills` already points at this resource base. */
+  linked: boolean
+  /** Name of that link, or `null` when the skill is not linked yet. */
+  linkName: string | null
+}
+
+/** The project page's one read-only report. */
+export interface ProjectReport {
+  projectRoot: string
+  folderSkills: ProjectFolderSkill[]
+  entries: ProjectSkillEntry[]
 }
 
 /**
@@ -138,11 +176,14 @@ export async function listProjectSkills(root: string): Promise<ProjectSkillEntry
   for (const name of names) {
     const path = join(dir, name)
     if (!(await isLinkAt(path))) {
-      entries.push({ name, path, kind: 'files', target: null, dangling: false })
+      const skill = await readSkillInfo(path)
+      entries.push({ name, path, kind: 'files', target: null, dangling: false, skill })
       continue
     }
     const target = (await readLinkEntryTarget(path)) ?? null
-    entries.push({ name, path, kind: 'link', target, dangling: await isDangling(target) })
+    const dangling = await isDangling(target)
+    const skill = target !== null && !dangling ? await readSkillInfo(target) : null
+    entries.push({ name, path, kind: 'link', target, dangling, skill })
   }
   entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
   return entries
@@ -156,6 +197,152 @@ async function isDangling(target: string | null): Promise<boolean> {
   } catch {
     return true
   }
+}
+
+async function isFile(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Read the skill metadata at `path` without writing anything.
+ *
+ * A directory is a bundle when it carries `SKILL.md`; a top-level `.md` file is
+ * a flat skill. Anything else is not a skill and returns `null`, which lets the
+ * caller keep listing it as user content instead of dropping it from view.
+ */
+async function readSkillInfo(path: string): Promise<ProjectSkillInfo | null> {
+  let skillFile: string
+  let resourceBase: string
+  let bundle: boolean
+  try {
+    const st = await stat(path)
+    if (st.isDirectory()) {
+      bundle = true
+      resourceBase = path
+      skillFile = join(path, 'SKILL.md')
+      if (!(await isFile(skillFile))) return null
+    } else if (st.isFile() && path.toLowerCase().endsWith('.md')) {
+      bundle = false
+      skillFile = path
+      resourceBase = dirname(path)
+    } else {
+      return null
+    }
+  } catch {
+    return null
+  }
+  return readSkillFile(skillFile, resourceBase, bundle)
+}
+
+/** Parse one `SKILL.md` (or flat `.md`) into display metadata, never throwing. */
+async function readSkillFile(
+  skillFile: string,
+  resourceBase: string,
+  bundle: boolean,
+): Promise<ProjectSkillInfo> {
+  let raw: string
+  try {
+    raw = await readFile(skillFile, 'utf8')
+  } catch {
+    return {
+      name: '',
+      description: '',
+      skillFile,
+      resourceBase,
+      valid: false,
+      error: 'skill file is unreadable',
+    }
+  }
+
+  const { frontmatter, description } = parseFrontmatter(raw)
+  const fmName = typeof frontmatter.name === 'string' ? frontmatter.name.trim() : ''
+  const fallbackRaw = bundle ? basename(resourceBase) : basename(skillFile).replace(/\.md$/i, '')
+  const name = isValidSkillName(fmName) ? fmName : sanitizeName(fallbackRaw)
+  const valid = isValidSkillName(fmName) && description.length > 0
+  const error = !isValidSkillName(fmName)
+    ? fmName.length > 0
+      ? `invalid frontmatter name "${fmName}"`
+      : 'missing frontmatter name'
+    : description.length === 0
+      ? 'missing frontmatter description'
+      : undefined
+
+  return {
+    name,
+    description,
+    skillFile,
+    resourceBase,
+    valid,
+    ...(fmName.length > 0 && !isValidSkillName(fmName) ? { invalidName: fmName } : {}),
+    ...(error === undefined ? {} : { error }),
+  }
+}
+
+/** Turn one scanned folder skill into display metadata plus its link state. */
+function folderSkillFromParsed(skill: ParsedSkill, linkName: string | null): ProjectFolderSkill {
+  const derived = deriveName(skill)
+  const fallback = 'name' in derived ? derived.name : sanitizeName(basename(skill.resourceBase))
+  const name = isValidSkillName(skill.name) ? skill.name : fallback
+  const valid = isValidSkillName(skill.name) && skill.description.length > 0
+  const error = !isValidSkillName(skill.name)
+    ? skill.invalidName !== undefined
+      ? `invalid frontmatter name "${skill.invalidName}"`
+      : 'missing frontmatter name'
+    : skill.description.length === 0
+      ? 'missing frontmatter description'
+      : undefined
+
+  return {
+    name,
+    description: skill.description,
+    skillFile: skill.skillFile,
+    resourceBase: skill.resourceBase,
+    valid,
+    ...(skill.invalidName === undefined ? {} : { invalidName: skill.invalidName }),
+    ...(error === undefined ? {} : { error }),
+    linked: linkName !== null,
+    linkName,
+  }
+}
+
+/**
+ * Scan the project folder's **own** skills (root `SKILL.md`, one-level
+ * subdirectories, flat `.md` files) and mark which ones already have a link in
+ * `<root>/.dsh/skills`. Read-only: this is the source side of the page, not a
+ * managed project entry.
+ */
+export async function scanProjectFolder(
+  root: string,
+  entries?: ProjectSkillEntry[],
+): Promise<ProjectFolderSkill[]> {
+  const projectRoot = resolve(root)
+  const listed = entries ?? (await listProjectSkills(projectRoot))
+  const byTarget = new Map<string, string>()
+  for (const entry of listed) {
+    if (entry.kind !== 'link' || entry.target === null) continue
+    byTarget.set(await safeRealPath(entry.target), entry.name)
+  }
+
+  const skills = await previewSkills(projectRoot)
+  const out: ProjectFolderSkill[] = []
+  for (const skill of skills) {
+    const linkName = byTarget.get(await safeRealPath(skill.resourceBase)) ?? null
+    out.push(folderSkillFromParsed(skill, linkName))
+  }
+  out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+  return out
+}
+
+/** One read-only report for the project page: folder sources plus installed entries. */
+export async function projectReport(root: string): Promise<ProjectReport> {
+  const projectRoot = resolve(root)
+  const entries = await listProjectSkills(projectRoot)
+  const folderSkills = await scanProjectFolder(projectRoot, entries)
+  return { projectRoot, folderSkills, entries }
 }
 
 /* ------------------------------------------------------------------ */

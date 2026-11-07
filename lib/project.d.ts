@@ -27,6 +27,20 @@ import type { OpsIO } from './ops-io.js';
  * to win32 because a leading `//` is an ordinary path elsewhere.
  */
 export declare function projectSourceError(source: string): string | undefined;
+/** Parsed metadata of a skill file, read-only. */
+export interface ProjectSkillInfo {
+    /** Catalog name: a valid frontmatter `name`, or a sanitized fallback. */
+    name: string;
+    description: string;
+    skillFile: string;
+    resourceBase: string;
+    /** True when frontmatter carries a valid name and a non-empty description. */
+    valid: boolean;
+    /** Frontmatter name that failed DSH's kebab-case rule, when one was present. */
+    invalidName?: string;
+    /** Why this file is not a usable skill (missing name/description, unreadable). */
+    error?: string;
+}
 /** One entry found directly under `<projectRoot>/.dsh/skills/`. */
 export interface ProjectSkillEntry {
     name: string;
@@ -38,6 +52,26 @@ export interface ProjectSkillEntry {
     target: string | null;
     /** True when a link's target is missing or is not a directory. */
     dangling: boolean;
+    /** Read-only metadata parsed from the entry (or a link's target), when it is a skill. */
+    skill: ProjectSkillInfo | null;
+}
+/**
+ * A skill **provided by the project folder itself** — the `SKILL.md` at the
+ * root, one-level subdirectories, or flat `.md` files. This is the source side
+ * of the project page: it is what `link --project` would link, and it is shown
+ * even when the folder is not registered as a DSH workspace.
+ */
+export interface ProjectFolderSkill extends ProjectSkillInfo {
+    /** True when a link in `<root>/.dsh/skills` already points at this resource base. */
+    linked: boolean;
+    /** Name of that link, or `null` when the skill is not linked yet. */
+    linkName: string | null;
+}
+/** The project page's one read-only report. */
+export interface ProjectReport {
+    projectRoot: string;
+    folderSkills: ProjectFolderSkill[];
+    entries: ProjectSkillEntry[];
 }
 /**
  * What `planProjectLink` decided for one discovered skill:
@@ -82,6 +116,15 @@ export declare function projectSkillPath(root: string, name: string): string;
  * project skills is normal, not an error.
  */
 export declare function listProjectSkills(root: string): Promise<ProjectSkillEntry[]>;
+/**
+ * Scan the project folder's **own** skills (root `SKILL.md`, one-level
+ * subdirectories, flat `.md` files) and mark which ones already have a link in
+ * `<root>/.dsh/skills`. Read-only: this is the source side of the page, not a
+ * managed project entry.
+ */
+export declare function scanProjectFolder(root: string, entries?: ProjectSkillEntry[]): Promise<ProjectFolderSkill[]>;
+/** One read-only report for the project page: folder sources plus installed entries. */
+export declare function projectReport(root: string): Promise<ProjectReport>;
 /**
  * Build a link plan without touching the filesystem.
  *

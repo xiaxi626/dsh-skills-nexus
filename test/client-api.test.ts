@@ -635,15 +635,15 @@ test('reconcileList makes exactly k list calls for k polls — no redundant post
 
 test('projectList encodes the root into the query string', async () => {
   const entries: ProjectSkillEntry[] = [
-    { name: 'proj-skill', path: '/p/.dsh/skills/proj-skill', kind: 'link', target: '/s', dangling: false },
+    { name: 'proj-skill', path: '/p/.dsh/skills/proj-skill', kind: 'link', target: '/s', dangling: false, skill: null },
   ]
-  const { fetchFn, calls } = fakeFetch([ok({ projectRoot: '/p', entries }, 'done')])
+  const { fetchFn, calls } = fakeFetch([ok({ projectRoot: '/p', folderSkills: [], entries }, 'done')])
   const api = createApi(fetchFn)
 
   const env = await api.projectList('/a b/c?d')
   assert.equal(calls[0]!.input, '/skills-nexus/project/list?root=%2Fa%20b%2Fc%3Fd')
   assert.equal(calls[0]!.init, undefined)
-  assert.deepEqual(env.data, { projectRoot: '/p', entries })
+  assert.deepEqual(env.data, { projectRoot: '/p', folderSkills: [], entries })
 })
 
 test('projectLink posts a preview, then a confirmed job', async () => {

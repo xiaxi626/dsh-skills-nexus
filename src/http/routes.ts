@@ -89,8 +89,8 @@ import { LinkError, planLinkLocal, linkLocal } from '../external.js'
 import type { LinkErrorCode, LinkOptions } from '../external.js'
 import {
   applyProjectLink,
-  listProjectSkills,
   planProjectLink,
+  projectReport,
   projectSourceError,
   removeProjectLink,
   summarizeProjectLink,
@@ -991,12 +991,11 @@ function projectGuard(req: RouteRequest, res: RouteResponse, method: 'GET' | 'PO
   return true
 }
 
-/** GET /skills-nexus/project/list?root= → `{ projectRoot, entries }`. */
+/** GET /skills-nexus/project/list?root= → `{ projectRoot, folderSkills, entries }`. */
 async function projectListRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
   if (!projectGuard(req, res, 'GET')) return
   const root = await projectRootOf(queryOf(req).get('root') ?? undefined)
-  const entries = await listProjectSkills(root)
-  sendData(res, { projectRoot: root, entries }, 'done')
+  sendData(res, await projectReport(root), 'done')
 }
 
 /**

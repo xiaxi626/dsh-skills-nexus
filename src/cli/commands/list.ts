@@ -3,7 +3,8 @@ import { REPOS_DIR, OFFICIAL_SKILLS_DIR, projectSkillsDir } from '../../paths.js
 import { entrySkillDir } from '../../external.js'
 import { stat } from 'node:fs/promises'
 import { scanEntryLinks } from '../../link.js'
-import { listProjectSkills } from '../../project.js'
+import { projectReport } from '../../project.js'
+import type { ProjectSkillEntry } from '../../project.js'
 import { cliIO } from '../../ops-io.js'
 import type { OpsIO } from '../../ops-io.js'
 import { parseListArgs } from '../args.js'
@@ -160,49 +161,93 @@ async function listProject(io: OpsIO, opts: ListOptions): Promise<number> {
   }
 
   const query = opts.filter?.toLowerCase()
-  const entries = (await listProjectSkills(scope.root)).filter(
-    (entry) =>
-      query === undefined ||
-      entry.name.toLowerCase().includes(query) ||
-      (entry.target ?? '').toLowerCase().includes(query),
+  const report = await projectReport(scope.root)
+  const root = projectSkillsDir(scope.root)
+  const match = (name: string, description: string, target: string | null): boolean =>
+    query === undefined ||
+    name.toLowerCase().includes(query) ||
+    description.toLowerCase().includes(query) ||
+    (target ?? '').toLowerCase().includes(query)
+  const folderSkills = report.folderSkills.filter((skill) =>
+    match(skill.name, skill.description, skill.resourceBase),
   )
+  const entries = report.entries.filter((entry) =>
+    match(entry.skill?.name ?? entry.name, entry.skill?.description ?? '', entry.target),
+  )
+  const displayName = (entry: ProjectSkillEntry): string => entry.skill?.name ?? entry.name
 
   if (opts.json) {
     emitJson(io, {
       version: 1,
-      projectRoot: scope.root,
-      entries: entries.map((entry) => ({
-        name: entry.name,
-        kind: entry.kind,
-        target: entry.target,
-        dangling: entry.dangling,
-      })),
+      projectRoot: report.projectRoot,
+      folderSkills,
+      entries,
     })
     return 0
   }
 
   if (opts.names) {
-    for (const entry of entries) io.emit(`${entry.name}\n`)
+    const names = new Set<string>()
+    for (const skill of folderSkills) names.add(skill.name)
+    for (const entry of entries) names.add(displayName(entry))
+    for (const name of [...names].sort()) io.emit(`${name}\n`)
     return 0
   }
 
-  const root = projectSkillsDir(scope.root)
+  if (folderSkills.length === 0 && entries.length === 0) {
+    io.emit(`No skills found in ${report.projectRoot} or ${root}.\n`)
+    return 0
+  }
+
+  if (folderSkills.length > 0) {
+    const nameW = Math.max(4, ...folderSkills.map((skill) => skill.name.length))
+    io.emit(`Folder skills (${report.projectRoot}):\n`)
+    for (const skill of folderSkills) {
+      const state = skill.linked
+        ? `linked as ${skill.linkName ?? '?'}`
+        : skill.valid
+          ? 'linkable'
+          : 'invalid'
+      const description = skill.description.replace(/\s+/g, ' ').trim() || '—'
+      io.emit(`  ${skill.name.padEnd(nameW)}  ${state.padEnd(18)}  ${description}\n`)
+    }
+    io.emit('\n')
+  }
+
   if (entries.length === 0) {
     io.emit(`No project skills in ${root}.\n`)
     return 0
   }
 
-  const kindW = Math.max(4, ...entries.map((entry) => entry.kind.length))
-  const nameW = Math.max(4, ...entries.map((entry) => entry.name.length))
-  io.emit(`${'KIND'.padEnd(kindW)}  ${'NAME'.padEnd(nameW)}  TARGET\n`)
+  const stateOf = (entry: ProjectSkillEntry): string =>
+    entry.kind === 'link'
+      ? entry.dangling
+        ? 'dangling'
+        : 'link'
+      : entry.skill?.valid === false
+        ? 'invalid'
+        : 'files'
+  const kindW = Math.max(4, ...entries.map((entry) => stateOf(entry).length))
+  const nameW = Math.max(4, ...entries.map((entry) => displayName(entry).length))
+  const entryW = Math.max(5, ...entries.map((entry) => entry.name.length))
+  io.emit(`Project skills root (${root}):\n`)
+  io.emit(
+    `${'KIND'.padEnd(kindW)}  ${'NAME'.padEnd(nameW)}  ${'ENTRY'.padEnd(entryW)}  ${'TARGET'.padEnd(20)}  DESCRIPTION\n`,
+  )
   for (const entry of entries) {
+    const state = stateOf(entry)
     const target = entry.target ?? '—'
-    const marker = entry.dangling ? '   (dangling)' : ''
-    io.emit(`${entry.kind.padEnd(kindW)}  ${entry.name.padEnd(nameW)}  ${target}${marker}\n`)
+    const description =
+      entry.skill?.description.replace(/\s+/g, ' ').trim() ||
+      entry.skill?.error ||
+      '—'
+    const marker = entry.dangling ? '  (dangling)' : ''
+    io.emit(
+      `${state.padEnd(kindW)}  ${displayName(entry).padEnd(nameW)}  ${entry.name.padEnd(entryW)}  ${target.padEnd(20)}  ${description}${marker}\n`,
+    )
   }
   io.emit(
-    `\n${entries.length} project skill(s) · ${root}\n` +
-      '  Project links shadow global skills of the same name (the provider scans this root first).\n',
+    `\n${entries.length} project entr${entries.length === 1 ? 'y' : 'ies'} · ${root}\n`,
   )
   return 0
 }
@@ -227,22 +272,22 @@ interface ScopeRow {
  */
 async function listAll(io: OpsIO, opts: ListOptions): Promise<number> {
   const root = detectProjectRoot(process.cwd())
-  const [projectEntries, global] = await Promise.all([
-    listProjectSkills(root),
-    listEntries(),
-  ])
+  const [report, global] = await Promise.all([projectReport(root), listEntries()])
+  const projectEntries = report.entries
   const query = opts.filter
+  const displayName = (entry: ProjectSkillEntry): string => entry.skill?.name ?? entry.name
 
-  const projectNames = new Set(projectEntries.map((entry) => entry.name))
+  const projectNames = new Set(projectEntries.map(displayName))
   const globalNames = new Set(global.map((listed) => listed.entry.name))
   const rows: ScopeRow[] = []
 
   for (const entry of projectEntries) {
-    if (!matchesProjectEntry(entry.name, entry.target, query)) continue
+    const name = displayName(entry)
+    if (!matchesProjectEntry(name, entry.skill?.description ?? '', entry.target, query)) continue
     rows.push({
       scope: 'project',
-      name: entry.name,
-      state: globalNames.has(entry.name)
+      name,
+      state: globalNames.has(name)
         ? 'overrides'
         : entry.kind === 'files'
           ? 'user files'
@@ -282,11 +327,20 @@ async function listAll(io: OpsIO, opts: ListOptions): Promise<number> {
   return 0
 }
 
-/** Does a project entry match a `--filter` query (name or target)? */
-function matchesProjectEntry(name: string, target: string | null, query: string | undefined): boolean {
+/** Does a project entry match a `--filter` query (name, description or target)? */
+function matchesProjectEntry(
+  name: string,
+  description: string,
+  target: string | null,
+  query: string | undefined,
+): boolean {
   if (query === undefined) return true
   const q = query.toLowerCase()
-  return name.toLowerCase().includes(q) || (target ?? '').toLowerCase().includes(q)
+  return (
+    name.toLowerCase().includes(q) ||
+    description.toLowerCase().includes(q) ||
+    (target ?? '').toLowerCase().includes(q)
+  )
 }
 
 /**

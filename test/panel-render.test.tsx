@@ -11,9 +11,9 @@ import assert from 'node:assert/strict'
 import React from 'react'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { EntryCard, NexusPanel, ProjectSkillRow, SourceGroup, adoptBackupNotice, entryState, errorText, healthSummary, matchesQuery } from '../src/client/panel.js'
+import { EntryCard, NexusPanel, ProjectFolderSkillRow, ProjectSkillRow, SourceGroup, adoptBackupNotice, entryState, errorText, healthSummary, matchesQuery } from '../src/client/panel.js'
 import { ApiError } from '../src/client/api.js'
-import type { Job, ListEntry, NexusApi, ProjectSkillEntry } from '../src/client/api.js'
+import type { Job, ListEntry, NexusApi, ProjectFolderSkill, ProjectSkillEntry } from '../src/client/api.js'
 
 /**
  * The panel's rendering contract (§10.3), as far as a *static* render reaches.
@@ -518,14 +518,13 @@ test('global and project skills are two tabs with separate panels', () => {
   assert.ok(html.indexOf('aria-label="project root"') > projectAt)
 })
 
-test('the project tab offers a root input and a gated link form', () => {
+test('the project tab offers a folder input and explains the two views', () => {
   const html = renderToStaticMarkup(<NexusPanel api={mountApi()} />)
   assert.match(html, /Project skills/)
   assert.match(html, /aria-label="project root"/)
-  assert.match(html, /enter the project root to list its skills/)
-  assert.match(html, /aria-label="project link source directory"/)
-  // Nothing can be linked before a preview plan exists.
-  assert.doesNotMatch(html, />link to project</)
+  assert.match(html, /enter a project folder to see its skills/)
+  assert.match(html, /it does not have to be a registered DSH workspace/)
+  assert.doesNotMatch(html, /aria-label="project link source directory"/)
 })
 
 test('a project link row offers remove; a user-files row never does', () => {
@@ -535,6 +534,7 @@ test('a project link row offers remove; a user-files row never does', () => {
     kind: 'link',
     target: '/s',
     dangling: false,
+    skill: null,
   }
   const onRemove = (): void => {}
 
@@ -556,6 +556,55 @@ test('a project link row offers remove; a user-files row never does', () => {
     <ProjectSkillRow entry={{ ...base, dangling: true }} busy={false} onRemove={onRemove} />,
   )
   assert.match(danglingHtml, />dangling</)
+})
+
+test('a project row shows the parsed skill name and description, not just the filename', () => {
+  const entry: ProjectSkillEntry = {
+    name: 'SKILL.md',
+    path: '/p/.dsh/skills/SKILL.md',
+    kind: 'files',
+    target: null,
+    dangling: false,
+    skill: {
+      name: 'theme-port-skill',
+      description: 'migrate Hexo themes',
+      skillFile: '/p/.dsh/skills/SKILL.md',
+      resourceBase: '/p/.dsh/skills',
+      valid: true,
+    },
+  }
+  const html = renderToStaticMarkup(
+    <ProjectSkillRow entry={entry} busy={false} onRemove={() => {}} />,
+  )
+  assert.match(html, /theme-port-skill/)
+  assert.match(html, /migrate Hexo themes/)
+  assert.match(html, /user files/)
+  assert.doesNotMatch(html, />remove</)
+})
+
+test('a folder skill offers link until it is linked', () => {
+  const skill: ProjectFolderSkill = {
+    name: 'folder-skill',
+    description: 'the folder itself',
+    skillFile: '/p/SKILL.md',
+    resourceBase: '/p',
+    valid: true,
+    linked: false,
+    linkName: null,
+  }
+  const html = renderToStaticMarkup(
+    <ProjectFolderSkillRow skill={skill} busy={false} onLink={() => {}} />,
+  )
+  assert.match(html, /folder-skill/)
+  assert.match(html, /the folder itself/)
+  assert.match(html, />folder skill</)
+  assert.match(html, />link</)
+
+  const linked = renderToStaticMarkup(
+    <ProjectFolderSkillRow skill={{ ...skill, linked: true, linkName: 'folder-skill' }} busy={false} onLink={() => {}} />,
+  )
+  assert.match(linked, />linked</)
+  assert.doesNotMatch(linked, />link</)
 })
 
 test('adoptBackupNotice lifts the backup path out of the job output', () => {

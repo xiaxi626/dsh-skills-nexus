@@ -101,19 +101,42 @@ export interface ListJsonReport {
 /* project scope (list/link/remove --project)                          */
 /* ------------------------------------------------------------------ */
 
+/** Read-only metadata parsed from a SKILL.md (or flat .md) file. */
+export interface ProjectSkillJson {
+  name: string
+  description: string
+  skillFile: string
+  resourceBase: string
+  valid: boolean
+  invalidName?: string
+  error?: string
+}
+
+/** A skill the project folder itself provides, with its link state. */
+export interface ProjectFolderSkillJson extends ProjectSkillJson {
+  linked: boolean
+  linkName: string | null
+}
+
 /** One entry in `<project>/.dsh/skills`, as the filesystem reports it. */
 export interface ProjectListJsonEntry {
   name: string
+  /** Absolute path of the entry itself. */
+  path: string
   kind: 'link' | 'files'
   /** Absolute link target, or null for user files and unrecoverable links. */
   target: string | null
   /** True when a link's target is missing or is not a directory. */
   dangling: boolean
+  /** Parsed metadata when the entry (or a link's target) is a skill, else null. */
+  skill: ProjectSkillJson | null
 }
 
 export interface ProjectListJsonReport {
   version: 1
   projectRoot: string
+  /** Skills provided by the project folder itself (read-only view). */
+  folderSkills: ProjectFolderSkillJson[]
   entries: ProjectListJsonEntry[]
 }
 

@@ -249,6 +249,52 @@ test('a UNC source is refused on Windows with a clear error', async (t) => {
   assert.match(plan.results[0]!.error!, /UNC path/)
 })
 
+test('listProjectSkills parses a flat SKILL.md file instead of showing only its filename', async () => {
+  const root = await makeProject('list-flat-name')
+  const skills = paths.projectSkillsDir(root)
+  await mkdir(skills, { recursive: true })
+  await writeFile(join(skills, 'SKILL.md'), '---\nname: theme-port-skill\ndescription: migrate themes\n---\n', 'utf8')
+
+  const entries = await project.listProjectSkills(root)
+  assert.equal(entries.length, 1)
+  assert.equal(entries[0]!.name, 'SKILL.md')
+  assert.equal(entries[0]!.kind, 'files')
+  assert.equal(entries[0]!.skill?.name, 'theme-port-skill')
+  assert.equal(entries[0]!.skill?.description, 'migrate themes')
+  assert.equal(entries[0]!.skill?.valid, true)
+})
+
+test('a real project skill directory exposes its parsed metadata', async () => {
+  const root = await makeProject('list-real-skill')
+  const dir = project.projectSkillPath(root, 'vendored-skill')
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, 'SKILL.md'), '---\nname: vendored-skill\ndescription: vendored by hand\n---\n', 'utf8')
+
+  const entries = await project.listProjectSkills(root)
+  assert.equal(entries.length, 1)
+  assert.equal(entries[0]!.kind, 'files')
+  assert.equal(entries[0]!.skill?.name, 'vendored-skill')
+  assert.equal(entries[0]!.skill?.description, 'vendored by hand')
+})
+
+test('scanProjectFolder reads the folder itself and tracks its link state', async () => {
+  const root = await makeProject('folder-scan')
+  await writeFile(join(root, 'SKILL.md'), '---\nname: folder-skill\ndescription: folder skill\n---\n', 'utf8')
+
+  const before = await project.projectReport(root)
+  assert.equal(before.folderSkills.length, 1)
+  assert.equal(before.folderSkills[0]!.name, 'folder-skill')
+  assert.equal(before.folderSkills[0]!.description, 'folder skill')
+  assert.equal(before.folderSkills[0]!.linked, false)
+  assert.equal(before.folderSkills[0]!.linkName, null)
+
+  await link.linkAt(project.projectSkillPath(root, 'folder-skill'), root)
+  const after = await project.projectReport(root)
+  assert.equal(after.folderSkills[0]!.linked, true)
+  assert.equal(after.folderSkills[0]!.linkName, 'folder-skill')
+  assert.equal(after.entries[0]!.skill?.name, 'folder-skill')
+})
+
 test('two skills deriving one name collide instead of overwriting each other', async () => {
   const root = await makeProject('plan-duplicate')
   const source = join(base, 'sources', 'plan-duplicate', 'dup')

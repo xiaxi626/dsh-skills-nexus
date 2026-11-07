@@ -130,6 +130,27 @@ test('link -> list -> remove keeps no manifest state and never touches the targe
   assert.deepEqual((JSON.parse(after.stdout) as { entries: unknown[] }).entries, [])
 })
 
+test('list --project names a folder SKILL.md by its frontmatter name', async () => {
+  const project = await makeProject('folder-name')
+  await writeFile(
+    join(project, 'SKILL.md'),
+    '---\nname: folder-skill\ndescription: the folder itself\n---\n',
+    'utf8',
+  )
+
+  const result = await runCli(['list', '--project', '--json'], project)
+  assert.equal(result.code, 0, result.stderr)
+  const report = JSON.parse(result.stdout) as {
+    folderSkills: Array<{ name: string; description: string; linked: boolean }>
+    entries: unknown[]
+  }
+  assert.equal(report.folderSkills.length, 1)
+  assert.equal(report.folderSkills[0]!.name, 'folder-skill')
+  assert.equal(report.folderSkills[0]!.description, 'the folder itself')
+  assert.equal(report.folderSkills[0]!.linked, false)
+  assert.deepEqual(report.entries, [])
+})
+
 test('remove --project refuses user files and exits 1', async () => {
   const project = await makeProject('refuse')
   const vendored = join(project, '.dsh', 'skills', 'vendored')

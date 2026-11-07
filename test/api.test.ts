@@ -1589,6 +1589,25 @@ test('project/list answers the entries and validates the root parameter', async 
   assert.equal(errorsOf(invalid).error, 'invalid-root')
 })
 
+test('project/list reads the folder SKILL.md and keeps the entry name too', async () => {
+  const root = join(home, 'projects', 'api-proj-folder')
+  await mkdir(join(root, '.git'), { recursive: true })
+  await writeFile(join(root, 'SKILL.md'), skillMd('folder-skill'), 'utf8')
+
+  const res = await call('/skills-nexus/project/list', {
+    url: '/skills-nexus/project/list?root=' + encodeURIComponent(root),
+  })
+  assert.equal(res.status, 200)
+  const data = dataOf<{
+    folderSkills: Array<{ name: string; description: string; linked: boolean }>
+    entries: unknown[]
+  }>(res)
+  assert.equal(data.folderSkills.length, 1)
+  assert.equal(data.folderSkills[0]!.name, 'folder-skill')
+  assert.equal(data.folderSkills[0]!.linked, false)
+  assert.equal(data.entries.length, 0)
+})
+
 test('project/list rejects non-loopback sockets with 403', async () => {
   const { root } = await projectFixture('api-proj-loopback', 'x')
   const res = await call('/skills-nexus/project/list', {
