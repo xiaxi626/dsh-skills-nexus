@@ -281,7 +281,10 @@ async function listAll(io: OpsIO, opts: ListOptions): Promise<number> {
   const query = opts.filter
   const displayName = (entry: ProjectSkillEntry): string => entry.skill?.name ?? entry.name
 
-  const projectNames = new Set(projectEntries.map(displayName))
+  // A disabled project link does not shadow the global skill of that name.
+  const projectNames = new Set(
+    projectEntries.filter((entry) => entry.enabled).map(displayName),
+  )
   const globalNames = new Set(global.map((listed) => listed.entry.name))
   const rows: ScopeRow[] = []
 
