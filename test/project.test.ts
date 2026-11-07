@@ -20,6 +20,11 @@ import type { OpsIO } from '../src/ops-io.js'
  * import (the `test/link.test.ts` pattern).
  */
 
+/**
+ * Every fixture lives under a per-run `mkdtemp` base. Nothing here reads a
+ * developer's own project or the repository's `.dsh/skills`; the examples are
+ * synthetic directories with synthetic SKILL.md content.
+ */
 let base: string
 let project: typeof import('../src/project.js')
 let link: typeof import('../src/link.js')
@@ -253,13 +258,13 @@ test('listProjectSkills parses a flat SKILL.md file instead of showing only its 
   const root = await makeProject('list-flat-name')
   const skills = paths.projectSkillsDir(root)
   await mkdir(skills, { recursive: true })
-  await writeFile(join(skills, 'SKILL.md'), '---\nname: theme-port-skill\ndescription: migrate themes\n---\n', 'utf8')
+  await writeFile(join(skills, 'SKILL.md'), '---\nname: flat-example-skill\ndescription: migrate themes\n---\n', 'utf8')
 
   const entries = await project.listProjectSkills(root)
   assert.equal(entries.length, 1)
   assert.equal(entries[0]!.name, 'SKILL.md')
   assert.equal(entries[0]!.kind, 'files')
-  assert.equal(entries[0]!.skill?.name, 'theme-port-skill')
+  assert.equal(entries[0]!.skill?.name, 'flat-example-skill')
   assert.equal(entries[0]!.skill?.description, 'migrate themes')
   assert.equal(entries[0]!.skill?.valid, true)
 })
@@ -310,13 +315,22 @@ test('setProjectLinkEnabled moves a link out of the scanned root and back', asyn
   assert.equal(entries[0]!.name, 'skill-a')
   assert.equal(entries[0]!.enabled, false)
 
-  const report = await project.projectReport(root)
-  assert.equal(report.folderSkills[0]!.disabled, true)
-  assert.equal(report.folderSkills[0]!.linked, false)
-
   assert.equal(await project.setProjectLinkEnabled(root, 'skill-a', true), 'enabled')
   assert.equal(await link.isLinkAt(project.projectSkillPath(root, 'skill-a')), true)
   assert.equal(await project.setProjectLinkEnabled(root, 'skill-a', true), 'already-enabled')
+})
+
+test('projectReport marks a disabled link when the folder itself is the skill source', async () => {
+  // makeProject places this under the per-run mkdtemp base, not a user folder.
+  const root = await makeProject('toggle-folder')
+  await writeFile(join(root, 'SKILL.md'), `---\n${DEFAULT_FM}\n---\n`, 'utf8')
+  await link.linkAt(project.projectSkillPath(root, 'toggle-folder'), root)
+  assert.equal(await project.setProjectLinkEnabled(root, 'toggle-folder', false), 'disabled')
+
+  const report = await project.projectReport(root)
+  assert.equal(report.folderSkills.length, 1)
+  assert.equal(report.folderSkills[0]!.disabled, true)
+  assert.equal(report.folderSkills[0]!.linked, false)
 })
 
 test('removeProjectLink also removes a disabled link', async () => {
