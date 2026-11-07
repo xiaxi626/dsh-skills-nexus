@@ -591,6 +591,27 @@ export async function setProjectLinkEnabled(
   const projectRoot = resolve(root)
   const active = projectSkillPath(projectRoot, name)
   const disabled = join(projectDisabledSkillsDir(projectRoot), name)
+
+  // Preflight the refusals that need no mutation before creating a lock file:
+  // a missing name, a real directory/file, or a collision should read as such
+  // even when the lock root itself is not writable. The lock path re-checks
+  // everything so a race cannot turn this into a move of user content.
+  const activeNow = await existsAt(active)
+  const disabledNow = await existsAt(disabled)
+  if (enabled) {
+    if (activeNow && !(await isLinkAt(active))) return 'collision'
+    if (!activeNow && !disabledNow) return 'not-found'
+    if (activeNow) return 'already-enabled'
+    if (!(await isLinkAt(disabled))) return 'not-a-link'
+  } else {
+    if (!activeNow && !disabledNow) return 'not-found'
+    if (activeNow && !(await isLinkAt(active))) return 'not-a-link'
+    if (!activeNow) {
+      return (await isLinkAt(disabled)) ? 'already-disabled' : 'not-a-link'
+    }
+    if (disabledNow) return 'collision'
+  }
+
   const rootTag = await projectLockTag(projectRoot)
 
   return withSkillFileLock(`${rootTag}-${name}`, async () => {
