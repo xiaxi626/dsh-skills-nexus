@@ -688,7 +688,9 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     try {
       const env = await api.projectList(root)
       if (!alive.current) return
-      setFolderSkills(env.data.folderSkills)
+      // Defensive against a host still serving the pre-viewer report while the
+      // client bundle has already hot-reloaded.
+      setFolderSkills(env.data.folderSkills ?? [])
       setProjectEntries(env.data.entries)
       setProjectError(null)
     } catch (err) {
