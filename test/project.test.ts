@@ -295,6 +295,51 @@ test('scanProjectFolder reads the folder itself and tracks its link state', asyn
   assert.equal(after.entries[0]!.skill?.name, 'folder-skill')
 })
 
+test('setProjectLinkEnabled moves a link out of the scanned root and back', async () => {
+  const root = await makeProject('toggle-link')
+  const target = await makeSkillDir('toggle-link/skill-a', DEFAULT_FM)
+  await link.linkAt(project.projectSkillPath(root, 'skill-a'), target)
+
+  assert.equal(await project.setProjectLinkEnabled(root, 'skill-a', false), 'disabled')
+  assert.equal(await link.isLinkAt(project.projectSkillPath(root, 'skill-a')), false)
+  const disabledPath = join(paths.projectDisabledSkillsDir(root), 'skill-a')
+  assert.equal(await link.isLinkAt(disabledPath), true)
+
+  const entries = await project.listProjectSkills(root)
+  assert.equal(entries.length, 1)
+  assert.equal(entries[0]!.name, 'skill-a')
+  assert.equal(entries[0]!.enabled, false)
+
+  const report = await project.projectReport(root)
+  assert.equal(report.folderSkills[0]!.disabled, true)
+  assert.equal(report.folderSkills[0]!.linked, false)
+
+  assert.equal(await project.setProjectLinkEnabled(root, 'skill-a', true), 'enabled')
+  assert.equal(await link.isLinkAt(project.projectSkillPath(root, 'skill-a')), true)
+  assert.equal(await project.setProjectLinkEnabled(root, 'skill-a', true), 'already-enabled')
+})
+
+test('removeProjectLink also removes a disabled link', async () => {
+  const root = await makeProject('toggle-remove')
+  const target = await makeSkillDir('toggle-remove/skill-b', DEFAULT_FM)
+  await link.linkAt(project.projectSkillPath(root, 'skill-b'), target)
+  assert.equal(await project.setProjectLinkEnabled(root, 'skill-b', false), 'disabled')
+
+  assert.equal(await project.removeProjectLink(root, 'skill-b'), 'removed')
+  assert.equal(await link.isLinkAt(join(paths.projectDisabledSkillsDir(root), 'skill-b')), false)
+  assert.equal(await link.isLinkAt(project.projectSkillPath(root, 'skill-b')), false)
+})
+
+test('setProjectLinkEnabled refuses a real directory at the link name', async () => {
+  const root = await makeProject('toggle-refuse')
+  const dir = project.projectSkillPath(root, 'vendored')
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, 'SKILL.md'), '---\nname: vendored\n---\n', 'utf8')
+
+  assert.equal(await project.setProjectLinkEnabled(root, 'vendored', false), 'not-a-link')
+  assert.equal((await stat(join(dir, 'SKILL.md'))).isFile(), true)
+})
+
 test('two skills deriving one name collide instead of overwriting each other', async () => {
   const root = await makeProject('plan-duplicate')
   const source = join(base, 'sources', 'plan-duplicate', 'dup')

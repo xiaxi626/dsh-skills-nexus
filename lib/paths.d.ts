@@ -41,6 +41,12 @@ export declare function skillLinkPath(name: string): string;
  */
 export declare function projectSkillsDir(projectRoot: string): string;
 /**
+ * Where project links go while disabled: a sibling of `skills`, outside the
+ * provider's scanned root. Moving a link here keeps its target (and dangling
+ * state) intact, so re-enabling needs no remembered path.
+ */
+export declare function projectDisabledSkillsDir(projectRoot: string): string;
+/**
  * The directory a link path actually resolves to — the one way nexus reads a
  * link's target.
  *

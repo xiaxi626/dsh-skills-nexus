@@ -62,6 +62,7 @@ function mountApi(): NexusApi {
     projectList: notCalled('projectList'),
     projectLink: notCalled('projectLink'),
     projectRemove: notCalled('projectRemove'),
+    projectToggle: notCalled('projectToggle'),
   } as unknown as NexusApi
 }
 
@@ -534,28 +535,67 @@ test('a project link row offers remove; a user-files row never does', () => {
     kind: 'link',
     target: '/s',
     dangling: false,
+    enabled: true,
     skill: null,
   }
   const onRemove = (): void => {}
+  const onToggle = (): void => {}
 
   const linkHtml = renderToStaticMarkup(
-    <ProjectSkillRow entry={base} busy={false} onRemove={onRemove} />,
+    <ProjectSkillRow entry={base} busy={false} onToggle={onToggle} onRemove={onRemove} />,
   )
   assert.match(linkHtml, />remove</)
   assert.match(linkHtml, />link</)
   assert.match(linkHtml, /\/s/)
 
   const filesHtml = renderToStaticMarkup(
-    <ProjectSkillRow entry={{ ...base, kind: 'files', target: null }} busy={false} onRemove={onRemove} />,
+    <ProjectSkillRow
+      entry={{ ...base, kind: 'files', target: null }}
+      busy={false}
+      onToggle={onToggle}
+      onRemove={onRemove}
+    />,
   )
   assert.doesNotMatch(filesHtml, />remove</)
   assert.match(filesHtml, /user files/)
   assert.match(filesHtml, /—/)
 
   const danglingHtml = renderToStaticMarkup(
-    <ProjectSkillRow entry={{ ...base, dangling: true }} busy={false} onRemove={onRemove} />,
+    <ProjectSkillRow
+      entry={{ ...base, dangling: true }}
+      busy={false}
+      onToggle={onToggle}
+      onRemove={onRemove}
+    />,
   )
   assert.match(danglingHtml, />dangling</)
+})
+
+test('a project link row toggles between enabled and disabled', () => {
+  const entry: ProjectSkillEntry = {
+    name: 'my-skill',
+    path: '/p/.dsh/skills/my-skill',
+    kind: 'link',
+    target: '/s',
+    dangling: false,
+    enabled: true,
+    skill: null,
+  }
+  const enabledHtml = renderToStaticMarkup(
+    <ProjectSkillRow entry={entry} busy={false} onToggle={() => {}} onRemove={() => {}} />,
+  )
+  assert.match(enabledHtml, /label="disable my-skill"/)
+
+  const disabledHtml = renderToStaticMarkup(
+    <ProjectSkillRow
+      entry={{ ...entry, enabled: false, path: '/p/.dsh/skills-disabled/my-skill' }}
+      busy={false}
+      onToggle={() => {}}
+      onRemove={() => {}}
+    />,
+  )
+  assert.match(disabledHtml, />disabled</)
+  assert.match(disabledHtml, /label="enable my-skill"/)
 })
 
 test('a project row shows the parsed skill name and description, not just the filename', () => {
@@ -565,6 +605,7 @@ test('a project row shows the parsed skill name and description, not just the fi
     kind: 'files',
     target: null,
     dangling: false,
+    enabled: true,
     skill: {
       name: 'theme-port-skill',
       description: 'migrate Hexo themes',
@@ -574,7 +615,7 @@ test('a project row shows the parsed skill name and description, not just the fi
     },
   }
   const html = renderToStaticMarkup(
-    <ProjectSkillRow entry={entry} busy={false} onRemove={() => {}} />,
+    <ProjectSkillRow entry={entry} busy={false} onToggle={() => {}} onRemove={() => {}} />,
   )
   assert.match(html, /theme-port-skill/)
   assert.match(html, /migrate Hexo themes/)
@@ -591,6 +632,7 @@ test('a folder skill offers link until it is linked', () => {
     valid: true,
     linked: false,
     linkName: null,
+    disabled: false,
   }
   const html = renderToStaticMarkup(
     <ProjectFolderSkillRow skill={skill} busy={false} onLink={() => {}} />,

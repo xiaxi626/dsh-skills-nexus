@@ -105,6 +105,10 @@ export interface ToggleOptions {
     json: boolean;
     /** Filter by group path prefix (`/`-separated). When set, names may be empty. */
     group?: string;
+    /** Toggle project links under `<project>/.dsh/skills` instead of manifest entries. */
+    project?: boolean;
+    /** Explicit project root; requires `project`. */
+    projectRoot?: string;
 }
 /**
  * Parse `enable`/`disable` args: one or more names plus `--json`.

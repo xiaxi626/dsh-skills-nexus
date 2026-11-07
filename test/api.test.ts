@@ -988,9 +988,10 @@ test('the add-zip route is gone: zip is not an installation method any more', ()
   )
   // The package channel took that row over with exactly two routes (import and
   // the adopt action), export adds one more, the link channel adds one, and the
-  // project scope adds three (list/link/remove) — so the table is 11 + 2 + 1 + 1 + 3.
+  // project scope adds four (list/link/remove/toggle) — so the table is
+  // 11 + 2 + 1 + 1 + 4.
   // The upload path itself is a raw body, not a restored multipart endpoint.
-  assert.equal(table.length, 18, 'the §7.1 table plus import/adopt/export/link/project')
+  assert.equal(table.length, 19, 'the §7.1 table plus import/adopt/export/link/project')
   assert.deepEqual(
     table.filter((s) => s.path.startsWith('/skills-nexus/import')).map((s) => s.path),
     ['/skills-nexus/import'],
@@ -1696,6 +1697,45 @@ test('project/link rejects a cross-origin request before reading the body (403)'
   })
   assert.equal(res.status, 403)
   assert.equal(errorsOf(res).error, 'untrusted origin')
+})
+
+test('project/toggle moves a link between active and disabled without touching the target', async () => {
+  const { root, source } = await projectFixture('api-proj-toggle', 'toggle-skill')
+  await link.linkAt(projectSkillsPath(root, 'toggle-skill'), source)
+  const disabledPath = join(root, '.dsh', 'skills-disabled', 'toggle-skill')
+
+  const disabled = await call('/skills-nexus/project/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ root, name: 'toggle-skill', enabled: false }),
+  })
+  assert.equal(disabled.status, 200)
+  assert.equal(dataOf<{ enabled: boolean; status: string }>(disabled).enabled, false)
+  assert.equal(await exists(projectSkillsPath(root, 'toggle-skill')), false)
+  assert.equal(await exists(disabledPath), true)
+  assert.equal(await exists(join(source, 'SKILL.md')), true)
+
+  const enabled = await call('/skills-nexus/project/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ root, name: 'toggle-skill', enabled: true }),
+  })
+  assert.equal(enabled.status, 200)
+  assert.equal(dataOf<{ status: string }>(enabled).status, 'enabled')
+  assert.equal(await exists(projectSkillsPath(root, 'toggle-skill')), true)
+
+  const missing = await call('/skills-nexus/project/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ root, name: 'nope', enabled: false }),
+  })
+  assert.equal(missing.status, 404)
+
+  const vendored = projectSkillsPath(root, 'vendored')
+  await mkdir(vendored, { recursive: true })
+  const refused = await call('/skills-nexus/project/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ root, name: 'vendored', enabled: false }),
+  })
+  assert.equal(refused.status, 409)
+  assert.equal(errorsOf(refused).error, 'not-a-link')
 })
 
 test('project/remove requires confirmation, removes only links, and refuses user files', async () => {

@@ -241,6 +241,8 @@ export interface ProjectSkillInfo {
 export interface ProjectFolderSkill extends ProjectSkillInfo {
     linked: boolean;
     linkName: string | null;
+    /** True when the only link for this resource base is parked as disabled. */
+    disabled: boolean;
 }
 /** One entry under `<project>/.dsh/skills`, as `GET /project/list` serves it. */
 export interface ProjectSkillEntry {
@@ -252,6 +254,8 @@ export interface ProjectSkillEntry {
     target: string | null;
     /** True when a link's target is missing or is not a directory. */
     dangling: boolean;
+    /** True for active entries; false for a link parked under `skills-disabled`. */
+    enabled: boolean;
     /** Parsed metadata when the entry (or a link's target) is a skill, else null. */
     skill: ProjectSkillInfo | null;
 }
@@ -384,6 +388,13 @@ export interface NexusApi {
         projectRoot: string;
         name: string;
         status: 'removed';
+    }>>;
+    /** Moves one project link between active and `skills-disabled`; target untouched. */
+    projectToggle(root: string, name: string, enabled: boolean): Promise<Envelope<{
+        projectRoot: string;
+        name: string;
+        enabled: boolean;
+        status: string;
     }>>;
     job(id: string): Promise<Envelope<{
         job: Job;

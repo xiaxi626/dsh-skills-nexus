@@ -93,6 +93,7 @@ import {
   projectReport,
   projectSourceError,
   removeProjectLink,
+  setProjectLinkEnabled,
   summarizeProjectLink,
 } from '../project.js'
 import { createJob, getJob, requestCancel, runJob } from './jobs.js'
@@ -1083,6 +1084,35 @@ async function projectRemoveRoute(req: RouteRequest, res: RouteResponse): Promis
   sendData(res, { projectRoot: root, name, status }, 'pending')
 }
 
+/**
+ * POST /skills-nexus/project/toggle — `{ root, name, enabled }`.
+ *
+ * Reversible: the link is moved between `.dsh/skills` and the sibling
+ * `.dsh/skills-disabled`, so no confirmation gate is needed. The target
+ * directory is never touched; a real directory or file at either location is
+ * refused with `409`.
+ */
+async function projectToggleRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
+  if (!projectGuard(req, res, 'POST')) return
+  const body = await readJson(req)
+  const root = await projectRootOf(strField(body, 'root'))
+  const name = strField(body, 'name')
+  const enabled = boolField(body, 'enabled')
+  if (name === undefined) throw new HttpError(400, 'missing-field', { field: 'name' })
+  if (enabled === undefined) throw new HttpError(400, 'missing-field', { field: 'enabled' })
+  if (name === '.' || name === '..' || name.includes('/') || name.includes('\\')) {
+    throw new HttpError(400, 'invalid-name', { name })
+  }
+
+  const status = await setProjectLinkEnabled(root, name, enabled)
+  if (status === 'not-found') throw new HttpError(404, 'not-found', { name })
+  if (status === 'not-a-link') throw new HttpError(409, 'not-a-link', { name })
+  if (status === 'collision') throw new HttpError(409, 'collision', { name })
+
+  const moved = status === 'enabled' || status === 'disabled'
+  sendData(res, { projectRoot: root, name, enabled, status }, moved ? 'pending' : 'done')
+}
+
 /* ------------------------------------------------------------------ */
 /* Export (channel C — package to zip, sync, loopback-only)             */
 /* ------------------------------------------------------------------ */
@@ -1220,6 +1250,7 @@ export function createNexusRoutes(): RouteSpec[] {
     { kind: 'exact', path: '/skills-nexus/project/list', handler: wrap(projectListRoute) },
     { kind: 'exact', path: '/skills-nexus/project/link', handler: wrap(projectLinkRoute) },
     { kind: 'exact', path: '/skills-nexus/project/remove', handler: wrap(projectRemoveRoute) },
+    { kind: 'exact', path: '/skills-nexus/project/toggle', handler: wrap(projectToggleRoute) },
     { kind: 'exact', path: '/skills-nexus/export', handler: wrap(exportRoute) },
     { kind: 'exact', path: '/skills-nexus/job', handler: wrap(jobStatus) },
     { kind: 'exact', path: '/skills-nexus/job/cancel', handler: wrap(jobCancel) },

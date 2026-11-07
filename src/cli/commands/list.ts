@@ -203,11 +203,13 @@ async function listProject(io: OpsIO, opts: ListOptions): Promise<number> {
     const nameW = Math.max(4, ...folderSkills.map((skill) => skill.name.length))
     io.emit(`Folder skills (${report.projectRoot}):\n`)
     for (const skill of folderSkills) {
-      const state = skill.linked
-        ? `linked as ${skill.linkName ?? '?'}`
-        : skill.valid
-          ? 'linkable'
-          : 'invalid'
+      const state = !skill.valid
+        ? 'invalid'
+        : skill.disabled
+          ? 'disabled'
+          : skill.linked
+            ? `linked as ${skill.linkName ?? '?'}`
+            : 'linkable'
       const description = skill.description.replace(/\s+/g, ' ').trim() || '—'
       io.emit(`  ${skill.name.padEnd(nameW)}  ${state.padEnd(18)}  ${description}\n`)
     }
@@ -221,9 +223,11 @@ async function listProject(io: OpsIO, opts: ListOptions): Promise<number> {
 
   const stateOf = (entry: ProjectSkillEntry): string =>
     entry.kind === 'link'
-      ? entry.dangling
-        ? 'dangling'
-        : 'link'
+      ? !entry.enabled
+        ? 'disabled'
+        : entry.dangling
+          ? 'dangling'
+          : 'link'
       : entry.skill?.valid === false
         ? 'invalid'
         : 'files'
@@ -287,11 +291,13 @@ async function listAll(io: OpsIO, opts: ListOptions): Promise<number> {
     rows.push({
       scope: 'project',
       name,
-      state: globalNames.has(name)
-        ? 'overrides'
-        : entry.kind === 'files'
-          ? 'user files'
-          : '—',
+      state: !entry.enabled
+        ? 'disabled'
+        : globalNames.has(name)
+          ? 'overrides'
+          : entry.kind === 'files'
+            ? 'user files'
+            : '—',
       target: entry.target ?? '—',
     })
   }

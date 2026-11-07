@@ -746,6 +746,25 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
     })
   }
 
+  /** Enable/disable one project link by moving it out of the scanned root. */
+  const onToggleProject = (entry: ProjectSkillEntry): void => {
+    const root = projectRoot.trim()
+    if (root === '' || projectBusy) return
+    const next = !entry.enabled
+    void run(entry.name, async () => {
+      setProjectBusy(true)
+      try {
+        await api.projectToggle(root, entry.name, next)
+        setNotice(
+          `project link "${entry.name}" ${next ? 'enabled' : 'disabled'} — target untouched`,
+        )
+        await refreshProject()
+      } finally {
+        setProjectBusy(false)
+      }
+    })
+  }
+
   /** Open the project-link removal overlay (only link rows offer it). */
   const onRemoveProject = (entry: ProjectSkillEntry): void => {
     setPendingProjectRemoval(entry)
@@ -1472,7 +1491,12 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
                 <ul className={css.entries}>
                   {projectEntries.map((entry) => (
                     <li key={entry.name} className={css.entryRow}>
-                      <ProjectSkillRow entry={entry} busy={projectBusy} onRemove={onRemoveProject} />
+                      <ProjectSkillRow
+                        entry={entry}
+                        busy={projectBusy}
+                        onToggle={onToggleProject}
+                        onRemove={onRemoveProject}
+                      />
                     </li>
                   ))}
                 </ul>
@@ -1571,6 +1595,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
 interface ProjectSkillRowProps {
   entry: ProjectSkillEntry
   busy: boolean
+  onToggle: (entry: ProjectSkillEntry) => void
   onRemove: (entry: ProjectSkillEntry) => void
 }
 
@@ -1583,9 +1608,15 @@ interface ProjectSkillRowProps {
  * is the project scope's safety contract in the UI, and it is pure props →
  * markup — no request, no mounted effect.
  */
-export function ProjectSkillRow({ entry, busy, onRemove }: ProjectSkillRowProps): ReactElement {
+export function ProjectSkillRow({
+  entry,
+  busy,
+  onToggle,
+  onRemove,
+}: ProjectSkillRowProps): ReactElement {
   const name = entry.skill?.name ?? entry.name
   const invalid = entry.kind === 'files' && entry.skill?.valid === false
+  const disabled = entry.kind === 'link' && !entry.enabled
   const meta =
     [entry.skill?.description, entry.target].filter((part) => part).join(' · ') ||
     entry.skill?.error ||
@@ -1594,14 +1625,30 @@ export function ProjectSkillRow({ entry, busy, onRemove }: ProjectSkillRowProps)
     <div className={css.entryHead}>
       <span className={css.entryName}>{name}</span>
       <Tag tone={entry.dangling || invalid ? 'warning' : 'neutral'}>
-        {entry.kind === 'link' ? (entry.dangling ? 'dangling' : 'link') : invalid ? 'invalid' : 'user files'}
+        {entry.kind === 'link'
+          ? disabled
+            ? 'disabled'
+            : entry.dangling
+              ? 'dangling'
+              : 'link'
+          : invalid
+            ? 'invalid'
+            : 'user files'}
       </Tag>
       <span className={css.entryMeta}>{meta}</span>
       <span className={css.toolbarSpacer} />
       {entry.kind === 'link' && (
-        <Button type="button" size="sm" onClick={() => onRemove(entry)} disabled={busy}>
-          remove
-        </Button>
+        <>
+          <Switch
+            checked={entry.enabled}
+            onChange={() => onToggle(entry)}
+            label={entry.enabled ? `disable ${name}` : `enable ${name}`}
+            disabled={busy}
+          />
+          <Button type="button" size="sm" onClick={() => onRemove(entry)} disabled={busy}>
+            remove
+          </Button>
+        </>
       )}
     </div>
   )
@@ -1628,11 +1675,17 @@ export function ProjectFolderSkillRow({
     <div className={css.entryHead}>
       <span className={css.entryName}>{skill.name}</span>
       <Tag tone={skill.valid ? 'neutral' : 'warning'}>
-        {skill.linked ? 'linked' : skill.valid ? 'folder skill' : 'invalid'}
+        {skill.linked
+          ? 'linked'
+          : skill.disabled
+            ? 'disabled'
+            : skill.valid
+              ? 'folder skill'
+              : 'invalid'}
       </Tag>
       <span className={css.entryMeta}>{meta}</span>
       <span className={css.toolbarSpacer} />
-      {!skill.linked && skill.valid && (
+      {!skill.linked && !skill.disabled && skill.valid && (
         <Button type="button" size="sm" onClick={() => onLink(skill)} disabled={busy}>
           link
         </Button>

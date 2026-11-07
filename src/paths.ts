@@ -62,6 +62,15 @@ export function projectSkillsDir(projectRoot: string): string {
 }
 
 /**
+ * Where project links go while disabled: a sibling of `skills`, outside the
+ * provider's scanned root. Moving a link here keeps its target (and dangling
+ * state) intact, so re-enabling needs no remembered path.
+ */
+export function projectDisabledSkillsDir(projectRoot: string): string {
+  return join(projectRoot, '.dsh', 'skills-disabled')
+}
+
+/**
  * The directory a link path actually resolves to — the one way nexus reads a
  * link's target.
  *

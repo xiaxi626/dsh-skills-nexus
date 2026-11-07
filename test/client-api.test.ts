@@ -629,13 +629,30 @@ test('reconcileList makes exactly k list calls for k polls — no redundant post
   assert.deepEqual(result.groupStates, [{ path: ['g'], state: 'off', count: 1 }])
 })
 
+test('projectToggle posts the requested state', async () => {
+  const { fetchFn, calls } = fakeFetch([
+    ok({ projectRoot: '/p', name: 's', enabled: false, status: 'disabled' }, 'pending'),
+  ])
+  const api = createApi(fetchFn)
+
+  const env = await api.projectToggle('/p', 's', false)
+  assert.equal(calls[0]!.input, '/skills-nexus/project/toggle')
+  assert.deepEqual(JSON.parse(String(calls[0]!.init?.body)), {
+    root: '/p',
+    name: 's',
+    enabled: false,
+  })
+  assert.equal(env.data.status, 'disabled')
+  assert.equal(env.hotReload, 'pending')
+})
+
 /* ------------------------------------------------------------------ */
 /* Project scope methods                                               */
 /* ------------------------------------------------------------------ */
 
 test('projectList encodes the root into the query string', async () => {
   const entries: ProjectSkillEntry[] = [
-    { name: 'proj-skill', path: '/p/.dsh/skills/proj-skill', kind: 'link', target: '/s', dangling: false, skill: null },
+    { name: 'proj-skill', path: '/p/.dsh/skills/proj-skill', kind: 'link', target: '/s', dangling: false, enabled: true, skill: null },
   ]
   const { fetchFn, calls } = fakeFetch([ok({ projectRoot: '/p', folderSkills: [], entries }, 'done')])
   const api = createApi(fetchFn)

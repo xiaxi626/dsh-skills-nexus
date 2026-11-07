@@ -338,6 +338,10 @@ export interface ToggleOptions {
   json: boolean
   /** Filter by group path prefix (`/`-separated). When set, names may be empty. */
   group?: string
+  /** Toggle project links under `<project>/.dsh/skills` instead of manifest entries. */
+  project?: boolean
+  /** Explicit project root; requires `project`. */
+  projectRoot?: string
 }
 
 /**
@@ -352,6 +356,8 @@ export function parseToggleArgs(argv: string[], command: 'enable' | 'disable'): 
   const names: string[] = []
   let json = false
   let group: string | undefined
+  let project = false
+  let projectRoot: string | undefined
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!
@@ -364,6 +370,16 @@ export function parseToggleArgs(argv: string[], command: 'enable' | 'disable'): 
         throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
       }
       json = true
+    } else if (flag === '--project') {
+      if (inlineVal !== undefined) {
+        throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
+      }
+      project = true
+    } else if (flag === '--project-root') {
+      projectRoot = inlineVal ?? argv[++i]
+      if (!projectRoot || (inlineVal === undefined && projectRoot.startsWith('--'))) {
+        throw new Error('--project-root requires a path, e.g. --project-root /path/to/project')
+      }
     } else if (flag === '--group') {
       group = inlineVal ?? argv[++i]
       if (!group) throw new Error('--group requires a path, e.g. --group trae-cn/skills')
@@ -375,11 +391,27 @@ export function parseToggleArgs(argv: string[], command: 'enable' | 'disable'): 
     }
   }
 
+  if (projectRoot !== undefined && !project) {
+    throw new Error('--project-root requires --project (it would otherwise be silently ignored)')
+  }
+  if (project && group !== undefined) {
+    throw new Error('--group is not available with --project; project scope toggles exact link names only')
+  }
   if (names.length === 0 && !group) {
-    throw new Error(`missing skill name; usage: dsh-skills-nexus ${command} <name>... [--group <path>] [--json]`)
+    throw new Error(
+      project
+        ? `missing link name; usage: dsh-skills-nexus ${command} --project <name>... [--project-root <path>] [--json]`
+        : `missing skill name; usage: dsh-skills-nexus ${command} <name>... [--group <path>] [--json]`,
+    )
   }
 
-  return { names, json, ...(group === undefined ? {} : { group }) }
+  return {
+    names,
+    json,
+    ...(group === undefined ? {} : { group }),
+    ...(project ? { project: true } : {}),
+    ...(projectRoot === undefined ? {} : { projectRoot }),
+  }
 }
 
 export interface ExportOptions {

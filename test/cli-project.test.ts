@@ -151,6 +151,33 @@ test('list --project names a folder SKILL.md by its frontmatter name', async () 
   assert.deepEqual(report.entries, [])
 })
 
+test('enable/disable --project moves the link, never the target', async () => {
+  const project = await makeProject('toggle')
+  const source = await makeSkill('toggle/toggle-skill', 'toggle-skill')
+  const linked = await runCli(['link', '--project', source, '--json'], project)
+  assert.equal(linked.code, 0, linked.stderr)
+
+  const active = join(project, '.dsh', 'skills', 'toggle-skill')
+  const disabled = join(project, '.dsh', 'skills-disabled', 'toggle-skill')
+
+  const off = await runCli(['disable', '--project', 'toggle-skill', '--json'], project)
+  assert.equal(off.code, 0, off.stderr)
+  assert.equal((JSON.parse(off.stdout) as { results: Array<{ status: string }> }).results[0]!.status, 'disabled')
+  await assert.rejects(stat(active))
+  assert.equal((await stat(disabled)).isDirectory(), true)
+  assert.equal((await stat(join(source, 'SKILL.md'))).isFile(), true)
+
+  const listed = await runCli(['list', '--project', '--json'], project)
+  const report = JSON.parse(listed.stdout) as { entries: Array<{ enabled: boolean }> }
+  assert.equal(report.entries[0]!.enabled, false)
+
+  const on = await runCli(['enable', '--project', 'toggle-skill', '--json'], project)
+  assert.equal(on.code, 0, on.stderr)
+  assert.equal((JSON.parse(on.stdout) as { results: Array<{ status: string }> }).results[0]!.status, 'enabled')
+  assert.equal((await stat(active)).isDirectory(), true)
+  await assert.rejects(stat(disabled))
+})
+
 test('remove --project refuses user files and exits 1', async () => {
   const project = await makeProject('refuse')
   const vendored = join(project, '.dsh', 'skills', 'vendored')

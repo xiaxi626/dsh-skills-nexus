@@ -35,6 +35,7 @@ export type JsonReport =
   | ProjectListJsonReport
   | ProjectLinkJsonReport
   | ProjectRemoveJsonReport
+  | ProjectToggleJsonReport
 
 /**
  * The unexpected-fatal payload (P0 §4.6): written to **stderr** with exit 1
@@ -116,6 +117,7 @@ export interface ProjectSkillJson {
 export interface ProjectFolderSkillJson extends ProjectSkillJson {
   linked: boolean
   linkName: string | null
+  disabled: boolean
 }
 
 /** One entry in `<project>/.dsh/skills`, as the filesystem reports it. */
@@ -128,6 +130,8 @@ export interface ProjectListJsonEntry {
   target: string | null
   /** True when a link's target is missing or is not a directory. */
   dangling: boolean
+  /** True for active entries; false for a link parked under `skills-disabled`. */
+  enabled: boolean
   /** Parsed metadata when the entry (or a link's target) is a skill, else null. */
   skill: ProjectSkillJson | null
 }
@@ -173,6 +177,32 @@ export interface ProjectRemoveJsonReport {
   version: 1
   results: ProjectRemoveJsonResult[]
   summary: { removed: number; failed: number }
+}
+
+/** `failed` is set when the move itself threw (permissions, cross-volume). */
+export type ProjectToggleJsonStatus =
+  | 'enabled'
+  | 'disabled'
+  | 'already-enabled'
+  | 'already-disabled'
+  | 'not-found'
+  | 'not-a-link'
+  | 'collision'
+  | 'failed'
+
+export interface ProjectToggleJsonResult {
+  name: string
+  status: ProjectToggleJsonStatus
+  /** The state the command asked for (`enable` → true, `disable` → false). */
+  enabled: boolean
+  error?: string
+}
+
+export interface ProjectToggleJsonReport {
+  version: 1
+  projectRoot: string
+  results: ProjectToggleJsonResult[]
+  summary: { enabled: number; disabled: number; failed: number }
 }
 
 /* ------------------------------------------------------------------ */

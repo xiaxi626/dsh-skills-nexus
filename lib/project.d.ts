@@ -52,6 +52,8 @@ export interface ProjectSkillEntry {
     target: string | null;
     /** True when a link's target is missing or is not a directory. */
     dangling: boolean;
+    /** True for active entries; false for a link parked under `skills-disabled`. */
+    enabled: boolean;
     /** Read-only metadata parsed from the entry (or a link's target), when it is a skill. */
     skill: ProjectSkillInfo | null;
 }
@@ -62,11 +64,15 @@ export interface ProjectSkillEntry {
  * even when the folder is not registered as a DSH workspace.
  */
 export interface ProjectFolderSkill extends ProjectSkillInfo {
-    /** True when a link in `<root>/.dsh/skills` already points at this resource base. */
+    /** True when an active link in `<root>/.dsh/skills` points at this resource base. */
     linked: boolean;
-    /** Name of that link, or `null` when the skill is not linked yet. */
+    /** Name of the active or disabled link, or `null` when there is none. */
     linkName: string | null;
+    /** True when the only link for this resource base is parked as disabled. */
+    disabled: boolean;
 }
+/** Result of moving a project link between active and disabled. */
+export type ProjectToggleStatus = 'enabled' | 'disabled' | 'already-enabled' | 'already-disabled' | 'not-found' | 'not-a-link' | 'collision' | 'failed';
 /** The project page's one read-only report. */
 export interface ProjectReport {
     projectRoot: string;
@@ -149,11 +155,22 @@ export declare function applyProjectLink(plan: ProjectLinkPlan, io: OpsIO): Prom
 /** Count a plan's outcomes (a result that carries an error counts as failed). */
 export declare function summarizeProjectLink(plan: ProjectLinkPlan): ProjectLinkSummary;
 /**
+ * Enable or disable one project link without touching its target.
+ *
+ * Disabling **moves the link** from `<root>/.dsh/skills/<name>` to the sibling
+ * `<root>/.dsh/skills-disabled/<name>`, which the provider does not scan; the
+ * link itself still carries the target, so enabling is a move back and no
+ * remembered path or state file is needed. A real directory or file at either
+ * location is never moved: `not-a-link` / `collision` is returned instead.
+ */
+export declare function setProjectLinkEnabled(root: string, name: string, enabled: boolean): Promise<ProjectToggleStatus>;
+/**
  * Remove the link called `name` from the project skills root.
  *
  * Only a proven link is removed. A real directory or file returns `not-a-link`
  * and is left byte-for-byte untouched — the whole safety argument of project
- * scope, so `unlinkAt`'s refusal is surfaced rather than worked around.
+ * scope, so `unlinkAt`'s refusal is surfaced rather than worked around. A
+ * disabled link is removable from its parked location too.
  */
 export declare function removeProjectLink(root: string, name: string): Promise<ProjectRemoveStatus>;
 /** Every dangling link in the project skills root (doctor's project check). */

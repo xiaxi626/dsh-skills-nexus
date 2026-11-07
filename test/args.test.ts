@@ -295,6 +295,19 @@ test('parseToggleArgs names the command it was invoked for', () => {
   assert.throws(() => parseToggleArgs([], 'disable'), /disable <name>/)
 })
 
+test('parseToggleArgs --project carries exact link names and an optional root', () => {
+  const opts = parseToggleArgs(['--project', 'skill-a', '--project-root', '/p'], 'enable')
+  assert.equal(opts.project, true)
+  assert.deepEqual(opts.names, ['skill-a'])
+  assert.equal(opts.projectRoot, '/p')
+})
+
+test('parseToggleArgs --project rejects --group and a root without --project', () => {
+  assert.throws(() => parseToggleArgs(['--project', '--group', 'g'], 'disable'), /not available with --project/)
+  assert.throws(() => parseToggleArgs(['--project-root', '/p', 'skill-a'], 'enable'), /requires --project/)
+  assert.throws(() => parseToggleArgs(['--project'], 'enable'), /missing link name/)
+})
+
 /* ------------------------------------------------------------------ */
 /* parseToggleArgs — --group extension                                 */
 /* ------------------------------------------------------------------ */

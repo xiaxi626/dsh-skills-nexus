@@ -75,6 +75,7 @@ export declare function NexusPanel({ api: apiProp }: {
 interface ProjectSkillRowProps {
     entry: ProjectSkillEntry;
     busy: boolean;
+    onToggle: (entry: ProjectSkillEntry) => void;
     onRemove: (entry: ProjectSkillEntry) => void;
 }
 /**
@@ -86,7 +87,7 @@ interface ProjectSkillRowProps {
  * is the project scope's safety contract in the UI, and it is pure props →
  * markup — no request, no mounted effect.
  */
-export declare function ProjectSkillRow({ entry, busy, onRemove }: ProjectSkillRowProps): ReactElement;
+export declare function ProjectSkillRow({ entry, busy, onToggle, onRemove, }: ProjectSkillRowProps): ReactElement;
 interface ProjectFolderSkillRowProps {
     skill: ProjectFolderSkill;
     busy: boolean;

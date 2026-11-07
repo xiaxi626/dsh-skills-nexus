@@ -10,8 +10,12 @@ import type { OpsIO } from '../../ops-io.js'
 import { withSkillFileLock, SkillLockedError } from '../../locks.js'
 import type { SkillEntry } from '../../types.js'
 import { parseToggleArgs } from '../args.js'
+import type { ToggleOptions } from '../args.js'
 import { jsonIO, emitJson, fatalJsonError } from '../json-io.js'
-import type { ToggleJsonResult } from '../json-types.js'
+import type { ProjectToggleJsonResult, ToggleJsonResult } from '../json-types.js'
+import { setProjectLinkEnabled } from '../../project.js'
+import type { ProjectToggleStatus } from '../../project.js'
+import { resolveProjectScope } from '../project-scope.js'
 
 /**
  * `enable <name>...` / `disable <name>...` — toggle catalog visibility by
@@ -29,14 +33,9 @@ import type { ToggleJsonResult } from '../json-types.js'
  * one name failed, 2 = usage error.
  */
 export async function toggle(argv: string[], enabled: boolean, io: OpsIO = cliIO): Promise<number> {
-  let names: string[]
-  let json: boolean
-  let group: string | undefined
+  let opts: ToggleOptions
   try {
-    const opts = parseToggleArgs(argv, enabled ? 'enable' : 'disable')
-    names = opts.names
-    json = opts.json
-    group = opts.group
+    opts = parseToggleArgs(argv, enabled ? 'enable' : 'disable')
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (looksLikeJson(argv)) {
@@ -46,6 +45,10 @@ export async function toggle(argv: string[], enabled: boolean, io: OpsIO = cliIO
     io.error(`error: ${message}`)
     return 2
   }
+
+  if (opts.project) return toggleProject(opts, enabled, io)
+
+  const { names, json, group } = opts
 
   // --group mode: filter entries by groupPath prefix and toggle each match.
   if (group) {
@@ -64,6 +67,85 @@ export async function toggle(argv: string[], enabled: boolean, io: OpsIO = cliIO
       continue
     }
     failures += (await toggleOne(entry, name, enabled, io)) === 0 ? 0 : 1
+  }
+  return failures === 0 ? 0 : 1
+}
+
+/**
+ * `enable --project` / `disable --project`: move project links between the
+ * active root and `skills-disabled` without touching their targets.
+ *
+ * Each name is independent; "already in that state" is success, while a real
+ * directory/file, a missing link or a move failure is a per-item failure and
+ * the exit code is 1 if any occurred.
+ */
+async function toggleProject(
+  opts: ToggleOptions,
+  enabled: boolean,
+  io: OpsIO,
+): Promise<number> {
+  const scope = await resolveProjectScope(opts.projectRoot)
+  if ('error' in scope) {
+    io.error(`error: ${scope.error}`)
+    return 1
+  }
+
+  const out = opts.json ? jsonIO(io) : io
+  const results: ProjectToggleJsonResult[] = []
+  let failures = 0
+
+  for (const name of opts.names) {
+    let status: ProjectToggleStatus
+    let error: string | undefined
+    try {
+      status = await setProjectLinkEnabled(scope.root, name, enabled)
+    } catch (err) {
+      status = 'failed'
+      error = err instanceof Error ? err.message : String(err)
+    }
+    const ok = enabled
+      ? status === 'enabled' || status === 'already-enabled'
+      : status === 'disabled' || status === 'already-disabled'
+    if (!ok) failures++
+    results.push({ name, status, enabled, ...(error === undefined ? {} : { error }) })
+
+    if (opts.json) continue
+    if (status === 'enabled') {
+      out.emit(`Enabled project link "${name}" — target untouched.\n`)
+    } else if (status === 'disabled') {
+      out.emit(
+        `Disabled project link "${name}" — moved to .dsh/skills-disabled, target untouched.\n`,
+      )
+    } else if (status === 'already-enabled') {
+      out.emit(`Project link "${name}" is already enabled.\n`)
+    } else if (status === 'already-disabled') {
+      out.emit(`Project link "${name}" is already disabled.\n`)
+    } else if (status === 'not-found') {
+      out.error(`No project link named "${name}".`)
+    } else if (status === 'not-a-link') {
+      out.error(`"${name}" is not a link — refusing to touch user files.`)
+    } else if (status === 'collision') {
+      out.error(
+        `Cannot move "${name}": the other location holds a non-link entry.`,
+      )
+    } else {
+      out.error(`Failed to toggle "${name}": ${error ?? 'unknown error'}`)
+    }
+  }
+
+  if (opts.json) {
+    const enabledCount = results.filter(
+      (result) => result.status === 'enabled' || result.status === 'already-enabled',
+    ).length
+    const disabledCount = results.filter(
+      (result) => result.status === 'disabled' || result.status === 'already-disabled',
+    ).length
+    emitJson(io, {
+      version: 1,
+      projectRoot: scope.root,
+      results,
+      summary: { enabled: enabledCount, disabled: disabledCount, failed: failures },
+    })
   }
   return failures === 0 ? 0 : 1
 }

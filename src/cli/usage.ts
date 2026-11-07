@@ -80,6 +80,8 @@ Usage:
   dsh-skills-nexus remove --project <name>... [--project-root <path>] [--json]
   dsh-skills-nexus enable  <name>... [--group <path>] [--json]
   dsh-skills-nexus disable <name>... [--group <path>] [--json]
+  dsh-skills-nexus enable  --project <name>... [--project-root <path>] [--json]
+  dsh-skills-nexus disable --project <name>... [--project-root <path>] [--json]
   dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # read-only full checkup
   dsh-skills-nexus doctor --project [--project-root <path>] [--json] [--quiet]
   dsh-skills-nexus purge  [--yes] [--json]                # clean up accumulated artifacts
@@ -94,12 +96,13 @@ Options:
                     it, so unrelated directories are normally not materialized; the output
                     always reports the mode used and warns when the clone was complete.
   --yes             skip confirmation prompts (large collections; multi-match removal)
-  --project         project scope: list/link/remove/doctor act on
+  --project         project scope: list/link/remove/doctor/enable/disable act on
                     <project>/.dsh/skills instead of ~/.dsh. link --project takes
                     a directory and creates links only (no manifest entry, no
                     clone, no copy); remove --project deletes only links and
-                    refuses to touch user files; doctor --project reports
-                    dangling links.
+                    refuses to touch user files; enable/disable --project move a
+                    link to <project>/.dsh/skills-disabled and back, leaving its
+                    target untouched; doctor --project reports dangling links.
   --project-root <path>
                     explicit project root; requires --project. Default: the
                     nearest ancestor of the current directory containing .git,
