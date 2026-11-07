@@ -59,7 +59,33 @@ export const PathLabel = stub('span')
 export const ConnectionIndicator = stub('span')
 export const TextShimmer = stub('span')
 export const SegmentedControl = stub('div')
-export const SegmentedTabs = stub('div')
+/**
+ * The real `SegmentedTabs` renders a controlled `role="tablist"` of tabs and
+ * leaves the panels to its caller. Reproduced here because the panel now
+ * switches scope by tab: a plain div stub would erase the labels and the
+ * `aria-selected` state the render test asserts on.
+ */
+export function SegmentedTabs({ items, value, onChange, label, className }) {
+  return createElement(
+    'div',
+    { role: 'tablist', 'aria-label': label, className },
+    items.map((item) =>
+      createElement(
+        'button',
+        {
+          key: item.value,
+          type: 'button',
+          role: 'tab',
+          id: item.id,
+          'aria-selected': item.value === value ? 'true' : 'false',
+          'aria-controls': item.panelId,
+          onClick: () => onChange(item.value),
+        },
+        item.label,
+      ),
+    ),
+  )
+}
 export const Tooltip = stub('span')
 export const Modal = stub('div')
 export const HoverCard = stub('div')

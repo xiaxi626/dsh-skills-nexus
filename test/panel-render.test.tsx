@@ -496,10 +496,32 @@ test('errorText surfaces the export-failed message instead of a bare code', () =
   assert.doesNotMatch(bare, /400 export-failed/)
 })
 
-test('the project skills section offers a root input and a gated link form', () => {
+test('global and project skills are two tabs with separate panels', () => {
   const html = renderToStaticMarkup(<NexusPanel api={mountApi()} />)
-  assert.match(html, /project skills/)
-  assert.match(html, /project root/)
+  assert.match(html, /role="tablist"/)
+  assert.match(html, /aria-label="skill scope"/)
+  // Global is the default tab; the project panel starts out hidden.
+  assert.match(html, /id="nexus-tab-global"[^>]*aria-selected="true"/)
+  assert.match(html, /id="nexus-tab-project"[^>]*aria-selected="false"/)
+  assert.match(html, /id="nexus-panel-project"[^>]*hidden/)
+
+  const globalTag = html.match(/<div[^>]*id="nexus-panel-global"[^>]*>/)?.[0] ?? ''
+  assert.ok(globalTag.length > 0, 'the global panel is rendered')
+  assert.doesNotMatch(globalTag, /hidden/)
+
+  // The two panels are siblings, and each holds its own content: the global
+  // install form is not inside the project panel, and vice versa.
+  const globalAt = html.indexOf('id="nexus-panel-global"')
+  const projectAt = html.indexOf('id="nexus-panel-project"')
+  assert.ok(globalAt >= 0 && projectAt > globalAt)
+  assert.ok(html.indexOf('>install<') > globalAt && html.indexOf('>install<') < projectAt)
+  assert.ok(html.indexOf('aria-label="project root"') > projectAt)
+})
+
+test('the project tab offers a root input and a gated link form', () => {
+  const html = renderToStaticMarkup(<NexusPanel api={mountApi()} />)
+  assert.match(html, /Project skills/)
+  assert.match(html, /aria-label="project root"/)
   assert.match(html, /enter the project root to list its skills/)
   assert.match(html, /aria-label="project link source directory"/)
   // Nothing can be linked before a preview plan exists.

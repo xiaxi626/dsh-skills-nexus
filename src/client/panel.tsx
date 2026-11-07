@@ -62,7 +62,6 @@ import {
   DisclosureRow,
   IconChevronDownOutlineRegular,
   IconChevronRightOutlineRegular,
-  IconFolderOpenOutlineRegular,
   IconLinkOutlineRegular,
   IconPinOutlineRegular,
   IconRefreshOutlineRegular,
@@ -70,6 +69,7 @@ import {
   IconWarningOutlineRegular,
   Input,
   RiskConfirmation,
+  SegmentedTabs,
   StateDot,
   Switch,
   Tag,
@@ -340,7 +340,12 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
    * workspace service to read it from, and a stored value would silently point
    * at a different project after the user moves directories.
    */
-  const [projectOpen, setProjectOpen] = useState(true)
+  /**
+   * Which scope the settings section shows. Global skills come from the
+   * manifest; project skills are a filesystem scan, so the two are separate
+   * datasets and get separate tabs instead of one stacked page.
+   */
+  const [scope, setScope] = useState<'global' | 'project'>('global')
   const [projectRoot, setProjectRoot] = useState('')
   const [projectEntries, setProjectEntries] = useState<ProjectSkillEntry[]>([])
   const [projectError, setProjectError] = useState<string | null>(null)
@@ -1005,26 +1010,61 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
 
   return (
     <div className={css.section}>
-      <p className={css.lede}>
-        Manage skill repositories: add by git url, toggle, update, pin versions.
-        Discovery itself stays with the official provider — this panel only
-        manages the clones and their symlinks.
-      </p>
+      {/*
+        Two scopes, two tabs: the global half is the manifest-driven lifecycle,
+        the project half is a filesystem scan of one project's `.dsh/skills`.
+        Panels are caller-owned, so both stay mounted and the inactive one is
+        hidden — switching tabs keeps half-typed forms and job progress intact.
+      */}
+      <SegmentedTabs
+        items={[
+          {
+            value: 'global',
+            label: 'Global skills',
+            id: 'nexus-tab-global',
+            panelId: 'nexus-panel-global',
+          },
+          {
+            value: 'project',
+            label: 'Project skills',
+            id: 'nexus-tab-project',
+            panelId: 'nexus-panel-project',
+          },
+        ]}
+        value={scope}
+        onChange={setScope}
+        label="skill scope"
+        className={css.tabs}
+      />
 
       {notice !== null && (
         <p role="status" className={css.notice}>
           {notice}
         </p>
       )}
-      {listError !== null && (
-        <p role="alert" className={css.error}>
-          failed to load skills: {listError}
-        </p>
-      )}
 
       <JobProgress jobs={activeJobs} onCancel={onCancelJob} />
 
-      {/* ---------------- install ---------------- */}
+      <div
+        id="nexus-panel-global"
+        role="tabpanel"
+        aria-labelledby="nexus-tab-global"
+        hidden={scope !== 'global'}
+        className={css.tabPanel}
+      >
+        <p className={css.lede}>
+          Manage skill repositories: add by git url, toggle, update, pin versions.
+          Discovery itself stays with the official provider — this panel only
+          manages the clones and their symlinks.
+        </p>
+
+        {listError !== null && (
+          <p role="alert" className={css.error}>
+            failed to load skills: {listError}
+          </p>
+        )}
+
+        {/* ---------------- install ---------------- */}
       <section className={css.install}>
         <h4 className={css.groupTitle}>install</h4>
 
@@ -1259,139 +1299,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
         </div>
       </DisclosureRow>
 
-      {/* ---------------- project skills (filesystem, no manifest) ---------------- */}
-      {/*
-        The project scope the DSH provider scans at rank 100. There is no
-        workspace service in this client context, so the root is an input for
-        the user; it is intentionally not persisted (a remembered absolute path
-        silently targets a different project after the next move).
-      */}
-      <DisclosureRow
-        icon={<IconFolderOpenOutlineRegular />}
-        title="project skills"
-        open={projectOpen}
-        expandable
-        expandOnRowClick
-        onToggle={() => setProjectOpen((v) => !v)}
-        className={css.linkDisclosure}
-        contentClassName={css.linkHeaderContent}
-        contentLayoutClassName={css.linkHeaderInner}
-        collapsedContent={
-          <span className={css.linkHeaderHint}>
-            links under &lt;project&gt;/.dsh/skills
-          </span>
-        }
-        keepContentWhenOpen
-      >
-        <div className={css.linkBody}>
-          <div className={css.formRow}>
-            <label className={css.fieldLabel}>
-              project root
-              <Input
-                type="text"
-                aria-label="project root"
-                placeholder="absolute path, e.g. /home/you/dev/my-project"
-                value={projectRoot}
-                disabled={projectBusy}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                  setProjectRoot(e.target.value)
-                  setProjectEntries([])
-                  setProjectError(null)
-                  setProjectPlan(null)
-                }}
-              />
-            </label>
-            <Button
-              type="button"
-              icon={<IconRefreshOutlineRegular />}
-              onClick={() => void refreshProject()}
-              disabled={projectBusy || projectRoot.trim().length === 0}
-            >
-              {projectBusy ? 'loading…' : 'refresh'}
-            </Button>
-          </div>
-          <p className={css.hint}>
-            the provider scans this directory ahead of the global catalog — nexus
-            never copies, moves or deletes the linked target
-          </p>
 
-          {projectRoot.trim().length === 0 ? (
-            <p className={css.hint}>enter the project root to list its skills</p>
-          ) : projectError !== null ? (
-            <p className={css.error}>{projectError}</p>
-          ) : projectEntries.length === 0 ? (
-            <p className={css.empty}>no project skills yet — link a directory below.</p>
-          ) : (
-            <ul className={css.entries}>
-              {projectEntries.map((entry) => (
-                <li key={entry.name} className={css.entryRow}>
-                  <ProjectSkillRow entry={entry} busy={projectBusy} onRemove={onRemoveProject} />
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <div className={css.formRow}>
-            <label className={css.fieldLabel}>
-              link a directory
-              <Input
-                type="text"
-                aria-label="project link source directory"
-                placeholder="absolute path to a skill directory or collection"
-                value={projectLinkDir}
-                disabled={projectLinkBusy}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                  setProjectLinkDir(e.target.value)
-                  setProjectPlan(null)
-                }}
-              />
-            </label>
-            <Button
-              type="button"
-              onClick={onPreviewProjectLink}
-              disabled={
-                projectLinkBusy ||
-                projectRoot.trim().length === 0 ||
-                projectLinkDir.trim().length === 0
-              }
-            >
-              preview
-            </Button>
-          </div>
-
-          {projectPlan !== null && (
-            <div className={css.plan}>
-              <p className={css.hint}>
-                {`source: ${projectPlan.source} · ${projectPlan.results.length} skill(s)`}
-              </p>
-              <ul className={css.planList}>
-                {projectPlan.results.map((result) => (
-                  <li key={result.name}>
-                    <strong>{result.name}</strong>
-                    {` — ${result.status}`}
-                    {result.error !== undefined ? ` (${result.error})` : ''}
-                  </li>
-                ))}
-              </ul>
-              <div className={css.entryActions}>
-                <Button
-                  type="button"
-                  variant="primary"
-                  onClick={onLinkProject}
-                  disabled={
-                    projectLinkBusy ||
-                    !projectPlan.results.some(
-                      (result) => result.status === 'link' || result.status === 'replace',
-                    )
-                  }
-                >
-                  link to project
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-      </DisclosureRow>
 
       {/* ---------------- toolbar ---------------- */}
       <div className={css.toolbar}>
@@ -1497,6 +1405,129 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
         (including the ones other tools manage), use Skill Manager.
       </p>
 
+      </div>
+
+      <div
+        id="nexus-panel-project"
+        role="tabpanel"
+        aria-labelledby="nexus-tab-project"
+        hidden={scope !== 'project'}
+        className={css.tabPanel}
+      >
+        <p className={css.lede}>
+          Links under <code>&lt;project&gt;/.dsh/skills</code> — the root the
+          provider scans before the global catalog. Only links are created and
+          removed; the target directory is never copied, moved or deleted.
+        </p>
+
+        <div className={css.formRow}>
+          <label className={css.fieldLabel}>
+            project root
+            <Input
+              type="text"
+              aria-label="project root"
+              placeholder="absolute path, e.g. /home/you/dev/my-project"
+              value={projectRoot}
+              disabled={projectBusy}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                setProjectRoot(e.target.value)
+                setProjectEntries([])
+                setProjectError(null)
+                setProjectPlan(null)
+              }}
+            />
+          </label>
+          <Button
+            type="button"
+            icon={<IconRefreshOutlineRegular />}
+            onClick={() => void refreshProject()}
+            disabled={projectBusy || projectRoot.trim().length === 0}
+          >
+            {projectBusy ? 'loading…' : 'refresh'}
+          </Button>
+        </div>
+        <p className={css.hint}>
+          absolute path on the server — this scope has no workspace service to
+          infer one from, and the value is deliberately not stored
+        </p>
+
+        {projectRoot.trim().length === 0 ? (
+          <p className={css.hint}>enter the project root to list its skills</p>
+        ) : projectError !== null ? (
+          <p className={css.error}>{projectError}</p>
+        ) : projectEntries.length === 0 ? (
+          <p className={css.empty}>no project skills yet — link a directory below.</p>
+        ) : (
+          <ul className={css.entries}>
+            {projectEntries.map((entry) => (
+              <li key={entry.name} className={css.entryRow}>
+                <ProjectSkillRow entry={entry} busy={projectBusy} onRemove={onRemoveProject} />
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className={css.formRow}>
+          <label className={css.fieldLabel}>
+            link a directory
+            <Input
+              type="text"
+              aria-label="project link source directory"
+              placeholder="absolute path to a skill directory or collection"
+              value={projectLinkDir}
+              disabled={projectLinkBusy}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                setProjectLinkDir(e.target.value)
+                setProjectPlan(null)
+              }}
+            />
+          </label>
+          <Button
+            type="button"
+            onClick={onPreviewProjectLink}
+            disabled={
+              projectLinkBusy ||
+              projectRoot.trim().length === 0 ||
+              projectLinkDir.trim().length === 0
+            }
+          >
+            preview
+          </Button>
+        </div>
+
+        {projectPlan !== null && (
+          <div className={css.plan}>
+            <p className={css.hint}>
+              {`source: ${projectPlan.source} · ${projectPlan.results.length} skill(s)`}
+            </p>
+            <ul className={css.planList}>
+              {projectPlan.results.map((result) => (
+                <li key={result.name}>
+                  <strong>{result.name}</strong>
+                  {` — ${result.status}`}
+                  {result.error !== undefined ? ` (${result.error})` : ''}
+                </li>
+              ))}
+            </ul>
+            <div className={css.entryActions}>
+              <Button
+                type="button"
+                variant="primary"
+                onClick={onLinkProject}
+                disabled={
+                  projectLinkBusy ||
+                  !projectPlan.results.some(
+                    (result) => result.status === 'link' || result.status === 'replace',
+                  )
+                }
+              >
+                link to project
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/*
         The destructive-action overlay. Its description is the server's own
         `question` where one is already known — the route is the single source of
@@ -1524,7 +1555,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
         }}
         onConfirm={onConfirmRemoval}
       />
-      
+
       <RiskConfirmation
         open={pendingGroupRemoval !== null}
         title="remove skill group"

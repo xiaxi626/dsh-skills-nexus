@@ -29,6 +29,28 @@
   line-height: 20px;
 }
 
+/* ---------------- scope tabs ---------------- */
+
+.tabs {
+  margin-bottom: 2px;
+}
+
+/*
+ * Both scope panels stay mounted so switching tabs keeps half-typed forms and
+ * job progress intact; the inactive one is hidden. The explicit [hidden] rule
+ * matters: the flex declaration below would otherwise override the user
+ * agent's display:none, leaving the hidden panel visible.
+ */
+.tabPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tabPanel[hidden] {
+  display: none;
+}
+
 /* ---------------- headings and prose ---------------- */
 
 .lede {
