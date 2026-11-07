@@ -18,6 +18,15 @@
  * migration or "stale projectRoot" failure modes apply.
  */
 import type { OpsIO } from './ops-io.js';
+/**
+ * A clear refusal for a source directory nexus cannot link, or `undefined`.
+ *
+ * Windows junctions require a local absolute target: `symlink(..., 'junction')`
+ * answers a UNC path (\servershare\…) with a raw `EPERM`, which reads like a
+ * permissions problem rather than an unsupported target. The check is confined
+ * to win32 because a leading `//` is an ordinary path elsewhere.
+ */
+export declare function projectSourceError(source: string): string | undefined;
 /** One entry found directly under `<projectRoot>/.dsh/skills/`. */
 export interface ProjectSkillEntry {
     name: string;

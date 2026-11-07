@@ -91,6 +91,7 @@ import {
   applyProjectLink,
   listProjectSkills,
   planProjectLink,
+  projectSourceError,
   removeProjectLink,
   summarizeProjectLink,
 } from '../project.js'
@@ -1014,6 +1015,10 @@ async function projectLinkRoute(req: RouteRequest, res: RouteResponse): Promise<
   if (dir === undefined) throw new HttpError(400, 'missing-field', { field: 'dir' })
 
   const source = resolve(dir)
+  const unsupported = projectSourceError(source)
+  if (unsupported !== undefined) {
+    throw new HttpError(400, 'unsupported-source', { dir: source, message: unsupported })
+  }
   let isDir = false
   try {
     isDir = (await stat(source)).isDirectory()

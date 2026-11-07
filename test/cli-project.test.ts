@@ -191,6 +191,20 @@ test('an explicit --project-root must name an existing directory', async () => {
   assert.match(result.stderr, /does not exist or is not a directory/)
 })
 
+test('a UNC source is refused with a clear message on Windows', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('UNC targets are a Windows concern')
+    return
+  }
+  const project = await makeProject('unc')
+  const result = await runCli(
+    ['link', '--project', '\\\\server\\share\\skill', '--project-root', project],
+    project,
+  )
+  assert.equal(result.code, 1)
+  assert.match(result.stderr, /UNC path/)
+})
+
 test('link --project rejects the source-registry flags', async () => {
   const project = await makeProject('reject-flags')
   const source = await makeSkill('reject-flags/my-skill', 'my-skill')

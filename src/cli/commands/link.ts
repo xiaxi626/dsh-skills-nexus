@@ -6,7 +6,12 @@ import { parseLinkArgs } from '../args.js'
 import type { LinkCLIOptions } from '../args.js'
 import { planLinkLocal, linkLocal } from '../../external.js'
 import type { LinkPlan, LinkResult } from '../../external.js'
-import { applyProjectLink, planProjectLink, summarizeProjectLink } from '../../project.js'
+import {
+  applyProjectLink,
+  planProjectLink,
+  projectSourceError,
+  summarizeProjectLink,
+} from '../../project.js'
 import { projectSkillsDir } from '../../paths.js'
 import { resolveProjectScope } from '../project-scope.js'
 import { emitJson } from '../json-io.js'
@@ -141,6 +146,11 @@ async function linkProject(opts: LinkCLIOptions, io: OpsIO): Promise<number> {
   }
 
   const source = resolve(opts.source)
+  const unsupported = projectSourceError(source)
+  if (unsupported !== undefined) {
+    io.error(`error: ${unsupported}\n`)
+    return 1
+  }
   try {
     if (!(await stat(source)).isDirectory()) throw new Error('not a directory')
   } catch {

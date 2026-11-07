@@ -1654,6 +1654,21 @@ test('project/link validates its fields and the source directory', async () => {
   assert.equal(errorsOf(noSource).error, 'no-source')
 })
 
+test('project/link refuses a UNC source on Windows with 400 unsupported-source', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('UNC targets are a Windows concern')
+    return
+  }
+  const { root } = await projectFixture('api-proj-unc', 'x')
+  const unc = '\\\\server\\share\\skill'
+  const res = await call('/skills-nexus/project/link', {
+    method: 'POST',
+    body: JSON.stringify({ root, dir: unc }),
+  })
+  assert.equal(res.status, 400)
+  assert.equal(errorsOf(res).error, 'unsupported-source')
+})
+
 test('project/link rejects a cross-origin request before reading the body (403)', async () => {
   const res = await call('/skills-nexus/project/link', {
     method: 'POST',

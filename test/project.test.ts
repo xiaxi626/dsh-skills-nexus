@@ -237,6 +237,18 @@ test('a real directory at the name is a collision and keeps its content', async 
   assert.equal(await link.isLinkAt(occupied), false)
 })
 
+test('a UNC source is refused on Windows with a clear error', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('UNC targets are a Windows concern')
+    return
+  }
+  const root = await makeProject('unc')
+  const plan = await project.planProjectLink(root, '\\\\server\\share\\skill')
+  assert.equal(plan.results.length, 1)
+  assert.equal(plan.results[0]!.status, 'invalid')
+  assert.match(plan.results[0]!.error!, /UNC path/)
+})
+
 test('two skills deriving one name collide instead of overwriting each other', async () => {
   const root = await makeProject('plan-duplicate')
   const source = join(base, 'sources', 'plan-duplicate', 'dup')
