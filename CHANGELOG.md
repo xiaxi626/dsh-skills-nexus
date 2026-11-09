@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-09
+
+> **Project skills 标记为实验性**：`--project` 作用域与面板的 Project skills 页签功能与测试完整、CI 三平台全绿，但交互手感尚未经真实使用验证。既有全局技能的命令契约未变，不使用该作用域的用户不受影响；0.10.x 会按实际体验继续调整。
+
+**2026-11-09 · Fixed · fish 补全：`--project-root` 按 glob 精确匹配，恢复技能名补全**
+
+- **背景**：`complete -n '<条件>'` 的条件会被 fish 当作独立代码再解析一次。技能名补全条件里的 `string match -qr -- ^--project-root$ "$t[$i]"` 以裸 `$` 结尾（fish 词法要求 `$` 后接变量名），fish 3.7 判定该行语法错误、整条条件被静默丢弃，已安装技能名从补全中消失。只有 Ubuntu CI 真装 fish，所以只有该 job 转红。
+- **变更**：`src/cli/commands/completions/fish.ts` 改为 `string match -q -- --project-root "$t[$i]"`——glob 精确匹配同一个词，语义等价且无裸 `$` 风险；`lib/` 产物同步。
+- **验证方式**：fish 3.7.1（与 Ubuntu CI 同版本）实跑生成的模板，22/22 断言通过（含 `update-skill`、`remove --yes` 后补名字、`doctor` 标志）；`typecheck` / `lint` 通过；CI 在 `dc1f963` 三平台全绿。
+
 **2026-11-07 · Added · 项目技能工作区：浏览器式查看、链接管理与启停（`--project`）**
 
 - **背景**：DSH filesystem provider 按 rank 扫描固定根，`<projectRoot>/.dsh/skills`（rank 100）先于 `~/.dsh/skills`（rank 400）。最初的项目作用域只做 link/list/remove/doctor，面板只能看到 `.dsh/skills` 的目录项——用户放入一个 `SKILL.md` 时只能看到文件名，看不到技能名；同时项目技能无法启停。本轮把它改成**项目技能工作区**：任意文件夹都可查看，解析 `SKILL.md` 展示名称/描述，链接可创、可停用/启用、可删；全程只读用户文件，启停只移动链接。
@@ -14,7 +24,7 @@
   - 面板：`Settings → Skills Nexus` 保持 **Global skills** / **Project skills** 两页签。项目页签改为单一 **project folder** 输入 + refresh，下面两段：**skills in this folder**（解析名称/描述、逐行 `link`，已链接/停用显示状态）与 **project skills root**（链接行带启停 `Switch` 与 `remove`；`user files` 行只读，无 Switch/remove）。移除了原先独立的 “link a directory” 表单与二次 preview（用户容易只填一处而以为没反应）；文件夹任意、无需 DSH 工作区，根按会话手填、不持久化。
   - 测试：新增/扩展 `test/project.test.ts`（元数据、folder scan、启停、停用链接删除、用户文件拒绝）、`test/cli-project.test.ts`（folder 名称、启停链路、用户文件拒绝）、`test/api.test.ts`（folderSkills、toggle）、`test/args.test.ts`（toggle `--project`）、`test/client-api.test.ts`、`test/panel-render.test.tsx`（解析名/描述、disabled 行、Switch）。
   - 文档：README / README_CN 的项目技能小节、命令示例、面板说明与能力行同步；verify 指南的面板清单/HTTP 表/边界更新；ARCHITECTURE / CONTRIBUTING / build-on-nexus 同步。
-- **验证方式**（Windows 25H2 / Node v24.19.0，原生文件系统）：CI 首轮实际失败全部是测试期望错位，不是产品代码失败——旧空输出断言仍匹配 `No project skills...`，macOS 把 `/var` 与 `/private/var` 直接比较，doctor/link 补全期望漏了 `--project` / `--project-root`；三处均已修正。修正后 `npm test` **939 项（936 通过 / 3 跳过 / 0 失败）**，`test:local-source` 1/1；`typecheck` / `test:build` / `lint`（0 error，2 条既有 warning）/ `build` / `build:client` 均 exit 0，`git diff --exit-code -- lib` 干净。项目 folder scan、启停、停用链接删除、`list --project` 空输出、macOS realpath、四套补全 flags 均在本机跑通；等待 CI 矩阵复跑确认三平台。
+- **验证方式**（Windows 25H2 / Node v24.19.0，原生文件系统）：CI 首轮实际失败全部是测试期望错位，不是产品代码失败——旧空输出断言仍匹配 `No project skills...`，macOS 把 `/var` 与 `/private/var` 直接比较，doctor/link 补全期望漏了 `--project` / `--project-root`；三处均已修正。修正后 `npm test` **939 项（936 通过 / 3 跳过 / 0 失败）**，`test:local-source` 1/1；`typecheck` / `test:build` / `lint`（0 error，2 条既有 warning）/ `build` / `build:client` 均 exit 0，`git diff --exit-code -- lib` 干净。项目 folder scan、启停、停用链接删除、`list --project` 空输出、macOS realpath、四套补全 flags 均在本机跑通；CI 矩阵已在三平台 × Node 20/22/24 全绿确认。
 - **不做**：不修改任何 `SKILL.md`、不删除用户文件/目录；不给 `add` / `import` / `update` / `export` 加 `--project`；不写 manifest、不复制、不克隆；不做项目根持久化；不做工作区下拉（下一步，可选）；`remove`/开关只接受精确链接名；不改 `/list` 既有全局契约。
 
 ## [0.9.0] - 2026-11-01

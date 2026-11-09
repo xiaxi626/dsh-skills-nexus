@@ -268,6 +268,10 @@ For isolated CLI checks and the panel acceptance checklist, see
 
 ### Project skills
 
+**Experimental.** The project scope is opt-in and still settling: its CLI and
+panel interaction may change in a 0.10.x release. Global skills keep their
+existing contract and are unaffected.
+
 The DSH filesystem provider scans `<projectRoot>/.dsh/skills` at project rank,
 **before** the user-level `~/.dsh/skills`, so a link placed there shadows a
 global skill of the same name. The project tab is a viewer plus a link manager:

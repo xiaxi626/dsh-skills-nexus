@@ -213,6 +213,9 @@ Copilot、Cursor、Gemini CLI 与 Kimi Code 的官方跨工具位置。两个 Qo
 
 ### 项目技能
 
+**实验性功能。** 项目作用域是可选的新增能力，其 CLI 与面板交互仍可能在
+0.10.x 中调整；全局技能的既有契约不变、不受影响。
+
 DSH filesystem provider 按项目 rank 扫描 `<projectRoot>/.dsh/skills`，**先于**用户级
 `~/.dsh/skills`，所以放在这里的同名链接会覆盖全局技能。项目页签现在是一个
 **查看器 + 链接管理器**：填入**任意文件夹**（不必是已登记的 DSH 工作区），它会展示该
