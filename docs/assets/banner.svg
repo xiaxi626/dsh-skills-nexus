@@ -1,0 +1,161 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" width="1200" height="360" role="img" aria-label="dsh-skills-nexus — every skill, one place, every machine">
+  <style>
+    :root{
+      --paper:#f6f2ea; --paper-2:#efe9dd; --card:#fffdf8;
+      --line:#e0d8c8; --line-2:#cfc5b0;
+      --ink:#2b2620; --ink-2:#5f574a; --ink-3:#8b8172;
+      --cinnabar:#c0392b; --cinnabar-deep:#a12f22;
+      --cinnabar-soft:#f7e5e2; --cinnabar-border:#e5c4be;
+      --on-cinnabar:#ffffff;
+      --sans:"Inter","SF Pro Text","PingFang SC","Noto Sans SC",system-ui,sans-serif;
+      --mono:ui-monospace,"SF Mono","Cascadia Code",Menlo,monospace;
+    }
+    @media (prefers-color-scheme: dark){
+      :root{
+        --paper:#211d18; --paper-2:#282218; --card:#2a2620;
+        --line:#3b352c; --line-2:#4c4436;
+        --ink:#ece7de; --ink-2:#b5ac9e; --ink-3:#8f8678;
+        --cinnabar:#e06a52; --cinnabar-deep:#ea8069;
+        --cinnabar-soft:rgba(224,106,82,.13); --cinnabar-border:rgba(224,106,82,.35);
+        --on-cinnabar:#211d18;
+      }
+    }
+    .bg{fill:var(--paper)}
+    .frame{fill:none;stroke:var(--line)}
+    .glow{fill:var(--cinnabar-soft)}
+
+    .brand{fill:var(--ink);font-family:var(--sans);font-size:14.5px;font-weight:600;letter-spacing:-.1px}
+    .mark-box{fill:var(--cinnabar-soft)}
+    .mark-ring{fill:none;stroke:var(--cinnabar);stroke-width:2}
+    .mark-core{fill:var(--cinnabar)}
+
+    .h1{fill:var(--ink);font-family:var(--sans);font-size:40px;font-weight:800;letter-spacing:-1.2px}
+    .h1-accent{fill:var(--cinnabar);font-family:var(--sans);font-size:40px;font-weight:800;letter-spacing:-1.2px}
+    .tag{fill:var(--ink-2);font-family:var(--sans);font-size:14.5px}
+
+    .chip{fill:var(--card);stroke:var(--line)}
+    .chip-t{fill:var(--ink-2);font-family:var(--sans);font-size:11.5px}
+
+    .cmd{fill:var(--card);stroke:var(--line-2)}
+    .cmd-p{fill:var(--cinnabar);font-family:var(--mono);font-size:13px;font-weight:700}
+    .cmd-t{fill:var(--ink-2);font-family:var(--mono);font-size:12.5px}
+    .cmd-cursor{fill:var(--cinnabar)}
+
+    .badge{fill:var(--cinnabar-soft);stroke:var(--cinnabar-border)}
+    .badge-t{fill:var(--cinnabar-deep);font-family:var(--sans);font-size:10.5px;font-weight:600}
+
+    .node{fill:var(--card);stroke:var(--line)}
+    .node-key{fill:var(--card);stroke:var(--cinnabar-border);stroke-width:1.5}
+    .n-title{fill:var(--ink);font-family:var(--sans);font-size:13px;font-weight:600}
+    .n-sub{fill:var(--ink-3);font-family:var(--mono);font-size:10px}
+    .n-key-t{fill:var(--cinnabar-deep);font-family:var(--mono);font-size:11.5px;font-weight:600}
+    .n-key-s{fill:var(--ink-3);font-family:var(--sans);font-size:9.5px}
+    .icon{stroke:var(--cinnabar);stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round}
+    .link{stroke:var(--cinnabar);stroke-width:1.6;fill:none;stroke-dasharray:4,4;opacity:.85}
+    .link-dot{fill:var(--cinnabar)}
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1200" height="360" rx="16"/>
+  <rect class="frame" x="0.5" y="0.5" width="1199" height="359" rx="16"/>
+
+  <!-- ink-wash accents -->
+  <circle class="glow" cx="1150" cy="16" r="150"/>
+  <circle class="glow" cx="60" cy="352" r="110" opacity=".5"/>
+
+  <!-- brand -->
+  <rect class="mark-box" x="56" y="38" width="26" height="26" rx="7"/>
+  <circle class="mark-ring" cx="69" cy="51" r="7"/>
+  <circle class="mark-core" cx="69" cy="51" r="2.4"/>
+  <text class="brand" x="92" y="56">dsh-skills-nexus</text>
+
+  <!-- top-right badge -->
+  <rect class="badge" x="1030" y="40" width="114" height="22" rx="11"/>
+  <text class="badge-t" x="1087" y="55" text-anchor="middle">CLI + web panel</text>
+
+  <!-- headline -->
+  <text class="h1" x="56" y="116">Skill manager for</text>
+  <text class="h1-accent" x="56" y="164">DeepSeek Harness.</text>
+  <text class="tag" x="56" y="198">Every skill. One place. Every machine.</text>
+
+  <!-- capability chips -->
+  <g>
+    <rect class="chip" x="56" y="220" width="104" height="28" rx="14"/>
+    <text class="chip-t" x="108" y="238" text-anchor="middle">any git host</text>
+
+    <rect class="chip" x="170" y="220" width="122" height="28" rx="14"/>
+    <text class="chip-t" x="231" y="238" text-anchor="middle">link 8+ clients</text>
+
+    <rect class="chip" x="302" y="220" width="110" height="28" rx="14"/>
+    <text class="chip-t" x="357" y="238" text-anchor="middle">project scope</text>
+
+    <rect class="chip" x="422" y="220" width="122" height="28" rx="14"/>
+    <text class="chip-t" x="483" y="238" text-anchor="middle">export / import</text>
+  </g>
+
+  <!-- command -->
+  <rect class="cmd" x="56" y="268" width="488" height="44" rx="10"/>
+  <text class="cmd-p" x="76" y="295">❯</text>
+  <text class="cmd-t" x="96" y="295">dsh-skills-nexus add github:owner/repo</text>
+  <rect class="cmd-cursor" x="404" y="283" width="5" height="13" rx="1">
+    <animate attributeName="opacity" values="1;0;1" dur="1.1s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- ── aggregation diagram ── -->
+  <g class="link">
+    <path d="M832,160 Q802,160 802,92"/>
+    <path d="M928,160 Q958,160 958,92"/>
+    <path d="M832,204 Q802,204 802,276"/>
+    <path d="M928,204 Q958,204 958,276"/>
+  </g>
+  <circle class="link-dot" cx="802" cy="92" r="3"/>
+  <circle class="link-dot" cx="958" cy="92" r="3"/>
+  <circle class="link-dot" cx="802" cy="276" r="3"/>
+  <circle class="link-dot" cx="958" cy="276" r="3"/>
+
+  <!-- center: one managed directory -->
+  <rect class="node-key" x="832" y="136" width="96" height="96" rx="14"/>
+  <rect class="mark-box" x="872" y="152" width="16" height="16" rx="5"/>
+  <circle class="mark-ring" cx="880" cy="160" r="4.4" stroke-width="1.6"/>
+  <text class="n-key-t" x="880" y="190" text-anchor="middle">~/.dsh/skills</text>
+  <text class="n-key-s" x="880" y="212" text-anchor="middle">one manifest</text>
+
+  <!-- source 1: git repos -->
+  <rect class="node" x="612" y="60" width="190" height="64" rx="10"/>
+  <g class="icon">
+    <circle cx="628" cy="80" r="2.6"/>
+    <circle cx="628" cy="98" r="2.6"/>
+    <circle cx="640" cy="89" r="2.6"/>
+    <path d="M628,82.6 V95.4"/>
+    <path d="M640,86.4 V85 Q640,82 637,82 H631"/>
+  </g>
+  <text class="n-title" x="656" y="84">Git repos</text>
+  <text class="n-sub" x="656" y="102">git · gitlab · ssh</text>
+
+  <!-- source 2: agent clients -->
+  <rect class="node" x="958" y="60" width="190" height="64" rx="10"/>
+  <g class="icon">
+    <rect x="964" y="80" width="14" height="14" rx="3"/>
+    <rect x="972" y="72" width="14" height="14" rx="3"/>
+  </g>
+  <text class="n-title" x="1002" y="84">Agent clients</text>
+  <text class="n-sub" x="1002" y="102">trae · qoder · cursor</text>
+
+  <!-- source 3: project scope -->
+  <rect class="node" x="612" y="244" width="190" height="64" rx="10"/>
+  <g class="icon">
+    <path d="M626,262 h5 l2.4,2.6 h10.6 a2,2 0 0 1 2,2 v9.4 a2,2 0 0 1 -2,2 h-18 a2,2 0 0 1 -2,-2 v-12 a2,2 0 0 1 2,-2 z"/>
+  </g>
+  <text class="n-title" x="656" y="268">Project scope</text>
+  <text class="n-sub" x="656" y="286">./.dsh/skills</text>
+
+  <!-- source 4: another machine -->
+  <rect class="node" x="958" y="244" width="190" height="64" rx="10"/>
+  <g class="icon">
+    <path d="M968,270 H986"/>
+    <path d="M982,266 L986,270 L982,274"/>
+    <path d="M994,282 H976"/>
+    <path d="M980,278 L976,282 L980,286"/>
+  </g>
+  <text class="n-title" x="1002" y="268">Another machine</text>
+  <text class="n-sub" x="1002" y="286">export → import</text>
+</svg>
