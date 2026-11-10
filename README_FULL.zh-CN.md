@@ -1,0 +1,698 @@
+# dsh-skills-nexus
+
+[![CI](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml)
+![NPM Version](https://img.shields.io/npm/v/dsh-skills-nexus)
+![NPM Downloads](https://img.shields.io/npm/dt/dsh-skills-nexus)
+[![dsh.so risk](https://www.dsh.so/badge/dsh-skills-nexus.svg)](https://www.dsh.so/artifact/dsh-skills-nexus/)
+[![dsh.so install](https://www.dsh.so/badge/install/dsh-skills-nexus.svg)](https://www.dsh.so/artifact/dsh-skills-nexus/)
+[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/xiaxi626/dsh-skills-nexus)
+![GitHub License](https://img.shields.io/github/license/xiaxi626/dsh-skills-nexus)
+[![DSH Compatible](https://img.shields.io/badge/DSH-Compatible%20with%20Latest%20Version-blue)](https://github.com/deepseek-ai/dsh)
+
+[English](README.md) | **中文**
+
+⭐ **如果项目对你有帮助，欢迎 Star 支持！**
+
+DSH skill 全生命周期管理器——从 git 仓库克隆、外部目录链接、包导入导出，到分组管理、健康检查与跨机器搬运。紧跟 DSH 最新版本，兼容官方 filesystem provider。
+
+dsh-skills-nexus 是社区维护的 DeepSeek Harness (DSH) 插件，非 DeepSeek 官方产品。
+
+## 能力总览
+
+| 方向 | 你能得到什么 | 入口 |
+|---|---|---|
+| Git 安装 | 任意 git 主机上的 `SKILL.md` 仓库，可锁到分支、tag 或 commit；集合仓库用部分克隆 + 稀疏检出只装一个子目录；注册前先识别包装层 | `add` |
+| 版本管理 | 刷新分支跟踪的克隆、不检出就预览远端变更、把克隆切到另一个 ref、撤销最近一次版本变更 | `update` / `diff` / `switch-version` / `rollback` |
+| 外部引用 | 把已经装在别的 agent 目录里的技能登记进来——不克隆、不复制、不写那些目录 | [`link`](#支持-link-的外部来源) / `remove --group` |
+| 项目级技能 | 查看任意项目文件夹的技能（解析名称/描述），把目录链接进 `<project>/.dsh/skills`（provider 优先扫描的根），可启停/删除链接并报告悬空——不写 manifest、不克隆、不复制 | [`--project`](#项目技能) |
+| 跨机器搬运 | 把条目连同来路打包，在别处重建（可选恢复到记录的精确 commit），给冻结条目补回来路 | `export` / `import` / `adopt` |
+| 分组与开关 | 按来源或自定义 L1 组名分组，按单条目或整组前缀启停 | `enable` / `disable` / `--group` |
+| 体检与清理 | 只读检查清单、链接与克隆（可选比对远端更新），清理累积产物 | `doctor` / `purge` |
+| 自动化接口 | 输出 version 1 JSON 报告、稳定退出码、只列名字的清单 | `--json` / `list --names` |
+| Web 面板 | 浏览条目卡片、预览并链接本地来源、跑健康检查、给无源条目 adopt、搜索与过滤 | [面板](#web-面板插件侧可选) |
+| Shell 补全 | bash / zsh / fish / PowerShell 四种补全脚本 | `completions` |
+
+## 为什么需要它
+
+`dsh plugin --profile <name> add "github:owner/repo"` 转发给 pnpm，且**只有声明了 `dsh.bundle.patch` 的包才会被激活为 profile layer**。一个只含 `SKILL.md` + `references/` + `scripts/` 的内容仓库没有 Cordis 封装，走不通这条路。`dsh-skills-nexus` 填补了这个缺口：
+
+| 命令 | 安装的是什么 | 需要 `dsh.bundle.patch`？ |
+|---|---|---|
+| `dsh plugin add github:owner/dsh-skills-nexus` | nexus 本身（仅一次） | 是 |
+| `dsh-skills-nexus add github:owner/any-skill` | 纯 SKILL.md 内容仓库 | **否** |
+
+> **不确定自己的仓库该用哪个命令？** 请看
+> **[nexus 与 `dsh plugin`——什么时候用哪个](docs/nexus-vs-plugin.zh-CN.md)**。
+> 一句话版：仓库里有 `SKILL.md` → 用 nexus；是纯插件（`cordis.patch.yml` / `dsh.bundle.patch`，无 `SKILL.md`）→ 用 `dsh plugin`；两者都有 → 自己选（nexus = 要内容，plugin = 要代码）。
+
+## 安装 nexus
+
+### 可选：注册为 DSH 插件
+
+如果需要将 nexus 注册到 DSH 的 `web` profile，可执行（其他 profile 请替换 `web`）：
+
+```bash
+dsh plugin --profile web add "github:xiaxi626/dsh-skills-nexus"
+```
+
+在 **web** 会话中，这一步会带上 [Skills Nexus 设置面板](#web-面板插件侧可选)及其 `/skills-nexus/*` HTTP 路由；非 web 宿主里该层保持沉默。它仍然**不会提供全局 CLI 命令，也不是下面 CLI 安装的前置条件**——只用 CLI 管理 skill 的话可以跳过。
+
+### 全局安装 CLI
+
+全局安装 CLI——**只有这一步**才会把 `dsh-skills-nexus` 命令放进你的 shell PATH（前提是 npm 全局命令目录已在 PATH 中）：
+
+**npm 12：**确认信任仓库及其依赖后，显式允许本次安装获取 Git 依赖：
+
+```bash
+npm install -g --allow-git=all github:xiaxi626/dsh-skills-nexus
+```
+
+**较旧的 npm（未禁止 Git 依赖时）：**可使用原命令；两条安装命令按版本和策略选一条执行即可：
+
+```bash
+npm install -g github:xiaxi626/dsh-skills-nexus
+```
+
+#### 遇到 `EALLOWGIT` 怎么办？
+
+如果原命令报错：
+
+```text
+npm error code EALLOWGIT
+npm error Fetching packages of type "git" have been disabled
+```
+
+这是 **npm 的 Git 依赖获取策略**在下载前拦截了安装，不是 Nexus 没装，也不是仓库构建失败。npm 12 起，`allow-git` 默认从允许改为 `none`；`github:owner/repo` 属于 Git 依赖，因此需要显式放行。可用 `npm --version` 查看版本；npm 12 可用 `npm config get allow-git` 查看当前策略。
+
+默认收紧是为了降低供应链风险：Git 依赖会访问远程仓库，并可能引入项目无法控制的配置。**这个错误不代表 npm 检测到了 Nexus 的恶意代码，也不表示 Nexus 与 npm 12 不兼容。** 不必为此重装 DSH 插件或降级 npm；确认信任来源后，使用上面带 `--allow-git=all` 的命令即可解除这一项拦截，后续下载和安装仍需满足其他条件。
+
+> `--allow-git=all` 仅对本次调用生效，不会永久修改 npm 配置；它会放行本次安装中的所有 Git 依赖（包括传递依赖），不代表这些依赖已经过安全验证。不建议全局永久设置 `allow-git=all`。`dsh plugin add` 使用 pnpm，其配置与 npm 独立；插件安装成功不会改变 npm 的策略。
+
+`lib/` 编译产物已随仓库提交，无需构建，安装即用。
+
+如果只需 npm registry 上的最新发布版本，也可改用下面的命令：
+
+```bash
+npm install -g dsh-skills-nexus
+```
+
+这是 registry 包安装，不属于 Git 依赖，无需为 Nexus 本身设置 `--allow-git=all`；已发布版本与 GitHub 最新代码可能不同。
+
+> **插件层是可选的。** 它把包装进 profile 的 `node_modules`，并在宿主为 DSH web 会话时注册[Web 面板](#web-面板插件侧可选)与 HTTP 路由。但 skill 发现本身从不依赖该层：技能靠 nexus 在 `~/.dsh/skills/` 建的 symlink + 官方 filesystem provider 被发现与加载；全局 CLI 则来自上面的 npm 安装（开发期也可用 `npm link`）。
+
+## 使用
+
+```bash
+# 注册一个 skill 仓库（克隆到 ~/.dsh/skills-nexus/repos/<name>/ 下）
+dsh-skills-nexus add github:owner/repo
+dsh-skills-nexus add github:owner/repo#dev          # 指定分支 / tag
+dsh-skills-nexus add https://github.com/owner/repo
+dsh-skills-nexus add https://gitlab.com/group/project  # 任意 git 主机
+dsh-skills-nexus add owner/repo                     # 简写（仅限 GitHub）
+dsh-skills-nexus add github:owner/a github:owner/b  # 一次安装多个仓库
+dsh-skills-nexus add github:owner/repo --yes         # 跳过"包装型仓库？"确认
+dsh-skills-nexus add github:owner/repo --subdir skills/foo   # 只安装集合仓库里的某个子目录
+dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills   # 自定义条目名（条目名回退链：--name > subdir 末段 > 仓库名）
+
+# 查看 / 维护
+dsh-skills-nexus list                               # 列出所有条目（含来源、commit、subdir、显式锁、状态）
+dsh-skills-nexus list --filter <query>              # 按名称、URL 或 subdir 模糊匹配缩小范围
+dsh-skills-nexus list --json                        # …或输出同内容的带版本号 JSON 报告
+dsh-skills-nexus update [name]                      # 刷新（分支 pin 拉取；tag/commit pin 校验）
+dsh-skills-nexus switch-version <name> <ref> [--type <branch|tag|commit>]  # 把克隆切到另一个 ref（fetch、checkout、重归一化、重建链接）
+dsh-skills-nexus enable  <name>...                  # 创建 symlink（默认开启）；可一次给多个名字
+dsh-skills-nexus disable <name>...                  # 删除 symlink 但不删克隆
+dsh-skills-nexus enable  --group trae-cn/skills     # 批量开启 groupPath 以指定前缀开头的所有条目
+dsh-skills-nexus disable --group trae-cn            # 批量禁用 L1 组下的所有条目
+dsh-skills-nexus remove <name>...                   # 删除克隆 + symlink + 注销（可一次给多个名字）
+dsh-skills-nexus remove 'theme-*'                   # …或用 * / ? 通配符匹配 skill 名
+dsh-skills-nexus remove --group trae-cn             # 批量删除 groupPath 以指定前缀开头的所有条目
+dsh-skills-nexus remove --group trae-cn/skills      # …或只删 skills 子组
+dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # 只读体检 nexus 全量状态（退出码 0/1/2）
+dsh-skills-nexus purge  [--yes] [--json]                # 清理积累产物（默认 dry-run）
+dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>  # 输出对应 shell 的补全脚本
+
+# 跨机器搬运 skill——包携带来路，绝不携带 .git
+dsh-skills-nexus export --all -o migrate.zip        # 打包全部条目（含禁用条目）
+dsh-skills-nexus export <name>... -o one.zip        # …或只打包其中几个
+dsh-skills-nexus import migrate.zip --dry-run       # 逐条目预览：真克隆还是落快照；零副作用
+dsh-skills-nexus import migrate.zip                 # 按记录的 ref 重建条目
+dsh-skills-nexus import migrate.zip --locked        # 恢复各条目记录的精确 commit
+dsh-skills-nexus adopt <name> --url github:owner/repo   # 给无 git 源的条目补回来路
+
+# 链接外部技能（引用你已有的目录——不克隆）
+dsh-skills-nexus link trae-cn                       # 发现 ~/.trae-cn/skills/ 下的技能
+dsh-skills-nexus link trae-cn --dry-run             # 预览但不创建条目
+dsh-skills-nexus link trae                         # 发现 ~/.trae/skills/ 下的技能
+dsh-skills-nexus link qoder                        # ~/.qoder 下的用户级技能 + 市场安装的插件
+dsh-skills-nexus link qoder-cn                     # 同一布局的 Qoder CN（~/.qoder-cn）
+dsh-skills-nexus link codebuddy                    # 发现 ~/.codebuddy/skills/ 下的技能
+dsh-skills-nexus link workbuddy                    # 发现 ~/.workbuddy/skills/ 下的技能
+dsh-skills-nexus link shared                       # 发现 ~/.agents/skills 下的技能
+dsh-skills-nexus link kimi-code                    # 发现 ~/.kimi-code/skills 下的技能
+dsh-skills-nexus link windsurf                     # 发现 ~/.codeium/windsurf/skills 下的技能
+dsh-skills-nexus link trae --source-dir /path       # 覆盖来源根目录（不是 skills/）
+dsh-skills-nexus remove --group trae --yes          # 卸载整组链接，保留外部目录
+dsh-skills-nexus link trae-cn --group custom        # 覆盖 L1 组名（默认 trae-cn）
+dsh-skills-nexus link trae-cn --force               # 冲突时替换已有条目
+
+# 项目作用域：任意项目文件夹 + <project>/.dsh/skills 下的链接
+dsh-skills-nexus link --project /path/to/my-skill     # 项目根 = cwd 最近的 .git 祖先
+dsh-skills-nexus link --project /path/to/collection   # 每个发现的技能一条链接
+dsh-skills-nexus link --project /path/to/my-skill --dry-run
+dsh-skills-nexus list --project                       # 文件夹技能 + .dsh/skills 条目（解析名称）
+dsh-skills-nexus list --project --json                # version-1 项目报告
+dsh-skills-nexus list --all                           # 项目 + 全局，overrides/shadowed（仅人读）
+dsh-skills-nexus disable --project my-skill           # 移出链接；目标目录不动
+dsh-skills-nexus enable --project my-skill            # 移回链接
+dsh-skills-nexus remove --project my-skill            # 只删链接；用户文件会被拒绝
+dsh-skills-nexus doctor --project                     # 悬空的项目链接
+dsh-skills-nexus list --project --project-root /path/to/project  # 显式项目根
+```
+
+### 支持 `link` 的外部来源
+
+| 来源 | 客户端根 | 环境变量覆盖 | `link` 登记什么 |
+|---|---|---|---|
+| `trae-cn` | `~/.trae-cn` | `TRAE_CN_DIR` | `<root>/skills/` 下一层 |
+| `trae` | `~/.trae` | `TRAE_DIR` | `<root>/skills/` 下一层 |
+| `qoder` | `~/.qoder` | `QODER_DIR` | 用户级 `<root>/skills/` + 每个已装市场插件声明的技能目录 |
+| `qoder-cn` | `~/.qoder-cn` | `QODER_CN_DIR` | 与 `qoder` 同一布局 |
+| `codebuddy` | `~/.codebuddy` | `CODEBUDDY_DIR` | `<root>/skills/` 下一层 |
+| `workbuddy` | `~/.workbuddy` | `WORKBUDDY_DIR` | `<root>/skills/` 下一层 |
+| `copilot` | `~/.copilot` | `COPILOT_HOME` | `<root>/skills/` 下一层 |
+| `claude-code` | `~/.claude` | `CLAUDE_CONFIG_DIR` | `<root>/skills/` 下一层 |
+| `pi` | `~/.pi/agent` | `PI_CODING_AGENT_DIR` | `<root>/skills/` 下一层 |
+| `codex` | `~/.codex` | `CODEX_HOME` | `<root>/skills/` 下一层（Codex 仍在读取的旧个人位置；其当前用户级根是 `~/.agents`，由 `shared` 承载） |
+| `cursor` | `~/.cursor` | `CURSOR_DIR` | `<root>/skills/` 下一层 |
+| `shared` | `~/.agents` | `SHARED_DIR` | `<root>/skills/` 下一层 |
+| `opencode` | `~/.config/opencode` | `OPENCODE_CONFIG_DIR` | `<root>/skills/` 下一层 |
+| `gemini` | `~/.gemini` | `GEMINI_DIR` | `<root>/skills/` 下一层 |
+| `zcode` | `~/.zcode` | `ZCODE_DIR` | `<root>/skills/` 下一层 |
+| `openclaw` | `~/.openclaw` | `OPENCLAW_STATE_DIR` | `<root>/skills/` 下一层 |
+| `augment` | `~/.augment` | `AUGMENT_DIR` | `<root>/skills/` 下一层 |
+| `kimi-code` | `~/.kimi-code` | `KIMI_CODE_DIR` | `<root>/skills/` 下一层 |
+| `windsurf` | `~/.codeium/windsurf` | `WINDSURF_DIR` | `<root>/skills/` 下一层 |
+
+各来源是独立命名空间：同一技能装在两个客户端里会生成两条条目（`qoder.*` +
+`qoder-cn.*`，或 `codebuddy.*` + `workbuddy.*`），不会互相遮蔽。每个来源只扫自己的
+vendor 根——兼容目录（`~/.agents`、`~/.claude`、`~/.codex`）一律不并入，因为同一物理
+目录注册两次就会产出重复条目。`~/.agents` 只登记一次，即 `shared`：它同时是 Codex、
+Copilot、Cursor、Gemini CLI 与 Kimi Code 的官方跨工具位置。两个 Qoder 客户端不纳入
+客户端随自身下发的插件（`qoder-bundler`）——那些依赖 Qoder 宿主运行时。`link` 从不
+克隆、更新或删除被引用的目录，`remove` 只删链接与清单条目。面板里的 `Antigravity`
+是禁用占位：它的三个发行形态（app、CLI、IDE）各有不同的 global 技能目录，契约未定，
+不是已支持来源。
+
+固定子目录类客户端把用户在客户端内安装的技能直接放在 `<root>/skills/` 下；根下其他子目录不在契约内，返回 0 条通常意味着实际布局与契约不符。
+`KIMI_CODE_HOME` 与 `GEMINI_CLI_HOME` 不是扫描根：它们替换的是客户端自己的数据根/home，所以客户端搬家后要用 `--source-dir`（或该来源的 `*_DIR` 变量）显式跟随，不会静默跟随。Kimi Code 顶层的扁平 `.md` 技能（`skills/commit.md`）不在契约内——只登记 `<name>/SKILL.md` 目录。Windows 上 `~/.config/opencode` 取决于 opencode 自己如何解析配置目录，不一致时用 `--source-dir`。
+根目录优先级：`--source-dir` > 兼容别名 `--trae-cn-dir` > 当前来源的环境变量 > 默认目录。
+显式覆盖只扫描一个根——`qoder` / `qoder-cn` 即各自的 agent 根（`~/.qoder` / `~/.qoder-cn`），不是它下面的 `skills/`；覆盖路径不存在时不会回退默认目录。卸载用 `remove --group <source> --yes`（设置过 `--group` 则使用自定义组名），保留外部目录。
+详见[来源说明](docs/sources-and-packages.zh-CN.md#通道-e外部引用link)。
+隔离 CLI 演练与面板验收步骤见[验证本地来源链接](docs/verify-link-sources.zh-CN.md)。
+
+### 项目技能
+
+**实验性功能。** 项目作用域是可选的新增能力，其 CLI 与面板交互仍可能在
+0.10.x 中调整；全局技能的既有契约不变、不受影响。
+
+DSH filesystem provider 按项目 rank 扫描 `<projectRoot>/.dsh/skills`，**先于**用户级
+`~/.dsh/skills`，所以放在这里的同名链接会覆盖全局技能。项目页签现在是一个
+**查看器 + 链接管理器**：填入**任意文件夹**（不必是已登记的 DSH 工作区），它会展示该
+文件夹自身提供的技能，以及 `<projectRoot>/.dsh/skills` 下的条目。
+
+CLI 用的是同一套根，但没有任何隐式上下文：`--project` 是**模式开关**（不接值），
+`--project-root <dir>` 选项目根；`link` 里 `--project` 后面的位置参数是**来源目录**。
+不在项目内时，显式给根：
+
+```bash
+# 从任意目录查看某个项目文件夹
+dsh-skills-nexus list --project --project-root <project-root>
+
+# 把一个来源目录链进该项目（先预览）
+dsh-skills-nexus link --project <source-dir> --project-root <project-root> --dry-run
+```
+
+例如 Windows 下 `list --project --project-root D:\theme-port-skill` 查看该文件夹；
+  `link` 时 `<source-dir>` 是你要链入的技能目录，`<project-root>` 是项目。cwd 已在
+  项目内（或想用最近的 `.git` 祖先）时，短形式可用：
+
+```bash
+dsh-skills-nexus link    --project /path/to/my-skill     # 链接一个技能目录
+dsh-skills-nexus link    --project /path/to/collection   # 每个发现的技能一条链接
+dsh-skills-nexus list    --project                       # 文件夹技能 + 项目条目（解析名称/描述）
+dsh-skills-nexus list    --all                           # 项目 + 全局，overrides/shadowed
+dsh-skills-nexus disable --project my-skill              # 把链接移出扫描根
+dsh-skills-nexus enable  --project my-skill              # 再移回来
+dsh-skills-nexus remove  --project my-skill              # 只删链接
+dsh-skills-nexus doctor  --project                       # 悬空的项目链接
+```
+
+`list --project` 输出两段。`NAME` 是解析后的 frontmatter 名；`ENTRY` 是文件系统条目
+（破坏性命令使用的链接名）：
+
+```text
+Folder skills (<project-root>):
+  my-skill  linkable  <description>
+
+Project skills root (<project-root>/.dsh/skills):
+KIND   NAME      ENTRY     TARGET  DESCRIPTION
+files  my-skill  SKILL.md  —       <description>
+```
+
+- **根解析。** 只给 `--project` 时，从当前目录向上找最近含 `.git` 的祖先（找不到回退
+  当前目录），与 provider 规则一致。`--project-root <path>` 显式指定，必须与
+  `--project` 同时出现；显式根写错会直接报错，不会猜测兜底。
+- **`list --all` 特殊。** 它用 cwd 检测项目根并与全局 manifest 合并，没有
+  `--project-root` 形态；请在项目内运行。
+- **名字。** DSH 目录里的技能名来自 `SKILL.md` 的 frontmatter；链接的**条目名**是
+  nexus 的文件系统键，优先取目录名（目录名不含可用 ASCII 字符时回退 frontmatter 名）。
+  项目页签展示解析后的名称与描述，不会只显示 `SKILL.md`。布局：根 `SKILL.md` → 文件夹
+  名；一级子目录 → 各子目录；扁平 `.md` → 文件主干。两者可能不同，因此表格分别打印
+  `NAME` 与 `ENTRY`；`enable` / `disable` / `remove --project` 使用 **ENTRY**
+  （文件系统链接名），不是解析后的 `NAME`。
+- **不写 manifest、不复制、不改 skill 文件。** 项目作用域从不写 `manifest.json`、不克隆、
+  不复制、不编辑任何 `SKILL.md`。`.dsh/skills` 下的真实目录/文件只读展示，不提供删除。
+  `remove --project` 只删被证实的链接，遇到用户内容会以 `refusing to remove user files`
+  拒绝。写入按「项目 + 名字」走 nexus 同一套跨进程文件锁；因为不碰 manifest，所以不取
+  manifest 锁。
+- **启停 = 移动链接。** 停用把 `.dsh/skills/<name>` 移到同级的
+  `.dsh/skills-disabled/<name>`（provider 不扫描这个目录）；启用再移回来。链接自身携带
+  目标（以及悬空状态），所以不需要记住路径、不需要状态文件，目标目录一个字节都不动。
+  停用项目同名技能后，全局同名技能会重新可见。
+- **冲突。** 已有活动链接会被改指向（`replace`）；已指向同一目录是 `unchanged`；真实
+  目录或文件是 `collision`，内容原样保留。
+- **机器输出。** `list --project --json` →
+  `{ version, projectRoot, folderSkills[], entries[] }`，每个 folder skill / entry 都带解析
+  元数据与 `enabled`/`disabled` 状态；`link --project --json` →
+  `{ version, projectRoot, source, results[], summary }`；`enable|disable --project --json` →
+  `{ version, projectRoot, results[], summary }`；`remove --project --json` →
+  `{ version, results[], summary }`，多一个 `not-a-link` 状态。`--all` 仅人读。
+- **Windows。** 项目链接和全局链接一样是 NTFS junction；UNC 目标会被前置拒绝，因为
+  junction 需要本地绝对路径。
+- **Git。** 链接记录的是机器本地绝对路径，纯 link 用法不要把 `.dsh/skills/` 与
+  `.dsh/skills-disabled/` 下的链接提交进 git——把两者加入 `.gitignore`。要共享就把真实
+  文件 vendored 进去。
+- **不支持。** `add` / `import` / `update` / `export` 没有项目形态；`remove --project`
+  与项目开关只接受精确链接名（不支持通配与 `--group`）。
+
+
+隔离演练与面板验收见[验证项目级技能作用域](docs/verify-project-skills.zh-CN.md)。
+
+### 选项、`--json` 与 `add` 的检查
+
+取值型选项（`--name`、`--ref`、`--subdir`、`--source-dir`）也支持 `--flag=value` 写法（如 `--subdir=skills/foo`、`--name=owner-skills`）；布尔选项 `--yes` 不接受值。
+
+给脚本用时，`--json` 可把 `add`、`list`、`update`、`remove`、`enable`、`disable`、`purge`
+以及项目形态 `list --project` / `link --project` / `enable|disable --project` /
+`remove --project` 变成机器接口：stdout 只输出一份 version 1 报告、诊断走 stderr，
+退出码语义不变
+（`0` 成功 / `1` 有错误或部分失败 / `2` 用法错误）。报告描述的是「刚才做了什么」
+——安装落在哪个 commit、更新的 before→after、批量里哪个名字没找到：
+
+```console
+$ dsh-skills-nexus add github:owner/repo --json | jq '.results[0]'
+{ "spec": "github:owner/repo", "status": "added", "name": "repo",
+  "commit": "…", "ref": "main", "links": ["repo"] }
+```
+
+`--json` 运行不会提示，交互式运行会问的步骤请显式传 `--yes`。完整契约与明确的
+「不承诺」清单见
+[在 nexus 之上构建](docs/build-on-nexus.zh-CN.md#json-写接口version-1)。
+
+`add` 可接受多个仓库 spec，`remove` 可接受多个名字与 `*`/`?` 通配符；每个目标独立处理，任一失败则退出码非零。由于 `--name`/`--ref`/`--subdir` 是每仓库级选项，不能与多个 `add` spec 同时使用——要分别定制请分开跑多条 `add`。`remove` 的通配符若匹配到多个 skill，会先列出待删清单并要求确认（加 `--yes` 跳过）；通配符请加引号（`'theme-*'`），以免被 shell 提前展开。
+
+支持的仓库格式：`github:owner/repo[#ref]`、完整 `https://` URL（任意 git 主机——GitLab、Gitee、Bitbucket、自建 GitLab；含 `/tree/<ref>/...` 子路径）、`git+https://`、`git@`/`ssh://`、以及裸写 `owner/repo` 简写（仅限 GitHub——解析到 `github.com`）。其他平台请写完整 URL。
+
+`add` 会在注册前检查克隆下来的仓库类型：
+
+- **纯 SKILL.md 仓库**：直接注册。
+- **SKILL.md + DSH 薄包装层**：询问是否忽略包装层、按普通 SKILL.md 仓库管理。输入 `y` 继续，输入 `n` 中止并建议按 DSH 插件方式安装。使用 `--yes` 可跳过确认。
+- **纯 DSH 插件（没有 SKILL.md）**：提示请按该仓库自己的 DSH 插件安装方式安装，不建议用 nexus 管理，然后退出，不注册。
+- **两者都不是**：提示未找到 SKILL.md 或 DSH 插件标记，报错退出。
+- **集合仓库**（`skills/<name>/SKILL.md` 布局，如 `trae-community/trae-skills`）：整个仓库安装时根目录没有可安装的 skill，nexus 会拒绝并提示改用 `--subdir <path>` 指定子目录；一次安装解析出超过 20 个 skill 时会弹确认提示（`--yes` 跳过）。
+
+### 跨机器搬运 skill：`export` / `import`
+
+包是**搬运容器，不是安装方式**。`export` 写出技能文件外加一份 `nexus-package.json` 标签，记录每个条目的来路；`import` 在另一台机器上按这份标签把条目重建出来——也可以用来收取别人打给你的包。
+
+- **包内绝不含 `.git`**，也不含任何凭据。它携带的是技能**和它们的来路**：每个条目的 `url` / `gitUrl` / `ref` / `commit` / `subdir`、启用状态与链接名。`export --all` 连禁用条目一起打包，因此整机迁移能还原出原机的样子。
+- **`import` 优先重新克隆**：标签里记录的远端此刻可达时，走与 `add` 同一条安装路径——真浅克隆，可 `update`、可 `switch-version`。只有在没有来源、或远端不可达时才落成**快照**；即便如此，原机的状态也会被还原：在那边禁用的技能到这里仍然禁用，链接名也原样保留。
+- **`--locked` 精确恢复导出时的版本**：只接受 selected entry 含安全 `gitUrl`、非空 `ref` 与 40–64 位完整 commit SHA 的 labelled package。nexus 跳过可达性探测，对该 commit 执行 depth-1 fetch 和 detached checkout，并在 manifest 中标记显式锁。只有远端明确报告「commit 不可获取」才回退包内快照；网络、认证和含糊的 Git 错误仍会失败。裸包不支持 `--locked`，且该选项不能与 `--no-remote` 或 `--no-net-check` 同用。
+- **`--dry-run` 先看后动，零副作用**，逐条目打印四种判定之一：`will clone from <url> (<ref>)`、`will import as snapshot (<url> unreachable)`、`will import as snapshot (<url> check timed out)`（5 秒探测——网络慢绝不能被写成"仓库没了"），以及无标签包的 `will import as snapshot (source unknown)`。别人打的 zip 就属于最后这种：它的技能靠更宽容的扫描找到；层级太深时用 `--subdir <path>` 显式指定根。
+- **包是用来跨机器的，不是用来安装的**：有网就直接 `add`，`export` / `import` 负责整体搬迁（或接收别人交付的技能）。`--no-net-check` 完全跳过探测（离线零等待）、`--no-remote` 一律落快照、`--each` 每个技能一个条目（与 `--locked` 合用时，每个技能各有一份锁在记录 commit 的独立 clone）、`--force` 替换同名已注册条目。`list` 的 `LOCK` 列显示显式 package lock；`doctor --updates` 会将其与普通 detached tag/commit pin 区分。成功执行 `switch-version` 后显式锁被清除。
+
+### 把冻结条目救回来：`adopt`
+
+快照不能 `update`、也不能 `switch-version`——它没有历史可取。等你查到它当初来自哪个仓库，把身份接上：
+
+```bash
+dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo
+dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo --subdir skills/daily-trend-writer
+```
+
+`adopt` 不改条目名、也不改它的 `subdir` 身份，只把该仓库克隆进 `repos/<name>/` 并重建链接，于是该条目与 `add` 装出来的完全同质。原目录会保留为 `repos/<name>.pre-adopt-<ts>`（用 `--prune` 删除）；若新来源**暴露的技能集合不同**，默认拒绝，除非显式 `--force`；任一步失败都会把目录、链接与 manifest 还原回操作前。
+
+## Web 面板（插件侧，可选）
+
+当 nexus 运行在 DSH **web** 会话里——无论是通过 `dsh plugin add` 注册，还是用[本地测试步骤](#本地测试步骤)里的 `--patch` overlay 挂载——设置页都会出现一个 **Skills Nexus** 段。面板与 CLI 驱动同一份 manifest、同一批克隆与同一套跨进程文件锁，两边可以随意混用（一边正在操作的 skill，另一边会收到 `busy` / `locked`）。
+
+面板使用与 DSH 设置页同源的界面组件——状态点、开关、标签、折叠行、终端输出块等——配色自动跟随宿主的亮/暗主题，看起来就是设置页原生的一部分，而非第三方拼凑的界面。
+
+该段分为两个页签：**全局技能**（下方由 manifest 驱动的完整生命周期）与
+**项目技能**（单个项目的文件系统链接，带自己的项目根输入）。两个面板都常驻，
+切换页签不会丢失填了一半的表单，也不会让进行中的 job 消失。
+
+在面板里你可以：
+
+- 浏览条目卡片——链接名、启用状态、固定的 commit、`no source` / `linked directory` / `disabled` 等状态标签，以及分支跟踪条目的「有更新」徽标；
+- 在 `link local skills` 区选择 **Trae CN**、**Trae**、**Qoder**、**Qoder CN**、**CodeBuddy** 或 **WorkBuddy**，可填写服务端来源根目录，先预览再链接；更改路径会清除旧预览；
+- 在 **项目技能**页签查看并管理项目文件夹：填入任意绝对路径（不必是 DSH 工作区），
+  页签会列出该文件夹自身的技能（解析后的名称/描述，逐行提供 **link**），以及
+  `.dsh/skills` 下的条目（链接 vs 用户文件）。链接行带启停 **Switch**——停用会把链接移到
+  `.dsh/skills-disabled`，目标目录不动——以及 **remove**；`user files` 行只读。项目根按
+  会话手填、不持久化（该客户端上下文只注入 `slots`，没有可读取项目根的 workspace 服务）；
+- 管理**外部条目**（由 CLI `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` / `link codebuddy` / `link workbuddy` 创建）——面板以 `linked directory` 标签显示它们及其外部路径，支持启用/禁用和删除（删除只移除链接，不碰用户目录）；
+- 带 `groupPath` 的条目（如来自 `link trae-cn`）渲染在可折叠的 L1 组头下，带组级 Switch（✓/○/◐ 表示 on/off/mixed）——切换组 Switch 批量启用或禁用该组所有条目；
+- 在工具栏过滤列表——搜索框按名字或 url 匹配；右侧的徽标在有待更新条目时显示待更新数量，并常驻显示已注册技能总数；
+- 按 git url 添加 skill——可在折叠区填写可选项 `name`（覆盖条目名）、`ref`、`subdir`（monorepo 内的目录）——与 CLI 同一条安装流水线，含 frontmatter 归一化；
+- **导入包**——选好文件后先看逐条目判定（与 `import --dry-run` **同一套措辞**：真克隆还是落快照、以及为什么），确认后才真正导入。勾选 locked 后按标签记录的精确 commit 恢复，与 `import --locked` 等效。上传走**裸 body**、文件名放在旁边，没有 multipart 端点；
+- 给快照**接上来源**——`adopt` 动作只出现在无 git 源的条目上，仓库 url 由你填（永不猜测）；
+- 启用 / 禁用、更新、切换到其他 ref、删除条目——破坏性操作会展示服务端的后果说明，确认接受后才带确认重发；
+- **导出全部条目为 zip**——面板以服务端正路径作为可复制的 notice 展示，文件留在服务器上（没有下载按钮）；
+- 观看长操作（克隆 / 导入 / adopt / 更新 / 切换）流式进度并带取消按钮——最近 3 条已结束的操作（done / failed / cancelled）会留在「recent operations」区——以及对全部条目检查更新；
+- 在底部独立区块运行**健康检查**：点一下 `run check`，状态点加一行摘要即展示错误、警告与可更新数量。
+
+面板底部一行文字指向宿主自带的 **Skill Manager**，用于查看其他工具管理的本地技能——本面板只列出 nexus 安装的条目。
+
+**热加载。** 链接变化由官方 filesystem provider 的 watcher 拾取，面板操作在稳定窗口内即对运行中的宿主生效——无需重启。宿主未启用 watcher 时，面板会明说该变更在下次宿主启动时生效。
+
+**HTTP 接口（内部）。** 面板与 `/skills-nexus/*` 路由通信——GET 为 ping / list / doctor / project/list / job 轮询；POST 为 add / import / adopt / remove / update / check-updates / switch-version / toggle / toggleGroup / link / project/link / project/remove / export / job cancel。成功返回 `{ data, hotReload }`，长操作以 `202 { data: { jobId } }` 受理，所有变更路由均做同源校验（remove 额外仅接受 loopback）。这些路由是面板自身的管道——**不**属于[在 nexus 之上构建](docs/build-on-nexus.zh-CN.md)承诺的稳定机器接口；工具开发者请继续 shell out 调 CLI。
+
+## Shell 补全
+
+`dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>` 输出对应
+shell 的补全脚本——补子命令、每个命令的 flag，以及已安装的 skill 名（通过
+`dsh-skills-nexus list --names` 取数）。在你用的 shell 里装载一次即可：
+
+```bash
+# bash（~/.bashrc）
+eval "$(dsh-skills-nexus completions --shell bash)"
+
+# zsh（~/.zshrc，需在 compinit 之后）
+eval "$(dsh-skills-nexus completions --shell zsh)"
+
+# fish（一次性装载，或保存为 ~/.config/fish/completions/dsh-skills-nexus.fish）
+dsh-skills-nexus completions --shell fish | source
+```
+
+```powershell
+# PowerShell（$PROFILE）
+dsh-skills-nexus completions --shell powershell | Out-String | Invoke-Expression
+```
+
+卸载：从配置文件里删掉装载行，并在当前会话里撤销注册；若从未写进配置
+文件，直接开一个新终端即可（新会话天然干净）：
+
+```bash
+# bash
+complete -r dsh-skills-nexus
+unset -f _dsh_skills_nexus
+
+# zsh
+compdef -d dsh-skills-nexus
+unfunction _dsh_skills_nexus
+
+# fish
+complete -c dsh-skills-nexus -e
+```
+
+```powershell
+# PowerShell——用空脚本块重新注册以移除补全器
+Register-ArgumentCompleter -Native -CommandName dsh-skills-nexus -ScriptBlock $null
+```
+
+命令**名**本身的补全不需要任何脚本——shell 会从 `PATH` 里补可执行文件名，
+只要 npm 全局 bin 在 `PATH` 中即可自动生效；上面的脚本补的是该命令的
+**参数**。逐 shell 的完整验证流程见
+[验证命令补全](docs/verify-completions.zh-CN.md)。
+
+## 卸载
+
+分两个层级，按需选择：
+
+### 卸载单个 skill
+
+```bash
+# 查看已注册的 skill
+dsh-skills-nexus list
+
+# 删除一个（删除 symlink、克隆目录并注销）
+dsh-skills-nexus remove <skill-name>
+
+# 一次删除多个——按名字，或用 * / ? 通配符（记得加引号）
+dsh-skills-nexus remove <name1> <name2>
+dsh-skills-nexus remove 'theme-*' --yes
+```
+
+下次 DSH 重载后该 skill 从目录中消失，不影响其他已注册的 skill。
+
+### 卸载 nexus 本身
+
+nexus 会留下**三个互相独立**的东西，用*不同*的命令清理——清掉一个**不会**连带清掉其他。下面这段带注释的命令逐条清理，只跑你需要的那几行即可。
+
+> **最容易踩的坑——先读这条。** 你在终端里敲的 `dsh-skills-nexus`，**只**来自下面的第 3 项（`npm link` 或 `npm install -g`）。`--patch` 只把 layer 挂进当前这个 DSH 进程、`dsh plugin add` 只写 profile 的 `node_modules`，**两者都不会把命令放进你的 shell PATH**。所以「装了 GitHub 版却还在跑本地逻辑」= 你敲的命令走的是第 3 项里 `npm link` 指向的本地工作区，跟 GitHub 装进第 2 项的那份毫无关系。想真正切到远程：先 `npm uninstall -g dsh-skills-nexus`，再按[安装 nexus](#安装-nexus)中的版本与策略说明全局安装 GitHub 版（npm 12 需显式加 `--allow-git=all`）。
+
+```bash
+# 1. skill 数据——~/.dsh/skills-nexus/ 下的克隆 + 清单（是数据，不是命令本身）
+dsh-skills-nexus remove '*' --yes          # '*' 匹配所有已注册 skill
+
+# 2. DSH profile 插件层——仅当你用过 dsh plugin add（--patch 不写这里）
+dsh plugin --profile web remove dsh-skills-nexus
+
+# 3. 全局 CLI 命令——你在终端敲的 dsh-skills-nexus 就是它！
+npm uninstall -g dsh-skills-nexus
+
+# （可选）删除第 1 项残留的数据目录
+#    macOS / Linux:
+rm -rf ~/.dsh/skills-nexus
+#    Windows PowerShell:
+# Remove-Item -Recurse -Force ~/.dsh/skills-nexus
+```
+
+重启 DSH profile。插件层、CLI 命令与所有已管理的 skill 都会消失。
+
+> **切勿**用裸相对路径 `Remove-Item -Recurse -Force dsh-skills-nexus` 来「清理」：它的效果完全取决于当前目录——在 npm 全局前缀目录下跑会删掉 CLI 的 bin shim（命令突然变成「not found」），在你克隆的父目录下跑会删掉你的源码树。若确实要丢弃本地克隆，请用明确的完整路径删除。
+
+**兜底——手动删除（仅当 `npm uninstall -g` 不可用时）。** 先删 bin shim，再删链接。删除链接时**绝不**加 `-Recurse`：它是指向你克隆的 junction/符号链接，加 `-Recurse` 会顺着链接删进你的源码树。
+
+```powershell
+# Windows PowerShell
+Remove-Item -Force "$(npm prefix -g)\dsh-skills-nexus*"               # bin shim
+Remove-Item -Force "$(npm prefix -g)\node_modules\dsh-skills-nexus"   # 链接——不加 -Recurse
+```
+
+Git Bash / macOS / Linux 请直接用 `npm uninstall -g dsh-skills-nexus`，不要手动删链接（对目录型链接用 `rm` 不安全）。
+
+## 本地测试步骤
+
+不需要推 GitHub、不需要发 npm，按以下五步在本机完整验证。
+
+### 第一步：把项目编译出来
+
+在 `dsh-skills-nexus/` 目录下：
+
+```bash
+cd dsh-skills-nexus
+npm install
+npm run build      # 生成 lib/ 目录
+```
+
+> 如果改了代码想先确认类型无误再编译，可以跑 `npm run typecheck`（只检查类型，不生成产物）。
+
+### 第二步：创建本地 overlay
+
+在项目根目录下新建 `overlay.yml`（注意：**不要提交到 git**，它是本地开发专用的）：
+
+```yaml
+# overlay.yml
+- insert:
+    - id: dsh-skills-nexus
+      # 相对路径以 overlay.yml 所在目录为锚
+      name: './lib/index.js'
+```
+
+> `overlay.yml` 放在项目根目录时，`'./lib/index.js'` 即 `<项目>/lib/index.js`——相对路径以 overlay.yml 所在目录为锚，Windows / macOS / Linux 通用同一写法。如需绝对路径，请改用 `file:///` 形式，例如 `'file:///C:/dev/dsh-skills-nexus/lib/index.js'`；旧写法 `'/C:/...'`（盘符前加 `/`）在当前 dsh 上不再可用——会被解析成 `C:\C:\...`。
+
+**也可以用命令一键生成**（确保已 cd 到项目目录；Git Bash / macOS / Linux 通用）：
+
+```bash
+cat > overlay.yml <<EOF
+- insert:
+    - id: dsh-skills-nexus
+      name: './lib/index.js'
+EOF
+```
+
+> 生成的文件不嵌入任何本机绝对路径——不需要 `pwd` / `pwd -W`，之后移动项目文件夹也依然有效。
+
+执行后项目根目录会自动生成正确的 `overlay.yml`。
+
+### 第三步：用 patch 模式启动 DSH
+
+```bash
+npx @deepseek-ai/dsh web --patch overlay.yml
+```
+
+这只把 nexus 作为临时 layer 挂载进**当前这个 DSH 进程**——进程一停 layer 就消失，不会写进 profile。插件侧构建好之后，本次会话的 web 设置页还会出现 [Skills Nexus 面板](#web-面板插件侧可选)。注意它**不会**把 `dsh-skills-nexus` 命令放进你的 shell PATH；shell 里的命令来自第四步的 `npm link`。**每次改了代码重新 `npm run build` 后，重启 DSH 生效。**
+
+### 第四步：用 CLI 加一个 skill 测试
+
+> **注意**：本地测试过程中**不要移动项目文件夹**。如果你在 `npm link` 之后移动了项目位置，再次 `npm link` 会报 `EEXIST: file already exists`——因为全局里还留着旧位置的链接。处理方法见下文。
+
+另开一个终端：
+
+```bash
+# 先把 CLI 链到全局，方便直接用 dsh-skills-nexus 命令
+cd dsh-skills-nexus
+npm link
+
+# 加一个真实的 skill 仓库试试
+dsh-skills-nexus add github:xiaxi626/theme-port-skill
+
+# 查看是否注册成功
+dsh-skills-nexus list
+
+# 检查官方根目录中是否创建了 symlink
+ls -la ~/.dsh/skills/
+```
+
+**如果移动过文件夹，`npm link` 报 EEXIST 的处理方法：**
+
+方案 A — 用 `--force` 直接覆盖（最简单，全平台通用）：
+
+```bash
+npm link --force
+```
+
+方案 B — 用 npm 移除旧的全局链接，再重新链接（全平台通用）：
+
+```bash
+npm uninstall -g dsh-skills-nexus
+npm link
+```
+
+> 优先用 `npm uninstall -g`，而不是手动去 npm 全局目录删文件：它会一次性安全地移除 bin shim 和链接，避免对符号链接的全局包误用 `Remove-Item` / `rm` 踩坑。
+
+### 第五步：在 DSH 里验证
+
+第三步启动的 DSH 进程确实是在第四步加 skill **之前**就跑起来的——但默认配置下**不需要重启**：官方 filesystem provider 一直在监听 `~/.dsh/skills/`，CLI 刚建的 symlink 会在稳定窗口内被拾取。在运行中的 DSH 会话里开一个**新对话**，问一句「你有哪些 skill」，`theme-port-skill` 应当出现在列表里。
+
+如果你的宿主没启用 filesystem watcher（或 skill 迟迟不出现），退回重启兜底：回到第三步的终端按 `Ctrl+C` 停掉进程，重新跑一遍 `npx @deepseek-ai/dsh web --patch overlay.yml`，DSH 会在启动时重新扫描 skills 根目录。
+
+### 本地测试后的清理
+
+`--patch` 不写 profile，所以没有插件要移除。本地测试只留下两样——skill 数据与 `npm link`——按[卸载 nexus 本身](#卸载-nexus-本身)的第 1、3 项清理即可（先 `dsh-skills-nexus remove '*' --yes`，再 `npm uninstall -g dsh-skills-nexus`）；跳过第 2 项（`dsh plugin remove`），这里用不上。
+
+---
+
+## 更轻的验证（不启动 DSH 也能测核心逻辑）
+
+如果只想验证「clone + symlink 创建 + list」这条链路是否正常，不需要启动整个 DSH，直接用 CLI 即可：
+
+```bash
+# 加一个 skill
+dsh-skills-nexus add github:xiaxi626/theme-port-skill
+
+# 查看注册结果
+dsh-skills-nexus list
+
+# 检查 symlink 是否创建成功
+ls -la ~/.dsh/skills/
+```
+
+> 如果 `list` 显示了预期的 skill、`ls -la` 显示了指向 `repos/` 目录的 symlink，说明整个 clone + symlink 链路正常。
+
+---
+
+## 注意事项与限制
+
+- **add 后是否立即可见**：默认配置下官方 filesystem provider 监听 skills 根目录，新添加的 skill 会在稳定窗口内出现在运行中宿主的新对话里——无需重载。未启用 watcher 的宿主则要等下次重扫/重启；web 面板会以「下次宿主启动」提示标注这种情况。
+- **版本固定与更新**：用 `#分支名`、`#tag名` 或 `#commit-hash` 固定 ref。安装时 manifest 会记录实际解析到的 commit（`commit` 字段）——一个轻量锁，`list` 会显示它。`update` 只对**分支** pin 的 skill 做快进拉取（并打印 commit 变化）；**tag/commit** pin 的 skill 是固定点：只校验当前 checkout 是否仍等于 pin（漂移则自动恢复），不做 pull——被固定的版本永远不会静默漂移。不加 `#ref` 时，CLI 会通过 `git ls-remote --symref` 自动探测远程默认分支（探测失败回落到 `main`）。
+- **仅用于 skill 内容仓库**：这不是 `dsh plugin add` 的替代品。如果仓库本身就有 `dsh.bundle.patch`，请用正常方式安装——nexus 是给那些没有封装的仓库用的。完整决策指南见 [nexus 与 `dsh plugin`——什么时候用哪个](docs/nexus-vs-plugin.zh-CN.md)。
+- **外部条目（`link` 通道）**：`link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` / `link codebuddy` / `link workbuddy` 创建*外部*条目，符号链接到用户已有的目录（`~/.trae-cn/skills/`、`~/.trae/skills/`、`~/.codebuddy/skills/`、`~/.workbuddy/skills/`，或 `~/.qoder` 与 `~/.qoder-cn` 下的用户级与市场插件技能目录）。nexus 不克隆、不更新、不删除这些目录——`remove` 只删除链接和 manifest 条目。外部条目携带 `groupPath`（如 `['trae-cn', 'skills', 'brainstorming']`）用于层级分组；`enable` 和 `disable` 接受 `--group <path>` 按前缀批量切换。Web 面板将分组条目渲染在可折叠的 L1 组头下，带组级 Switch。
+- **项目作用域**：`link` / `list` / `enable` / `disable` / `remove` /
+  `doctor --project` 作用于任意项目文件夹的 `<project>/.dsh/skills`——provider
+  先于 `~/.dsh/skills` 扫描的根。页签还会解析文件夹自身的 `SKILL.md` 做只读预览。
+  启停只是把链接移到 `.dsh/skills-disabled` 再移回，目标目录不动。它们不写 manifest、
+  不复制、不编辑任何 `SKILL.md`；`remove --project` 只删被证实的链接，拒绝真实用户
+  内容。`add`、`import`、`update`、`export` 没有项目作用域。详见[项目技能](#项目技能)。
+- **集合仓库与 `--subdir`**：skill 藏在子目录的集合仓库用 `--subdir <path>` 按需安装——每次安装是一个独立条目、独立克隆（独立克隆设计，P1/P2 权衡见 [docs/subdir-design.md](docs/subdir-design.md)）。新装的 `--subdir` 条目在 Git 和远端支持时为**稀疏检出**：部分克隆加 cone 模式 `sparse-checkout`（安装输出里报 `checkout: sparse`），无关 skill 目录不落盘——远端支持 blob 过滤时通常可减少下载与磁盘占用，实际收益取决于仓库布局（无硬性流量上限：cone 会保留仓库根与祖先目录的直属文件；远端忽略 filter 时可能整仓下载，nexus 会给出可见警告）。想退出稀疏：`git -C <克隆目录> sparse-checkout disable`（会把剩余内容全部拉取检出；后续 `update` 不会重新强制稀疏）；稀疏流程需要 **Git 2.35+**（更旧的 Git 其 `sparse-checkout set` 不提供 `--cone`），本机 Git 缺少该能力时，会在警告后把同一克隆补成整仓检出，不重复下载。不带 `--subdir` 全量安装时，根目录无可用 skill 会被拒绝；超过 20 个 skill 会弹确认提示。从同一仓库挑装的多个条目各自保留独立克隆，但 `list` 会显示 **SOURCE** 列（来源 `owner/repo`），同一仓库挑出的条目一眼可辨。
+- **平铺 md 过滤**：没有 frontmatter `name` **且**没有 `description` 的平铺 `*.md` 不会被当作 skill——集合仓库的文档（`README.zh-CN.md`、`CONTRIBUTING.md`、`community-leaderboard.md` 等）永远不会被"假装安装"。发现阶段的跳过名单也按前缀模式覆盖 `readme*`、`contributing*`、`license*`、`changelog*`、`code-of-conduct*`、`security*`。
+- **同名不消歧**：DSH 按名称索引 skill，后安装的同名 skill 会覆盖前者。用 `--name` 区分条目，或用 `--subdir` 只装需要的。`--subdir` 安装时显式传入的 `--name` 若归一化后与默认条目名（subdir 末段）相同，安装成功后会提示可省略该参数。enable/disable 按条目（即按安装的 subdir）生效，`remove` 删除整个条目的克隆及其所有 symlink。
+- **skill 名校验**：DSH 要求 skill 名是小写 kebab-case（`[a-z0-9]+` 段，用单个 `-` 分隔）。frontmatter `name` 不合法（如 `CurriculumDesigner`）会导致 DSH 拒绝该 skill，因此 nexus 会在安装时归一化这类名称（转为 kebab-case），并在 `add` 时以 `⚠` 警告。
+- **构建脚本**：由于 nexus 自己 clone 内容仓库（不走 pnpm），它完全绕开了 pnpm 的 `allowBuilds` 拦截。
+- **Windows 链接**：nexus 在 Windows 上创建目录联接（junction，`symlink(..., 'junction')`）、在其他平台上创建普通目录软链——均不需要开发者模式或管理员权限。
+
+## 给工具开发者
+
+想在 nexus 之上构建工具——GUI 面板、同步守护进程、CI 任务、或更上层的、把
+git 上 `SKILL.md` 仓库装进 DSH 的安装器？nexus 已经把跨平台的琐碎部分全部解决（spec
+解析、带重试的克隆、ref 固定、frontmatter 归一化、集合仓库 `--subdir`、Windows
+junction 软链），并对外暴露稳定、可依赖的机器接口：
+`dsh-skills-nexus list --names`（枚举已安装 skill）、`dsh-skills-nexus doctor --json`
+（带版本号的健康报告），以及 `add` / `list` / `update` / `remove` / `enable` /
+`disable` / `link` / `purge` 的 `--json`（描述「刚才做了什么」的带版本号报告）。请 shell out 调 CLI——
+绝不要 `import` 包内部、也不要读 `manifest.json`。完整契约、生态边界、以及
+**没有承诺**的接口清单，见
+**[在 nexus 之上构建——面向工具开发者的机器接口](docs/build-on-nexus.zh-CN.md)**。
+
+### 改完浏览器半段后怎么验
+
+`lib/client.js` 由 `npm run build:client` 生成，而 CI **刻意不跑**它（它要求 Node
+≥ 22.18，测试矩阵从 20 起），浏览器模块表也不在类型检查范围内——loader 答不出的
+`require` 是**运行时**抛错，构建期没有任何症状。所以改 `src/client/**` 或模块表后
+必须手跑一次：
+
+1. `npm run build` && `npm run build:client`，并提交 `lib/`。
+2. 确认产物里的 `require` 全在宿主模块表内：
+
+   ```console
+   $ node -e "const s=require('fs').readFileSync('lib/client.js','utf8');\
+     console.log([...new Set([...s.matchAll(/require\(\"([^\"]+)\"\)/g)].map(m=>m[1]))].sort())"
+   [ '@deepseek-ai/dsh-client-ui-primitives', 'react', 'react/jsx-runtime' ]
+   ```
+
+   出现其它 specifier 就是 loader 会拒绝的请求。
+3. `dsh web --profile <名字>`，把这个检出装进该 profile，打开
+   **设置 → Skills Nexus**：确认面板渲染、技能行的状态点正确，并跑通一个动作
+   （切一次启停即可）。
+4. `desktop` profile 由 Electron 应用独占管理，第 3 步请用一次性 profile；
+   `dsh plugin --profile desktop …` 会被直接拒绝。
+
+## 文档
+
+- [架构——数据流、目录布局、SKILL.md 发现规则](docs/ARCHITECTURE.zh-CN.md)
+- [nexus 与 `dsh plugin`——什么时候用哪个](docs/nexus-vs-plugin.zh-CN.md)
+- [Subdir 设计——集合仓库的 P1/P2 权衡](docs/subdir-design.md)
+- [验证版本锁定功能（P0）](docs/verify-version-lock.zh-CN.md)
+- [验证克隆重试功能（P0）](docs/verify-clone-retry.zh-CN.md)
+- [验证集合仓库支持（P1）](docs/verify-collection-support.zh-CN.md)
+- [验证插件装载契约（plugin add → dsh web 冷启动）](docs/verify-plugin-install.zh-CN.md)
+- [验证 `doctor` 命令（P0）](docs/verify-doctor.zh-CN.md)
+- [验证命令补全](docs/verify-completions.zh-CN.md)
+- [验证本地来源链接——当前启用来源、目录覆盖与面板](docs/verify-link-sources.zh-CN.md)
+- [验证项目级技能作用域——`<project>/.dsh/skills` 下的链接](docs/verify-project-skills.zh-CN.md)
+- [在 nexus 之上构建——面向工具开发者的机器接口](docs/build-on-nexus.zh-CN.md)
+- [贡献指南——项目结构、测试与 CI](CONTRIBUTING.zh-CN.md)
+- [更新日志](CHANGELOG.md)
+
+## 参与贡献
+
+欢迎各种形式的贡献。想参与的话，先看看 [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)，里面有项目布局、本地开发和质量检查的完整说明。
+
+发现 bug 或有想法？直接 [提交 issue](https://github.com/xiaxi626/dsh-skills-nexus/issues/new/choose)，我们有 issue 模板。
+
+## 许可证
+
+MIT

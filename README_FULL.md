@@ -1,0 +1,1002 @@
+# dsh-skills-nexus
+
+[![CI](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml/badge.svg)](https://github.com/xiaxi626/dsh-skills-nexus/actions/workflows/ci.yml)
+![NPM Version](https://img.shields.io/npm/v/dsh-skills-nexus)
+![NPM Downloads](https://img.shields.io/npm/dt/dsh-skills-nexus)
+[![dsh.so risk](https://www.dsh.so/badge/dsh-skills-nexus.svg)](https://www.dsh.so/artifact/dsh-skills-nexus/)
+[![dsh.so install](https://www.dsh.so/badge/install/dsh-skills-nexus.svg)](https://www.dsh.so/artifact/dsh-skills-nexus/)
+[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/xiaxi626/dsh-skills-nexus)
+![GitHub License](https://img.shields.io/github/license/xiaxi626/dsh-skills-nexus)
+[![DSH Compatible](https://img.shields.io/badge/DSH-Compatible%20with%20Latest%20Version-blue)](https://github.com/deepseek-ai/dsh)
+
+**English** | [中文](README_CN.md)
+
+⭐ **If this project helps you, welcome to Star for support!**
+
+DSH skill lifecycle manager — from git repo cloning, external directory linking, package import/export, to group management, health checks, and cross-machine transport. Keeps up with the latest DSH version, compatible with the official filesystem provider.
+
+dsh-skills-nexus is a community-maintained DeepSeek Harness (DSH) plugin, not an official DeepSeek AI product.
+
+## Capabilities
+
+| Direction | What you get | Entry point |
+|---|---|---|
+| Git-backed installs | Any `SKILL.md` repo from any git host, pinned to a branch, tag or commit; collection repos install one subdirectory with partial clone + sparse checkout; wrapper detection runs before registering | `add` |
+| Version management | Refresh branch-tracked clones, preview remote changes without a checkout, move a clone to another ref, undo the last version change | `update` / `diff` / `switch-version` / `rollback` |
+| External references | Register skills that already live in another agent's directory — no clone, no copy, no writes there | [`link`](#supported-external-sources-link) / `remove --group` |
+| Project-scope skills | View any project folder's skills (parsed names/descriptions), link directories into `<project>/.dsh/skills` (the root the provider scans first), enable/disable/remove links, report dangling ones; no manifest, clone or copy | [`--project`](#project-skills) |
+| Cross-machine transport | Package entries with their provenance, rebuild them elsewhere (optionally at the exact recorded commit), give a frozen entry its git source back | `export` / `import` / `adopt` |
+| Grouping and toggles | Group by source or a custom L1 name; enable or disable one entry or a whole group prefix | `enable` / `disable` / `--group` |
+| Health and cleanup | Read-only checkup of the manifest, links and clones, with an optional remote update check; purge accumulated artifacts | `doctor` / `purge` |
+| Automation | Version-1 JSON reports on stdout, stable exit codes, name-only listing | `--json` / `list --names` |
+| Web panel | Browse entry cards, preview and link a local source, run the health check, adopt a source-less entry, search and filter | [panel](#web-panel-optional-plugin-side) |
+| Shell completion | Generated completion script for bash, zsh, fish or PowerShell | `completions` |
+
+## Why
+
+`dsh plugin --profile <name> add "github:owner/repo"` forwards to pnpm, and
+**only packages with `dsh.bundle.patch` are activated as profile layers**. A
+content repo with just `SKILL.md` + `references/` + `scripts/` has no Cordis
+wrapper, so this path doesn't work. `dsh-skills-nexus` fills the gap:
+
+| command | installs | requires `dsh.bundle.patch`? |
+|---|---|---|
+| `dsh plugin add github:owner/dsh-skills-nexus` | nexus itself (once) | yes |
+| `dsh-skills-nexus add github:owner/any-skill` | pure SKILL.md content repo | **no** |
+
+> **Not sure which command fits your repo?** Read
+> **[nexus vs `dsh plugin` — when to use which](docs/nexus-vs-plugin.md)**.
+> Short version: repo has `SKILL.md` → nexus; repo is a pure plugin
+> (`cordis.patch.yml` / `dsh.bundle.patch`, no `SKILL.md`) → `dsh plugin`;
+> has both → your choice (nexus = content, plugin = code).
+
+## Install nexus
+
+### Optional: register as a DSH plugin
+
+To register nexus in the DSH `web` profile, run the following (replace `web`
+if you use a different profile):
+
+```bash
+dsh plugin --profile web add "github:xiaxi626/dsh-skills-nexus"
+```
+
+In a **web** session this adds the [Skills Nexus settings panel](#web-panel-optional-plugin-side)
+along with its `/skills-nexus/*` HTTP routes; in non-web hosts the layer stays
+dormant. It still **does not provide a global CLI command and is not a
+prerequisite for the CLI install below** — skip it if you only need the CLI
+to manage skills.
+
+### Install the CLI globally
+
+Install the CLI globally — **this** is what puts the `dsh-skills-nexus` command
+on your shell PATH (provided npm's global command directory is already on PATH):
+
+**npm 12:** after confirming that you trust the repository and its dependencies,
+explicitly allow Git dependencies for this installation:
+
+```bash
+npm install -g --allow-git=all github:xiaxi626/dsh-skills-nexus
+```
+
+**Older npm versions (where Git dependencies are not blocked):** the original
+command works. Choose one of these two commands based on your version and policy:
+
+```bash
+npm install -g github:xiaxi626/dsh-skills-nexus
+```
+
+#### Troubleshooting `EALLOWGIT`
+
+If the original command reports:
+
+```text
+npm error code EALLOWGIT
+npm error Fetching packages of type "git" have been disabled
+```
+
+**npm's Git dependency policy** blocked the installation before download; this
+is not a missing Nexus installation or a repository build failure. Starting
+with npm 12, `allow-git` defaults to `none` instead of allowing Git dependencies.
+A `github:owner/repo` spec is a Git dependency and therefore requires explicit
+permission. Check your version with `npm --version`; on npm 12, check the
+active policy with `npm config get allow-git`.
+
+The stricter default reduces supply-chain risk: Git dependencies access remote
+repositories and may introduce configuration the project does not control.
+**This error does not mean npm detected malicious code in Nexus, nor does it
+indicate that Nexus is incompatible with npm 12.** There is no need to reinstall
+the DSH plugin or downgrade npm for this error. If you trust the source, use
+the command with `--allow-git=all` above to remove this specific block; subsequent
+download and installation steps still need to satisfy other requirements.
+
+> `--allow-git=all` applies only to this invocation and does not permanently
+> change npm configuration. It permits all Git dependencies in this installation,
+> including transitive dependencies; it does not certify their safety. Avoid
+> setting `allow-git=all` globally and permanently. `dsh plugin add` uses pnpm,
+> whose configuration is independent of npm's; a successful plugin installation
+> does not change npm's policy.
+
+`lib/` compiled artifacts are committed with the repo, so there is no build
+step — install and use.
+
+If you only need the latest published npm release, you can use this command
+instead:
+
+```bash
+npm install -g dsh-skills-nexus
+```
+
+This installs a registry package, not a Git dependency, so Nexus itself does
+not require `--allow-git=all` via this route. The published release may differ
+from the latest code on GitHub.
+
+> **The plugin layer is optional.** It installs the package into the
+> profile's `node_modules` and — when the host is a DSH web session —
+> registers the settings panel and HTTP routes described in
+> [Web panel](#web-panel-optional-plugin-side). Skill discovery itself never
+> depends on that layer: skills are picked up through the symlinks nexus
+> creates in `~/.dsh/skills/` plus the official filesystem provider. The
+> global CLI comes from the npm installation above (or `npm link` during
+> development).
+
+## Usage
+
+```bash
+# register a skill repo (cloned under ~/.dsh/skills-nexus/repos/<name>/)
+dsh-skills-nexus add github:owner/repo
+dsh-skills-nexus add github:owner/repo#dev          # pick a branch/tag
+dsh-skills-nexus add https://github.com/owner/repo
+dsh-skills-nexus add https://gitlab.com/group/project  # any git host
+dsh-skills-nexus add owner/repo                     # shorthand (GitHub only)
+dsh-skills-nexus add github:owner/a github:owner/b  # install several repos in one call
+dsh-skills-nexus add github:owner/repo --yes         # skip "wrapped repo?" prompt
+dsh-skills-nexus add github:owner/repo --subdir skills/foo   # install one subdir of a collection repo
+dsh-skills-nexus add github:owner/repo --subdir skills --name owner-skills   # custom entry name (fallback chain: --name > subdir leaf > repo name)
+
+# inspect / maintain
+dsh-skills-nexus list                               # all entries (+ source, commit, subdir, explicit lock, status)
+dsh-skills-nexus list --filter <query>              # narrow to entries whose name, URL or subdir contain the query
+dsh-skills-nexus list --json                        # ...or the same inventory as a versioned JSON report
+dsh-skills-nexus update [name]                      # refresh (branch pin: pull; tag/commit pin: verify)
+dsh-skills-nexus switch-version <name> <ref> [--type <branch|tag|commit>]  # move a clone to another ref (fetch, checkout, re-normalize, rebuild links)
+dsh-skills-nexus enable  <name>...                  # create symlink (default); several names in one run
+dsh-skills-nexus disable <name>...                  # remove symlink without deleting clone
+dsh-skills-nexus enable  --group trae-cn/skills     # batch-enable every entry whose groupPath starts with the prefix
+dsh-skills-nexus disable --group trae-cn            # batch-disable every entry under the L1 group
+dsh-skills-nexus remove <name>...                   # delete clone + symlink + unregister (one or more)
+dsh-skills-nexus remove 'theme-*'                   # ...or a * / ? glob matched against skill names
+dsh-skills-nexus remove --group trae-cn             # batch-delete every entry whose groupPath starts with the prefix
+dsh-skills-nexus remove --group trae-cn/skills      # ...or only the skills sub-group
+dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # read-only full checkup of nexus state (exit 0/1/2)
+dsh-skills-nexus purge  [--yes] [--json]                # clean up accumulated artifacts (dry-run by default)
+dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>  # print a completion script for that shell
+
+# move skills to another machine — a package carries provenance, never .git
+dsh-skills-nexus export --all -o migrate.zip        # package every entry (disabled ones included)
+dsh-skills-nexus export <name>... -o one.zip        # ...or just some of them
+dsh-skills-nexus import migrate.zip --dry-run       # per-entry preview: clone or snapshot; touches nothing
+dsh-skills-nexus import migrate.zip                 # rebuild entries from their recorded refs
+dsh-skills-nexus import migrate.zip --locked        # restore each exact recorded commit
+dsh-skills-nexus adopt <name> --url github:owner/repo   # give a source-less entry its git identity back
+
+# link external skills (reference directories you already own — no clone)
+dsh-skills-nexus link trae-cn                       # discover skills under ~/.trae-cn/skills/
+dsh-skills-nexus link trae-cn --dry-run             # preview without creating entries
+dsh-skills-nexus link trae                         # discover skills under ~/.trae/skills/
+dsh-skills-nexus link qoder                        # user-level skills + marketplace plugins under ~/.qoder
+dsh-skills-nexus link qoder-cn                     # the same layout for Qoder CN (under ~/.qoder-cn)
+dsh-skills-nexus link codebuddy                    # skills under ~/.codebuddy/skills/
+dsh-skills-nexus link workbuddy                    # skills under ~/.workbuddy/skills/
+dsh-skills-nexus link shared                       # discover ~/.agents/skills
+dsh-skills-nexus link kimi-code                    # discover ~/.kimi-code/skills
+dsh-skills-nexus link windsurf                     # discover ~/.codeium/windsurf/skills
+dsh-skills-nexus link trae --source-dir /path       # override the source root (not skills/)
+dsh-skills-nexus remove --group trae --yes          # unlink the group; keep external directories
+dsh-skills-nexus link trae-cn --group custom        # override the L1 group name (default: trae-cn)
+dsh-skills-nexus link trae-cn --force               # replace existing entries on conflict
+
+# project scope: any project folder + links under <project>/.dsh/skills
+dsh-skills-nexus link --project /path/to/my-skill     # project root = nearest .git ancestor of cwd
+dsh-skills-nexus link --project /path/to/collection   # one link per discovered skill
+dsh-skills-nexus link --project /path/to/my-skill --dry-run
+dsh-skills-nexus list --project                       # folder skills + .dsh/skills entries, parsed names
+dsh-skills-nexus list --project --json                # version-1 project report
+dsh-skills-nexus list --all                           # project + global, overrides/shadowed (human only)
+dsh-skills-nexus disable --project my-skill           # move the link out; target untouched
+dsh-skills-nexus enable --project my-skill            # move it back
+dsh-skills-nexus remove --project my-skill            # removes the link only; user files are refused
+dsh-skills-nexus doctor --project                     # dangling project links
+dsh-skills-nexus list --project --project-root /path/to/project  # explicit project root
+```
+
+### Supported external sources (`link`)
+
+| Source | Client root | Env override | What `link` registers |
+|---|---|---|---|
+| `trae-cn` | `~/.trae-cn` | `TRAE_CN_DIR` | `<root>/skills/`, one level deep |
+| `trae` | `~/.trae` | `TRAE_DIR` | `<root>/skills/`, one level deep |
+| `qoder` | `~/.qoder` | `QODER_DIR` | user-level `<root>/skills/` plus the skill directories each installed marketplace plugin declares |
+| `qoder-cn` | `~/.qoder-cn` | `QODER_CN_DIR` | same layout as `qoder` |
+| `codebuddy` | `~/.codebuddy` | `CODEBUDDY_DIR` | `<root>/skills/`, one level deep |
+| `workbuddy` | `~/.workbuddy` | `WORKBUDDY_DIR` | `<root>/skills/`, one level deep |
+| `copilot` | `~/.copilot` | `COPILOT_HOME` | `<root>/skills/`, one level deep |
+| `claude-code` | `~/.claude` | `CLAUDE_CONFIG_DIR` | `<root>/skills/`, one level deep |
+| `pi` | `~/.pi/agent` | `PI_CODING_AGENT_DIR` | `<root>/skills/`, one level deep |
+| `codex` | `~/.codex` | `CODEX_HOME` | `<root>/skills/`, one level deep (Codex's older personal location; its current user-level root is `~/.agents`, covered by `shared`) |
+| `cursor` | `~/.cursor` | `CURSOR_DIR` | `<root>/skills/`, one level deep |
+| `shared` | `~/.agents` | `SHARED_DIR` | `<root>/skills/`, one level deep |
+| `opencode` | `~/.config/opencode` | `OPENCODE_CONFIG_DIR` | `<root>/skills/`, one level deep |
+| `gemini` | `~/.gemini` | `GEMINI_DIR` | `<root>/skills/`, one level deep |
+| `zcode` | `~/.zcode` | `ZCODE_DIR` | `<root>/skills/`, one level deep |
+| `openclaw` | `~/.openclaw` | `OPENCLAW_STATE_DIR` | `<root>/skills/`, one level deep |
+| `augment` | `~/.augment` | `AUGMENT_DIR` | `<root>/skills/`, one level deep |
+| `kimi-code` | `~/.kimi-code` | `KIMI_CODE_DIR` | `<root>/skills/`, one level deep |
+| `windsurf` | `~/.codeium/windsurf` | `WINDSURF_DIR` | `<root>/skills/`, one level deep |
+
+Sources are independent namespaces: one skill installed in two clients becomes two
+entries (`qoder.*` + `qoder-cn.*`, or `codebuddy.*` + `workbuddy.*`), never one
+shadowing the other. Every source scans its own vendor root only — the compatibility
+directories (`~/.agents`, `~/.claude`, `~/.codex`) are never merged in, because the
+same physical directory registered twice would produce duplicate entries. `~/.agents` is
+registered exactly once, as `shared`: it is also the official cross-tool location for
+Codex, Copilot, Cursor, Gemini CLI and Kimi Code. The Qoder clients leave out the
+plugins their own client ships (`qoder-bundler`) — those need the Qoder host runtime.
+`link` never clones, updates or deletes the referenced directories; `remove` deletes the
+link and the manifest entry only. `Antigravity` shows up in the panel as a disabled
+placeholder: its three distributions (app, CLI, IDE) each use a different global skills
+directory, so the contract is not settled and it is not a supported source.
+
+The fixed-subdirectory clients keep user-installed skills directly under
+`<root>/skills/`; their other subdirectories are outside the contract, so a run
+that finds 0 skills there means the on-disk layout differs from it.
+`KIMI_CODE_HOME` and `GEMINI_CLI_HOME` are not scan roots: they relocate the client's
+own data root / home, so a moved installation is followed with `--source-dir` (or the
+source's `*_DIR` variable), never silently. Kimi Code's flat top-level `.md` skills
+(`skills/commit.md`) are outside the contract — only `<name>/SKILL.md` directories are
+registered. On Windows, `~/.config/opencode` depends on how opencode resolves its
+config directory; if it does not match, pass `--source-dir`.
+Root precedence: `--source-dir` > legacy alias `--trae-cn-dir` > the selected
+source's environment variable > default. An override selects one root only — for
+`qoder` / `qoder-cn` that is the agent root (`~/.qoder` / `~/.qoder-cn`), not
+its `skills/` child; a nonexistent overridden directory does not fall back to
+the default. Unlink with `remove --group <source> --yes` (use your custom group
+if you set `--group`); this preserves the external directories.
+See [source details](docs/sources-and-packages.md#channel-e-external-reference-link).
+For isolated CLI checks and the panel acceptance checklist, see
+[Verifying local source links](docs/verify-link-sources.md).
+
+### Project skills
+
+**Experimental.** The project scope is opt-in and still settling: its CLI and
+panel interaction may change in a 0.10.x release. Global skills keep their
+existing contract and are unaffected.
+
+The DSH filesystem provider scans `<projectRoot>/.dsh/skills` at project rank,
+**before** the user-level `~/.dsh/skills`, so a link placed there shadows a
+global skill of the same name. The project tab is a viewer plus a link manager:
+point it at **any folder** (it does not have to be a registered DSH workspace)
+and it shows the skills the folder itself provides, plus the entries under
+`<projectRoot>/.dsh/skills`.
+
+The CLI uses the same two roots, but nothing is implicit: `--project` is a
+**mode flag** (it takes no value), `--project-root <dir>` selects the project,
+and for `link` the positional value after `--project` is the **source**
+directory. From outside the project, pass the explicit root:
+
+```bash
+# inspect any folder, even when cwd is somewhere else
+dsh-skills-nexus list --project --project-root <project-root>
+
+# link a source directory into that project (preview first)
+dsh-skills-nexus link --project <source-dir> --project-root <project-root> --dry-run
+```
+
+For example, on Windows `list --project --project-root D:\theme-port-skill`
+inspects that folder; for `link`, `<source-dir>` is the skill directory you want
+to link and `<project-root>` is the project. When cwd is already inside the
+project (or you want the nearest `.git` ancestor), the short forms work:
+
+```bash
+dsh-skills-nexus link    --project /path/to/my-skill     # source directory
+dsh-skills-nexus link    --project /path/to/collection   # one link per discovered skill
+dsh-skills-nexus list    --project                       # folder skills + project entries
+dsh-skills-nexus list    --all                           # project + global, overrides/shadowed
+dsh-skills-nexus disable --project my-skill              # move the link out of the scanned root
+dsh-skills-nexus enable  --project my-skill              # move it back
+dsh-skills-nexus remove  --project my-skill              # removes the link only
+dsh-skills-nexus doctor  --project                       # dangling project links
+```
+
+`list --project` prints two sections. `NAME` is the parsed frontmatter name;
+`ENTRY` is the filesystem entry (the link name used by the destructive
+commands):
+
+```text
+Folder skills (<project-root>):
+  my-skill  linkable  <description>
+
+Project skills root (<project-root>/.dsh/skills):
+KIND   NAME      ENTRY     TARGET  DESCRIPTION
+files  my-skill  SKILL.md  —       <description>
+```
+
+- **Root resolution.** `--project` alone uses the nearest ancestor of the
+  current directory that contains `.git` (falling back to the current
+  directory), the same rule the provider uses. `--project-root <path>` names it
+  explicitly and must accompany `--project`; a bad explicit root is an error
+  instead of a guessed fallback.
+- **`list --all` is special.** It joins the project detected from cwd with the
+  global manifest, so it has no `--project-root` form; run it from inside the
+  project.
+- **Names.** DSH's catalog name comes from the `SKILL.md` frontmatter; the link
+  **entry name** is nexus's filesystem key, derived from the directory (with the
+  frontmatter name as fallback for a non-ASCII directory). The project tab shows
+  the parsed name and description, so a row is never just `SKILL.md`. Layouts:
+  root `SKILL.md` → the folder's name; one-level subdirectories → each
+  subdirectory; flat `.md` → the file stem. Because the two can differ, the
+  table prints `NAME` and `ENTRY` separately: `enable`, `disable` and
+  `remove --project` take the **ENTRY** (the filesystem link name), not the
+  parsed `NAME`.
+- **No manifest, no copies, no file edits.** Project scope never writes
+  `manifest.json`, never clones or copies, and never edits a `SKILL.md`. Real
+  directories and files under `.dsh/skills` are shown read-only with no remove
+  action. `remove --project` deletes a proven link and refuses user content with
+  `refusing to remove user files`. Writes serialize per project + name through
+  the same cross-process file lock the rest of nexus uses; the manifest lock is
+  not taken because the manifest is not touched.
+- **Enable / disable = move the link.** Disabling moves
+  `.dsh/skills/<name>` to the sibling `.dsh/skills-disabled/<name>`, which the
+  provider does not scan; enabling moves it back. The link carries its target
+  (and dangling state), so no remembered path or state file is needed and the
+  target directory is never touched. Disabling a project skill un-shadows a
+  global skill of the same name.
+- **Conflicts.** An existing active link is repointed (`replace`); a link to the
+  same directory is `unchanged`; a real directory or file is a `collision` and
+  is left byte-for-byte untouched.
+- **Machine output.** `list --project --json` →
+  `{ version, projectRoot, folderSkills[], entries[] }`, where each entry/ folder
+  skill carries parsed metadata and `enabled`/`disabled` state;
+  `link --project --json` → `{ version, projectRoot, source, results[], summary }`;
+  `enable|disable --project --json` → `{ version, projectRoot, results[], summary }`;
+  `remove --project --json` → `{ version, results[], summary }` with the extra
+  `not-a-link` status. `--all` is human-only.
+- **Windows.** Project links are NTFS junctions like every nexus link; a UNC
+  target is refused up front because a junction requires a local absolute path.
+- **Git.** A link records a machine-local absolute path, so do not commit
+  `.dsh/skills/` or `.dsh/skills-disabled/` links for the link-only workflow —
+  add both to `.gitignore`. Vendored real directories are the shareable form.
+- **Not available.** `add` / `import` / `update` / `export` have no project
+  form; `remove --project` and the project switches take exact link names only
+  (no globs, no `--group`).
+
+See [Verifying project-scope skills](docs/verify-project-skills.md) for the
+isolated walkthrough and the panel checklist.
+
+### Options, `--json` and `add` checks
+
+Value options (`--name`, `--ref`, `--subdir`, `--source-dir`) also accept the `--flag=value` form (e.g. `--subdir=skills/foo`, `--name=owner-skills`); the boolean `--yes` takes no value.
+
+For scripts, `--json` turns any of `add`, `list`, `update`, `remove`, `enable`,
+`disable`, and the project forms `list --project` / `link --project` /
+`enable|disable --project` / `remove --project` into a machine interface: a
+version-1 report on stdout and
+nothing else, diagnostics on stderr, and the same exit codes (`0` ok / `1`
+error or partial failure / `2` usage error). A report tells you what the
+operation *did* — the commit an install landed on, the before→after pair of an
+update, which name of a batch was not found:
+
+```console
+$ dsh-skills-nexus add github:owner/repo --json | jq '.results[0]'
+{ "spec": "github:owner/repo", "status": "added", "name": "repo",
+  "commit": "…", "ref": "main", "links": ["repo"] }
+```
+
+`--json` runs never prompt, so pass `--yes` where the interactive run would have
+asked. See
+[Building on nexus](docs/build-on-nexus.md#the---json-write-interface-version-1)
+for the full contract and its explicit non-promises.
+
+`add` accepts multiple repo specs and `remove` accepts multiple names plus `*`/`?` globs; each target is handled independently and the exit code is non-zero if any one failed. Because `--name`/`--ref`/`--subdir` are per-repo, they cannot be combined with multiple `add` specs — run separate `add` commands to customize each. A `remove` glob matching more than one skill lists them and asks for confirmation first (`--yes` skips it); quote the pattern (`'theme-*'`) so your shell does not expand it.
+
+Accepted repo forms: `github:owner/repo[#ref]`, full `https://` URL (any
+git host — GitLab, Gitee, Bitbucket, self-hosted; incl. `/tree/<ref>/...`
+subpaths), `git+https://`, `git@`/`ssh://`, and bare `owner/repo` shorthand
+(GitHub only — resolves to `github.com`). For other platforms, use the full
+URL.
+
+When you `add` a repo, nexus inspects the clone before registering it:
+
+- **Plain SKILL.md repo** — registered directly.
+- **SKILL.md + DSH plugin wrapper** — asks whether to ignore the wrapper and manage as a plain SKILL.md repo. Type `y` to continue, `n` to abort and suggest installing via `dsh plugin add`. Use `--yes` to skip the prompt.
+- **Pure DSH plugin (no SKILL.md)** — prints a message telling you to use that repo's own DSH plugin installation flow, then exits without registering.
+- **Neither** — reports that no SKILL.md or DSH plugin marker was found and exits with an error.
+- **Collection repos** (`skills/<name>/SKILL.md` layout, e.g. `trae-community/trae-skills`) — installing the whole repo yields no installable skill at the root; nexus rejects it and suggests `--subdir <path>`. Installations that yield more than 20 skills trigger a confirmation prompt (skip with `--yes`).
+
+### Moving skills to another machine: `export` / `import`
+
+A package is a **container, not an installation format**. `export` writes the
+skill files plus a `nexus-package.json` label recording where each entry came
+from; `import` rebuilds those entries on another machine — or from a package
+somebody handed you.
+
+- **A package never contains `.git`**, and no credentials. What it carries is
+  the skills *and their provenance*: `url` / `gitUrl` / `ref` / `commit` /
+  `subdir`, the enabled state and the link names of every entry. `export --all`
+  includes disabled entries, so a migration reproduces the sending machine.
+- **`import` prefers a real clone.** When the label records a remote that
+  answers, the entry is rebuilt through the same install path as `add` — a
+  genuine shallow clone, updatable and switchable. Only when there is no source
+  (or it cannot be reached) does the payload land as a **snapshot** — and even
+  then the exporting machine's state is restored: a skill disabled over there
+  stays disabled here, under the same link names.
+- **`--locked` restores the exported revision exactly.** It requires a labelled
+  package whose selected entries contain a safe `gitUrl`, non-empty `ref`, and
+  full 40–64 digit commit SHA. Nexus skips the reachability probe, performs a
+  depth-1 fetch of that commit, checks it out detached, and marks the manifest
+  entry as explicitly locked. Only an explicit remote "commit unavailable"
+  response falls back to the packaged snapshot; network, authentication, and
+  ambiguous Git failures remain errors. Bare packages are rejected, and
+  `--locked` cannot be combined with `--no-remote` or `--no-net-check`.
+- **`--dry-run` decides without touching anything**, printing one verdict per
+  entry: `will clone from <url> (<ref>)`, `will import as snapshot (<url>
+  unreachable)`, `will import as snapshot (<url> check timed out)` — a 5s probe,
+  because a slow network must never read as a deleted repository — or
+  `will import as snapshot (source unknown)` for an unlabelled package. Another
+  tool's zip is such a package: its skills are found by a more forgiving scan,
+  and `--subdir <path>` names the root explicitly when they are nested deeply.
+- **Packages are for crossing machines, not for installing.** With network
+  access `add` is the direct route; `export` / `import` move a whole nexus (or
+  take delivery of skills someone sent you). `--no-net-check` skips the probe
+  entirely (offline, zero waiting), `--no-remote` always lands a snapshot,
+  `--each` makes one entry per skill (and, with `--locked`, one independent
+  clone per skill at the recorded commit), and `--force` replaces an entry that
+  is already registered. `list` shows explicit package locks in its `LOCK`
+  column; `doctor --updates` distinguishes them from ordinary detached
+  tag/commit pins. A successful `switch-version` clears the explicit lock.
+
+### Giving a frozen entry its identity back: `adopt`
+
+A snapshot cannot `update` or `switch-version` — it has no history to fetch.
+When you later find the repository it came from, attach it:
+
+```bash
+dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo
+dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo --subdir skills/daily-trend-writer
+```
+
+`adopt` keeps the entry name and its `subdir` identity, clones that repository
+into `repos/<name>/` and rebuilds the links, so the entry ends up
+indistinguishable from one `add` created. The previous directory is kept as
+`repos/<name>.pre-adopt-<ts>` (delete it with `--prune`), a source that would
+expose a *different* set of skills is refused unless you pass `--force`, and a
+failure at any step restores the directory, the links and the manifest.
+
+## Web panel (optional plugin side)
+
+When nexus runs inside a DSH **web** session — registered via `dsh plugin add`,
+or mounted with the local `--patch` overlay from
+[Local testing steps](#local-testing-steps) — a **Skills Nexus** section
+appears in the Settings page. The panel and the CLI drive the same manifest,
+the same clones and the same cross-process file locks, so you can mix both
+freely (a skill one side is working on answers `busy` / `locked` on the
+other).
+
+The panel is built from the same interface components DSH uses in its own
+settings — status dots, switches, tags, disclosure rows and a terminal-style
+output surface — and its colors follow the host's light/dark theme
+automatically, so it reads as a native part of Settings rather than a
+third-party add-on.
+
+The section is split into two tabs: **Global skills** (the manifest-driven
+lifecycle below) and **Project skills** (a folder viewer + link manager for any
+project folder). Both stay mounted, so switching tabs keeps a half-typed form
+and any running job on screen.
+
+From the panel you can:
+
+- browse entry cards — link names, enabled state, pinned commit, status tags
+  like `no source` / `linked directory` / `disabled`, and an
+  `update available` badge for branch-tracked entries;
+- preview and link **Trae CN**, **Trae**, **Qoder**, **Qoder CN**, **CodeBuddy** or **WorkBuddy** from the `link local skills` section,
+  with an optional server-side source root; changing the root clears the preview;
+- browse and manage a project folder from the **Project skills** tab: type any
+  absolute folder (it does not have to be a DSH workspace); the tab shows the
+  skills the folder itself provides (parsed name/description) with a per-row
+  **Link** action, and the entries under `.dsh/skills` (links vs. user files). A
+  link row has an enable/disable **Switch** — disabling moves the link to
+  `.dsh/skills-disabled` and leaves its target untouched — plus **Remove**;
+  `user files` rows are read-only. The folder is typed per session and never
+  stored — this client context injects only `slots`, with no workspace service
+  to read a project root from;
+- manage **external entries** (created by CLI `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` / `link codebuddy` / `link workbuddy`) alongside
+  git-managed ones — the panel displays them with a `linked directory` tag,
+  shows their external path, and supports enable/disable and remove (which
+  only deletes the link, never the user's directory);
+- entries with a `groupPath` (e.g. from `link trae-cn`) are rendered under
+  collapsible L1 group headers with a group-level Switch (✓/○/◐ for
+  on/off/mixed) — toggling the group Switch batch-enables or batch-disables
+  every entry in the group;
+- filter the list from the toolbar — the search box matches a name or url,
+  while a badge shows the number of entries awaiting updates (only when there
+  is at least one) next to the total registered count;
+- add skills by git url — with optional `name` (entry-name override), `ref`
+  and `subdir` (a directory inside a monorepo) fields under a collapsed
+  disclosure — on the same install pipeline as the CLI, including frontmatter
+  normalization;
+- import a package — pick a file, read the same per-entry verdicts `import
+  --dry-run` prints (clone or snapshot, and why), then confirm. Tick the locked
+  checkbox to restore the exact commits recorded in the label, equivalent to
+  `import --locked`. The upload is a raw body with the filename beside it;
+  there is no multipart endpoint;
+- attach a source to a snapshot — the `adopt` action, offered only on entries
+  with no git source, where you type the repository url (it is never guessed);
+- enable / disable, update, pin to another ref, and remove entries —
+  destructive actions show the server's consequence wording and only retry
+  with confirmation after you accept;
+- export every managed entry to a zip — the panel shows the server-side path
+  as a copyable notice; the file stays on the server (no download button);
+- watch long operations (clone / import / adopt / update / switch) stream their
+  progress with a cancel button — the three most recent settled operations
+  (done / failed / cancelled) stay listed under **recent operations** — and
+  check for updates across all entries;
+- run a **health check** from its own section at the bottom: one `run check`
+  button, then a status dot and a one-line summary of errors, warnings and
+  available updates.
+
+A footer line points to the host's own **Skill Manager** for local skills
+managed by other tools — this panel only lists what nexus installed.
+
+**Hot reload.** Link changes are picked up by the official filesystem
+provider's watcher, so panel operations take effect in the running host
+within its stability window — no restart needed. On hosts running without
+the watcher, the panel says plainly that a change takes effect on the next
+host start.
+
+**HTTP surface (internal).** The panel talks to `/skills-nexus/*` routes —
+ping / list / doctor / project/list / job polling on GET; add / import /
+adopt / remove / update / check-updates / switch-version / toggle /
+toggleGroup / link / project/link / project/remove / export / job cancel on
+POST. Success
+answers `{ data, hotReload }`, long operations are accepted as
+`202 { data: { jobId } }`, and every mutation is same-origin-checked (remove
+additionally accepts loopback only). These routes are the panel's own
+plumbing — they are **not** part of the stable machine interfaces promised in
+[Building on nexus](docs/build-on-nexus.md); tool builders should keep
+shelling out to the CLI.
+
+## Shell completion
+
+`dsh-skills-nexus completions --shell <bash|zsh|fish|powershell>` prints a
+completion script for that shell — subcommands, per-command flags, and the
+installed skill names (fetched through `dsh-skills-nexus list --names`). Load
+it once in the shell you use:
+
+```bash
+# bash (~/.bashrc)
+eval "$(dsh-skills-nexus completions --shell bash)"
+
+# zsh (~/.zshrc, after compinit)
+eval "$(dsh-skills-nexus completions --shell zsh)"
+
+# fish (once, or save as ~/.config/fish/completions/dsh-skills-nexus.fish)
+dsh-skills-nexus completions --shell fish | source
+```
+
+```powershell
+# PowerShell ($PROFILE)
+dsh-skills-nexus completions --shell powershell | Out-String | Invoke-Expression
+```
+
+To unload, delete the loading line from your profile and undo the
+registration in the current session — or simply open a new terminal if you
+never wrote the line to a profile:
+
+```bash
+# bash
+complete -r dsh-skills-nexus
+unset -f _dsh_skills_nexus
+
+# zsh
+compdef -d dsh-skills-nexus
+unfunction _dsh_skills_nexus
+
+# fish
+complete -c dsh-skills-nexus -e
+```
+
+```powershell
+# PowerShell — re-register with a null script block to remove the completer
+Register-ArgumentCompleter -Native -CommandName dsh-skills-nexus -ScriptBlock $null
+```
+
+Completion of the command **name** itself needs no script — your shell
+completes executables from `PATH`, so having the npm global bin on `PATH` is
+already enough. The scripts above complete the command's arguments. For the
+full per-shell verification walkthrough see
+[Verifying shell completion](docs/verify-completions.md).
+
+## Uninstall
+
+Two levels, choose as needed:
+
+### Remove individual skills
+
+```bash
+# list registered skills
+dsh-skills-nexus list
+
+# remove one (deletes symlink, clone directory, and unregisters)
+dsh-skills-nexus remove <skill-name>
+
+# remove several at once — by name, or by a * / ? glob (quote it)
+dsh-skills-nexus remove <name1> <name2>
+dsh-skills-nexus remove 'theme-*' --yes
+```
+
+The skill disappears from the DSH catalog on the next reload. All other
+registered skills are unaffected.
+
+### Uninstall nexus itself
+
+Nexus leaves **three independent things**, cleaned by *different* commands —
+removing one does **not** remove the others. The annotated block below clears
+each one; run only the lines you need.
+
+> **The trap everyone hits — read this first.** The `dsh-skills-nexus` you type
+> in the shell comes **only** from item 3 below (`npm link` or `npm install -g`).
+> `--patch` mounts a layer for the current DSH process only, and `dsh plugin add`
+> only writes the profile's `node_modules` — **neither puts a command on your
+> shell PATH**. So "I installed the GitHub version but it still runs my local
+> logic" means the command you typed went through item 3's `npm link` into your local
+> workspace; it has nothing to do with the copy GitHub installed into item 2. To
+> really switch to remote: `npm uninstall -g dsh-skills-nexus`, then globally
+> install the GitHub version using the version and policy guidance in
+> [Install nexus](#install-nexus) (npm 12 requires explicit `--allow-git=all`).
+
+```bash
+# 1. skill DATA — the clones + manifest under ~/.dsh/skills-nexus/ (data, not the command)
+dsh-skills-nexus remove '*' --yes          # '*' matches every registered skill
+
+# 2. DSH profile plugin layer — only if you used `dsh plugin add` (--patch does NOT write here)
+dsh plugin --profile web remove dsh-skills-nexus
+
+# 3. global CLI command — THIS is the `dsh-skills-nexus` you type in the shell
+npm uninstall -g dsh-skills-nexus
+
+# (optional) delete any leftover skill-data directory from item 1
+#    macOS / Linux:
+rm -rf ~/.dsh/skills-nexus
+#    Windows PowerShell:
+# Remove-Item -Recurse -Force ~/.dsh/skills-nexus
+```
+
+Restart the DSH profile. The plugin layer, the CLI command and all managed
+skills will be gone.
+
+> **Never** "clean up" with a bare relative `Remove-Item -Recurse -Force
+> dsh-skills-nexus`: its effect depends on the current directory — from the npm
+> global prefix it deletes the CLI's bin shims (the command suddenly becomes
+> "not found"), and from your clone's parent it deletes your source tree. If
+> you truly want to discard the local clone, delete it by explicit full path.
+
+**Fallback — manual removal (only if `npm uninstall -g` is unavailable).**
+Delete the bin shims first, then the link. **Never** pass `-Recurse` when
+removing the link: it is a junction/symlink into your clone, and `-Recurse`
+would follow it and delete your source tree.
+
+```powershell
+# Windows PowerShell
+Remove-Item -Force "$(npm prefix -g)\dsh-skills-nexus*"               # bin shims
+Remove-Item -Force "$(npm prefix -g)\node_modules\dsh-skills-nexus"   # the link — NO -Recurse
+```
+
+On Git Bash / macOS / Linux just use `npm uninstall -g dsh-skills-nexus`;
+do not hand-delete the link there (`rm` on a directory-style link is unsafe).
+
+## Local testing steps
+
+You can fully test nexus on your machine without pushing to GitHub or
+publishing to npm. Follow these five steps.
+
+### Step 1 — build the project
+
+Inside the `dsh-skills-nexus/` directory:
+
+```bash
+cd dsh-skills-nexus
+npm install
+npm run build      # generates lib/
+```
+
+> If you've made changes and want to verify types before building, run
+> `npm run typecheck` (type-check only, no output).
+
+### Step 2 — create a local overlay
+
+Create `overlay.yml` in the project root (note: **do not commit this to git**,
+it's for local development only):
+
+```yaml
+# overlay.yml
+- insert:
+    - id: dsh-skills-nexus
+      # relative paths are anchored to the directory containing overlay.yml
+      name: './lib/index.js'
+```
+
+> With `overlay.yml` in the project root, `'./lib/index.js'` points at
+> `<project>/lib/index.js` — relative paths are anchored to the directory
+> containing `overlay.yml`, so the same form works on Windows, macOS and
+> Linux. If you need an absolute path, use a `file:///` URL instead, e.g.
+> `'file:///C:/dev/dsh-skills-nexus/lib/index.js'`; the older `'/C:/...'`
+> form (leading `/` before the drive letter) no longer works on current
+> dsh — it is resolved into `C:\C:\...`.
+
+**Or generate it with a one-liner** (make sure you've cd'd into the project dir;
+works the same in Git Bash, macOS and Linux shells):
+
+```bash
+cat > overlay.yml <<EOF
+- insert:
+    - id: dsh-skills-nexus
+      name: './lib/index.js'
+EOF
+```
+
+> No absolute path is embedded — `pwd` / `pwd -W` are not needed, and the file
+> stays valid if you later move the project folder.
+
+### Step 3 — start DSH in patch mode
+
+```bash
+npx @deepseek-ai/dsh web --patch overlay.yml
+```
+
+This mounts nexus as a temporary layer **for this DSH process only** — stop the
+process and the layer is gone; nothing is persisted to the profile. With the
+plugin side built, the web UI's Settings page also shows the
+[Skills Nexus panel](#web-panel-optional-plugin-side) for this session. Note
+it does **not** put the `dsh-skills-nexus` CLI on your shell PATH; the shell
+command comes from `npm link` in Step 4. **After changing code, re-run
+`npm run build` and restart DSH to pick up changes.**
+
+### Step 4 — add a skill and test with the CLI
+
+> **Note**: do **not** move the project folder during local testing. If you
+> move it after `npm link`, re-running `npm link` will fail with
+> `EEXIST: file already exists` — the global link still points to the old
+> location. See the fix below.
+
+Open another terminal:
+
+```bash
+# link the CLI globally for easy access
+cd dsh-skills-nexus
+npm link
+
+# add a real skill repo to test with
+dsh-skills-nexus add github:xiaxi626/theme-port-skill
+
+# verify it was registered
+dsh-skills-nexus list
+
+# check that symlinks were created in the official root
+ls -la ~/.dsh/skills/
+```
+
+**If you moved the folder and `npm link` fails with EEXIST:**
+
+Option A — overwrite with `--force` (simplest, works on all platforms):
+
+```bash
+npm link --force
+```
+
+Option B — remove the stale global link with npm, then re-link (all platforms):
+
+```bash
+npm uninstall -g dsh-skills-nexus
+npm link
+```
+
+> Prefer `npm uninstall -g` over manually deleting files under the npm global
+> prefix: it removes the bin shims and the link in one safe step, and avoids
+> `Remove-Item` / `rm` footguns on a symlinked global package.
+
+### Step 5 — verify in DSH
+
+The DSH process started in Step 3 was running **before** you added a skill in
+Step 4 — but with the default configuration you do **not** need to restart:
+the official filesystem provider watches `~/.dsh/skills/`, and the symlink
+the CLI just created is picked up within its stability window. Open a **new
+conversation** in the running DSH session and ask "what skills do you have?"
+(or similar) — `theme-port-skill` should appear in the skill list.
+
+If your host runs without the filesystem watcher (or the skill does not show
+up), fall back to a restart: stop the Step 3 process with `Ctrl+C`, re-run
+`npx @deepseek-ai/dsh web --patch overlay.yml`, and DSH will rescan the
+skills root on boot.
+
+### Clean up after local testing
+
+`--patch` wrote nothing to the profile, so there is no plugin to remove. Local
+testing leaves just two things — the skill data and the `npm link` — so follow
+[Uninstall nexus itself](#uninstall-nexus-itself) items 1 and 3 (run
+`dsh-skills-nexus remove '*' --yes` first, then `npm uninstall -g
+dsh-skills-nexus`); skip item 2 (`dsh plugin remove`), which does not apply
+here.
+
+---
+
+## Lighter verification (without starting DSH)
+
+If you just want to verify the "clone + symlink creation + list" pipeline
+without starting DSH, use the CLI directly:
+
+```bash
+# add a skill
+dsh-skills-nexus add github:xiaxi626/theme-port-skill
+
+# check registration
+dsh-skills-nexus list
+
+# verify symlinks were created
+ls -la ~/.dsh/skills/
+```
+
+> If `list` shows the expected skill and `ls -la` shows symlinks pointing to
+> `repos/` directories, the clone + symlink pipeline is working correctly.
+
+---
+
+## Notes & limitations
+
+- **`add` then visibility**: with the default configuration the official
+  filesystem provider watches the skills root, so newly added skills appear
+  in new conversations of an already-running host within its stability
+  window — no reload needed. Hosts running without the watcher pick changes
+  up on the next rescan/restart; the web panel flags this with a "next host
+  start" notice.
+- **Version pinning & updates**: pin a ref with `#branch`, `#tag`, or
+  `#commit-sha`. At install time the manifest records the exact resolved
+  commit (`commit`) — a lightweight lock that `list` shows. `update` only
+  fast-forwards **branch**-pinned skills (printing the commit change);
+  **tag/commit**-pinned skills are fixed points: it verifies the checkout
+  still matches the pin (and restores it if it drifted) instead of pulling, so
+  a pinned version never silently drifts. When no `#ref` is given, the CLI
+  detects the remote's default branch via `git ls-remote --symref` (falls back
+  to `main`).
+- **Skill content repos only**: this is *not* a replacement for `dsh plugin add`
+  of real Cordis plugins. If a repo already ships a `dsh.bundle.patch`, install
+  it the normal way — nexus is for repos that don't. See
+  [nexus vs `dsh plugin`](docs/nexus-vs-plugin.md) for the full decision guide.
+- **External entries (`link` channel)**: `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` / `link codebuddy` / `link workbuddy` creates *external* entries
+  that symlink to directories you already own (`~/.trae-cn/skills/`, `~/.trae/skills/`, `~/.codebuddy/skills/`,
+  `~/.workbuddy/skills/`, or the user-level and marketplace-plugin skill directories under `~/.qoder` and `~/.qoder-cn`). Nexus
+  never clones, updates or deletes those directories — `remove` only deletes the
+  link and the manifest entry. External entries carry a `groupPath` (e.g.
+  `['trae-cn', 'skills', 'brainstorming']`) for hierarchical grouping; `enable`
+  and `disable` accept `--group <path>` to batch-toggle every entry under a
+  prefix. The web panel renders grouped entries under collapsible L1 group
+  headers with a group-level Switch.
+- **Project scope**: `link` / `list` / `enable` / `disable` /
+  `remove` / `doctor --project` act on any project folder's
+  `<project>/.dsh/skills` — the root the provider scans ahead of
+  `~/.dsh/skills`. The tab also parses the folder's own `SKILL.md` for a
+  read-only preview. Enable/disable move a link to `.dsh/skills-disabled` and
+  back; the target is untouched. They write no manifest entry, copy nothing and
+  never edit a `SKILL.md`; `remove --project` deletes only a proven link and
+  refuses real user content. `add`, `import`, `update` and `export` have no
+  project scope. See [Project skills](#project-skills).
+- **Collection repos & `--subdir`**: collection repos (skills nested under
+  subdirectories, e.g. `trae-community/trae-skills`) are installed piecemeal
+  with `--subdir <path>` — each install is its own entry with its own clone
+  (independent-clone design, see [docs/subdir-design.md](docs/subdir-design.md)
+  for the P1/P2 trade-off). New `--subdir` installs are **sparse checkouts**
+  where Git and the remote allow it: a partial clone plus cone-mode
+  `sparse-checkout` (the install reports `checkout: sparse`), so unrelated
+  skill directories are not materialized — when the remote supports blob
+  filtering this usually means less to download, though the exact saving
+  depends on the repo layout (no strict download cap: cone keeps the repo
+  root's and ancestor directories' own files, and a remote that ignores the
+  filter may hand over the whole repository — nexus warns when that happens).
+  To leave sparse mode, run `git -C <clone> sparse-checkout disable` (fetches
+  everything else; `update` will not re-enable it). The sparse flow needs
+  **Git 2.35 or newer** (older Git has no `--cone` on `sparse-checkout set`);
+  if this Git cannot run it, the same clone is completed as a full checkout
+  after a visible warning. Installing the whole repo without `--subdir` is guarded
+  by a confirmation prompt above 20 skills. Entries cherry-picked from
+  the same repo each keep their own clone, but `list` shows a **SOURCE** column
+  (the origin `owner/repo`) so same-origin entries are easy to spot.
+- **Flat-markdown filter**: a flat `*.md` file without frontmatter `name` AND
+  `description` is not treated as a skill — collection-repo docs like
+  `README.zh-CN.md`, `CONTRIBUTING.md` or `community-leaderboard.md` are never
+  "fake-installed". Doc-like names (`readme*`, `contributing*`, `license*`,
+  `changelog*`, `code-of-conduct*`, `security*`) are skipped at discovery.
+- **Name collisions**: DSH indexes skills by name; a later install with the
+  same name overwrites. Use `--name` to distinguish entries, or `--subdir` to
+  install only what you need. For `--subdir` installs, an explicit `--name`
+  that normalizes to the same value as the default entry name prints a
+  one-time hint after a successful install that the flag can be omitted.
+  enable/disable work per entry, `remove` deletes the whole entry's clone
+  and all its symlinks.
+- **Skill name validation**: DSH requires lowercase kebab-case skill names
+  (`[a-z0-9]+` segments separated by single `-`). nexus normalizes invalid
+  frontmatter names at `add` time (converted to kebab-case) and warns with `⚠`.
+- **Build scripts**: because nexus clones content repos itself (not via pnpm),
+  it sidesteps pnpm `allowBuilds` interception entirely.
+- **Windows links**: nexus creates directory junctions on Windows
+  (`symlink(..., 'junction')`) and plain directory symlinks elsewhere — neither
+  needs Developer Mode or admin privileges.
+
+## For tool builders
+
+Want to build on nexus — a GUI, a sync daemon, a CI job, or a higher-level
+installer that installs git `SKILL.md` repos into DSH? Nexus already solves
+the fiddly cross-platform parts (spec parsing, clone-with-retry, ref pinning,
+frontmatter normalization, collection `--subdir`, Windows-junction symlinks)
+and exposes stable machine interfaces you can depend on:
+`dsh-skills-nexus list --names` (enumerate installed skills),
+`dsh-skills-nexus doctor --json` (a versioned health report), and `--json` on
+`add` / `list` / `update` / `remove` / `enable` / `disable` / `link` / `purge` (versioned reports
+describing what an operation just did). Shell out to the
+CLI — never `import` package internals or read `manifest.json`. See
+**[Building on nexus — machine interfaces for tool authors](docs/build-on-nexus.md)**
+for the full contract, the ecosystem boundary, and the explicit list of
+interfaces that are **not** promised.
+
+### Verifying the browser half after a change
+
+`lib/client.js` is built by `npm run build:client`, which the CI deliberately
+does **not** run (it needs Node ≥ 22.18 while the test matrix starts at 20), and
+the browser module table is not type-checked either — a `require` the host's
+loader cannot answer is a **runtime** throw with no build-time symptom. So a
+change to `src/client/**` or to the module table needs one manual pass:
+
+1. `npm run build` && `npm run build:client`, then commit `lib/`.
+2. Confirm the bundle's `require` calls are all inside the host's module table:
+
+   ```console
+   $ node -e "const s=require('fs').readFileSync('lib/client.js','utf8');\
+     console.log([...new Set([...s.matchAll(/require\(\"([^\"]+)\"\)/g)].map(m=>m[1]))].sort())"
+   [ '@deepseek-ai/dsh-client-ui-primitives', 'react', 'react/jsx-runtime' ]
+   ```
+
+   Anything else is a specifier the loader will refuse at runtime.
+3. `dsh web --profile <name>`, install this checkout into that profile, and open
+   **Settings → Skills Nexus**. Check the panel renders, the skill rows show
+   their state dots, and one action round-trips (a toggle is enough).
+4. The `desktop` profile is managed exclusively by the Electron app, so use a
+   throwaway profile for step 3; `dsh plugin --profile desktop …` refuses.
+
+## Documentation
+
+- [Architecture — data flow, directory layout, SKILL.md discovery](docs/ARCHITECTURE.md)
+- [nexus vs `dsh plugin` — when to use which](docs/nexus-vs-plugin.md)
+- [Subdir design — P1/P2 trade-off for collection repos](docs/subdir-design.md)
+- [Verifying the version-lock feature (P0)](docs/verify-version-lock.md)
+- [Verifying the clone-retry feature (P0)](docs/verify-clone-retry.md)
+- [Verifying collection-repo support (P1)](docs/verify-collection-support.md)
+- [Verifying the plugin-load contract (plugin add → dsh web cold boot)](docs/verify-plugin-install.md)
+- [Verifying the `doctor` command (P0)](docs/verify-doctor.md)
+- [Verifying shell completion](docs/verify-completions.md)
+- [Verifying local source links — current sources, overrides and panel](docs/verify-link-sources.md)
+- [Verifying project-scope skills — links under `<project>/.dsh/skills`](docs/verify-project-skills.md)
+- [Building on nexus — machine interfaces for tool authors](docs/build-on-nexus.md)
+- [Contributing — project layout, testing & CI](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
+
+## Contributing
+
+Contributions of all kinds are welcome — bug fixes, new commands, docs.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for project layout, local setup, and
+quality gates.
+
+Found a bug or have an idea?
+[Open an issue](https://github.com/xiaxi626/dsh-skills-nexus/issues/new/choose)
+— we use issue templates to make it easy.
+
+## License
+
+MIT
