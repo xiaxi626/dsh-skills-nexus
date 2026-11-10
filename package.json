@@ -68,7 +68,8 @@
     "test:build": "tsc -p tsconfig.test.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "prepublishOnly": "npm run typecheck && npm run lint && npm test",
+    "release:check": "node scripts/release-check.mjs",
+    "prepublishOnly": "node scripts/release-check.mjs && npm run build && git diff --exit-code -- lib/ && npm run typecheck && npm run lint && npm test",
     "cli": "node --import tsx src/cli/index.ts"
   },
   "dependencies": {
