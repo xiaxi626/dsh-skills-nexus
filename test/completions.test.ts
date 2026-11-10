@@ -782,20 +782,17 @@ test('the emitted fish template completes correctly in a real fish', { skip: !HA
   const templatePath = join(stubDir, 'completions.fish')
   await writeFile(templatePath, fishTemplate)
   try {
-    // Positions where no other rule can contribute: exact sets.
+    // Positions where the template alone decides the set: the empty slot, or a
+    // list already narrowed by a rule condition. Exact sets are safe here.
     const exact: [string, string, string[]][] = [
       ['sub', 'dsh-skills-nexus ', routed],
       ['sub-prefix-d', 'dsh-skills-nexus d', ['diff', 'disable', 'doctor']],
-      ['add-flag', 'dsh-skills-nexus add --n', ['--name']],
-      ['link-source-dir', 'dsh-skills-nexus link trae --s', ['--source-dir']],
-      ['link-legacy-dir', 'dsh-skills-nexus link trae-cn --trae', ['--trae-cn-dir']],
       ['add-bare-dashes', 'dsh-skills-nexus add --', ['--name', '--ref', '--subdir', '--yes', '--json']],
       [
         'doctor-bare-dashes',
         'dsh-skills-nexus doctor --',
         ['--json', '--project', '--project-root', '--quiet', '--updates'],
       ],
-      ['shell-prefix', 'dsh-skills-nexus completions --shell b', ['bash']],
       ['update-skill', 'dsh-skills-nexus update ', ['alpha', 'beta']],
       ['rollback-skill', 'dsh-skills-nexus rollback ', ['alpha', 'beta']],
       ['rollback-flag', 'dsh-skills-nexus rollback --', ['--json']],
@@ -804,8 +801,30 @@ test('the emitted fish template completes correctly in a real fish', { skip: !HA
       ['update-flag', 'dsh-skills-nexus update --x', []],
       ['unknown-cmd', 'dsh-skills-nexus nope ', []],
     ]
+    // Collected rather than thrown one at a time: a shell upgrade that changes
+    // several cases should surface all of them in a single run.
+    const mismatches: string[] = []
     for (const [label, cmdline, expected] of exact) {
-      assert.deepEqual(runInFish(cmdline, stubDir, emptyDir, templatePath), [...expected].sort(), label)
+      const got = runInFish(cmdline, stubDir, emptyDir, templatePath)
+      const want = [...expected].sort()
+      if (got.join('\u0000') !== want.join('\u0000'))
+        mismatches.push(`${label}: got [${got.join(' ')}] want [${want.join(' ')}]`)
+    }
+    assert.deepEqual(mismatches, [], 'fish completion mismatches')
+
+    // A half-typed option or value is filtered by fish itself, and fish 4.2
+    // matches those tokens more loosely than 3.x did: `add --n` also offers
+    // `--json`, whose name merely contains the typed `n`. That matcher belongs
+    // to the shell, not to the template, so pin only the candidate the typed
+    // prefix names - the declared set is already covered by the `--` cases.
+    for (const [label, cmdline, expected] of [
+      ['add-flag', 'dsh-skills-nexus add --n', ['--name']],
+      ['link-source-dir', 'dsh-skills-nexus link trae --s', ['--source-dir']],
+      ['link-legacy-dir', 'dsh-skills-nexus link trae-cn --trae', ['--trae-cn-dir']],
+      ['shell-prefix', 'dsh-skills-nexus completions --shell b', ['bash']],
+    ] as [string, string, string[]][]) {
+      const got = runInFish(cmdline, stubDir, emptyDir, templatePath)
+      for (const want of expected) assert.ok(got.includes(want), `${label} should offer ${want}, got: ${got.join(' ')}`)
     }
 
     // An empty slot is where fish may also list the option name itself, so only
