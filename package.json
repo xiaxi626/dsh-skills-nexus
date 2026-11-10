@@ -2,6 +2,20 @@
   "name": "dsh-skills-nexus",
   "version": "0.10.0",
   "description": "Universal DSH skill adapter — register any git SKILL.md repo as a DSH skill via one command in the CLI or a few clicks in the DSH web panel.",
+  "keywords": [
+    "dsh",
+    "dsh-skills-nexus",
+    "dsh-plugin",
+    "deepseek-harness",
+    "skill",
+    "skills",
+    "agent-skills",
+    "skill-manager",
+    "cli",
+    "ai-agent",
+    "deepseek"
+  ],
+  "author": "xiaxi626",
   "license": "MIT",
   "repository": {
     "type": "git",
