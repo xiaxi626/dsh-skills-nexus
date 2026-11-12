@@ -43,7 +43,7 @@
 import type { ReactElement } from 'react';
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives';
 import { matchesQuery } from '../filter.js';
-import type { DoctorReport, Job, ListEntry, NexusApi, ProjectFolderSkill, ProjectSkillEntry } from './api.js';
+import type { DoctorReport, Job, ListEntry, NexusApi, ProjectFolderSkill, ProjectFileEntry, ProjectSkillEntry } from './api.js';
 /** Map route errors to one-line user-readable text (codes are the route contract). */
 export declare function errorText(err: unknown): string;
 /**
@@ -72,6 +72,18 @@ export { matchesQuery };
 export declare function NexusPanel({ api: apiProp }: {
     api?: NexusApi;
 }): ReactElement;
+interface WorkspaceSkillRowProps {
+    entry: ProjectFileEntry;
+    busy: boolean;
+    onToggle: (entry: ProjectFileEntry) => void;
+}
+/**
+ * One real-file row for the workspace-authorised toggle. No remove (never
+ * delete user content) and no dangling check (real directories don't dangle).
+ * Toggle moves between `.dsh/skills` and `.dsh/skills-disabled`. Exported for
+ * the static render test.
+ */
+export declare function WorkspaceSkillRow({ entry, busy, onToggle, }: WorkspaceSkillRowProps): ReactElement;
 interface ProjectSkillRowProps {
     entry: ProjectSkillEntry;
     busy: boolean;

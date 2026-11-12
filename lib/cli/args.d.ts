@@ -109,6 +109,8 @@ export interface ToggleOptions {
     project?: boolean;
     /** Explicit project root; requires `project`. */
     projectRoot?: string;
+    /** Move real project directories (not symlinks). Requires `project`. */
+    files?: boolean;
 }
 /**
  * Parse `enable`/`disable` args: one or more names plus `--json`.

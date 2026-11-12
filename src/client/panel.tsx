@@ -99,7 +99,9 @@ import type {
   ListEntry,
   NexusApi,
   ProjectFolderSkill,
+  ProjectFileEntry,
   ProjectSkillEntry,
+  WorkspaceRow,
 } from './api.js'
 import css from './panel.module.css'
 
@@ -351,6 +353,16 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
   const [projectError, setProjectError] = useState<string | null>(null)
   const [projectBusy, setProjectBusy] = useState(false)
   const [projectLinkBusy, setProjectLinkBusy] = useState(false)
+  /* -------------------------------------------------------------- */
+  /* Host-registered workspace block — fully independent state       */
+  /* from the manual project-folder block above (计划硬约束 §7.3).   */
+  /* -------------------------------------------------------------- */
+  const [workspaceAvailable, setWorkspaceAvailable] = useState<boolean | null>(null)
+  const [workspaces, setWorkspaces] = useState<WorkspaceRow[]>([])
+  const [workspacePath, setWorkspacePath] = useState('')
+  const [workspaceEntries, setWorkspaceEntries] = useState<ProjectFileEntry[]>([])
+  const [workspaceBusy, setWorkspaceBusy] = useState(false)
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null)
   /** The project link awaiting a removal decision. */
   const [pendingProjectRemoval, setPendingProjectRemoval] = useState<ProjectSkillEntry | null>(null)
   const [projectRemovalAcknowledged, setProjectRemovalAcknowledged] = useState(false)
@@ -699,6 +711,57 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
       if (alive.current) setProjectBusy(false)
     }
   }, [api, projectRoot])
+
+  /** Load host-registered workspaces — called explicitly via the button (§7.3). */
+  const loadWorkspaces = useCallback(async (): Promise<void> => {
+    setWorkspaceBusy(true)
+    try {
+      const env = await api.workspacesList()
+      if (!alive.current) return
+      setWorkspaceAvailable(env.data.available)
+      setWorkspaces(env.data.items)
+      setWorkspaceError(null)
+    } catch (err) {
+      if (alive.current) {
+        setWorkspaceError(errorText(err))
+        setWorkspaceAvailable(false)
+      }
+    } finally {
+      if (alive.current) setWorkspaceBusy(false)
+    }
+  }, [api])
+
+  /** Refresh real-file entries for the **chosen registered workspace path**. */
+  const refreshWorkspace = useCallback(async (path: string): Promise<void> => {
+    setWorkspaceBusy(true)
+    try {
+      const env = await api.workspaceSkills(path)
+      if (!alive.current) return
+      setWorkspacePath(path)
+      setWorkspaceEntries(env.data.entries)
+      setWorkspaceError(null)
+    } catch (err) {
+      if (alive.current) {
+        setWorkspaceError(errorText(err))
+        setWorkspaceEntries([])
+      }
+    } finally {
+      if (alive.current) setWorkspaceBusy(false)
+    }
+  }, [api])
+
+  /** Toggle one real entry via the host-authorised workspace route. */
+  const toggleWorkspaceFile = useCallback(async (entry: ProjectFileEntry): Promise<void> => {
+    setWorkspaceBusy(true)
+    try {
+      await api.workspaceToggle(workspacePath, entry.name, !entry.enabled)
+      await refreshWorkspace(workspacePath)
+    } catch (err) {
+      if (alive.current) setWorkspaceError(errorText(err))
+    } finally {
+      if (alive.current) setWorkspaceBusy(false)
+    }
+  }, [api, refreshWorkspace, workspacePath])
 
   /** Track a project-link job, then re-read the project directory. */
   const trackProjectLink = useCallback(
@@ -1426,6 +1489,83 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
           nexus never edits a skill file and never deletes user content.
         </p>
 
+        {/* ============ Host-registered workspace block (独立 state) ============ */}
+        <section>
+          <h4 className={css.groupTitle}>registered workspace (.dsh)</h4>
+          {workspaceAvailable === null ? (
+            <p className={css.hint}>
+              click <button type="button" className={css.linkLike} onClick={() => void loadWorkspaces()}>load workspaces</button>
+              to query the host registry (only available on the DSH web profile)
+            </p>
+          ) : workspaceAvailable === false ? (
+            <p className={css.hint}>
+              workspace registry unavailable on this host —
+              the manual project folder input below works instead
+            </p>
+          ) : (
+            <>
+              <div className={css.formRow}>
+                <label className={css.fieldLabel}>
+                  workspace
+                  <select
+                    aria-label="registered workspace"
+                    value={workspacePath}
+                    disabled={workspaceBusy}
+                    onChange={(e) => {
+                      const next = e.target.value
+                      if (next.length === 0) {
+                        setWorkspacePath('')
+                        setWorkspaceEntries([])
+                        return
+                      }
+                      void refreshWorkspace(next)
+                    }}
+                  >
+                    <option value="">pick a registered workspace…</option>
+                    {workspaces.map((w) => (
+                      <option key={w.id || w.path} value={w.path}>
+                        {w.title || w.path}
+                        {w.exists ? '' : ' — missing'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Button
+                  type="button"
+                  icon={<IconRefreshOutlineRegular />}
+                  onClick={() => void loadWorkspaces()}
+                  disabled={workspaceBusy}
+                >
+                  {workspaceBusy ? '…' : 'load workspaces'}
+                </Button>
+              </div>
+              {workspaceError !== null && (
+                <p className={css.error}>{workspaceError}</p>
+              )}
+              {workspacePath.length === 0 ? (
+                <p className={css.hint}>select a registered workspace to see its real .dsh entries</p>
+              ) : workspaceEntries.length === 0 ? (
+                <p className={css.empty}>no real directories under the project skills root.</p>
+              ) : (
+                <ul className={css.entries}>
+                  {workspaceEntries.map((entry) => (
+                    <li key={`${entry.name}:${entry.enabled}`} className={css.entryRow}>
+                      <WorkspaceSkillRow
+                        entry={entry}
+                        busy={workspaceBusy}
+                        onToggle={toggleWorkspaceFile}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </section>
+
+        <hr />
+
+        {/* ============ Manual project-folder block (旧区块，逐字不变) ============ */}
         <div className={css.formRow}>
           <label className={css.fieldLabel}>
             project folder
@@ -1593,6 +1733,44 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
 /* ------------------------------------------------------------------ */
 /* Entry row                                                           */
 /* ------------------------------------------------------------------ */
+
+interface WorkspaceSkillRowProps {
+  entry: ProjectFileEntry
+  busy: boolean
+  onToggle: (entry: ProjectFileEntry) => void
+}
+
+/**
+ * One real-file row for the workspace-authorised toggle. No remove (never
+ * delete user content) and no dangling check (real directories don't dangle).
+ * Toggle moves between `.dsh/skills` and `.dsh/skills-disabled`. Exported for
+ * the static render test.
+ */
+export function WorkspaceSkillRow({
+  entry,
+  busy,
+  onToggle,
+}: WorkspaceSkillRowProps): ReactElement {
+  const name = entry.skill?.name ?? entry.name
+  const meta =
+    entry.skill?.description?.trim() ||
+    entry.skill?.error ||
+    entry.path
+  return (
+    <div className={css.entryHead}>
+      <span className={css.entryName}>{name}</span>
+      <Tag tone="neutral">{entry.enabled ? 'active dir' : 'disabled dir'}</Tag>
+      <span className={css.entryMeta}>{meta}</span>
+      <span className={css.toolbarSpacer} />
+      <Switch
+        checked={entry.enabled}
+        onChange={() => onToggle(entry)}
+        label={entry.enabled ? `disable ${name}` : `enable ${name}`}
+        disabled={busy}
+      />
+    </div>
+  )
+}
 
 interface ProjectSkillRowProps {
   entry: ProjectSkillEntry

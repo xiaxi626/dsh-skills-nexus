@@ -342,6 +342,8 @@ export interface ToggleOptions {
   project?: boolean
   /** Explicit project root; requires `project`. */
   projectRoot?: string
+  /** Move real project directories (not symlinks). Requires `project`. */
+  files?: boolean
 }
 
 /**
@@ -358,6 +360,7 @@ export function parseToggleArgs(argv: string[], command: 'enable' | 'disable'): 
   let group: string | undefined
   let project = false
   let projectRoot: string | undefined
+  let files = false
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!
@@ -375,6 +378,11 @@ export function parseToggleArgs(argv: string[], command: 'enable' | 'disable'): 
         throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
       }
       project = true
+    } else if (flag === '--files') {
+      if (inlineVal !== undefined) {
+        throw new Error(`${flag} takes no value (got "${inlineVal}"); use ${flag} alone`)
+      }
+      files = true
     } else if (flag === '--project-root') {
       projectRoot = inlineVal ?? argv[++i]
       if (!projectRoot || (inlineVal === undefined && projectRoot.startsWith('--'))) {
@@ -391,6 +399,12 @@ export function parseToggleArgs(argv: string[], command: 'enable' | 'disable'): 
     }
   }
 
+  if (files && !project) {
+    throw new Error('--files requires --project (it only moves real project-skill directories)')
+  }
+  if (files && group !== undefined) {
+    throw new Error('--files cannot combine with --group; both target exact names')
+  }
   if (projectRoot !== undefined && !project) {
     throw new Error('--project-root requires --project (it would otherwise be silently ignored)')
   }
@@ -411,6 +425,7 @@ export function parseToggleArgs(argv: string[], command: 'enable' | 'disable'): 
     ...(group === undefined ? {} : { group }),
     ...(project ? { project: true } : {}),
     ...(projectRoot === undefined ? {} : { projectRoot }),
+    ...(files ? { files: true } : {}),
   }
 }
 

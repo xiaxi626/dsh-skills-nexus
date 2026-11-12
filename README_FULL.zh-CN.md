@@ -24,7 +24,7 @@ dsh-skills-nexus 是社区维护的 DeepSeek Harness (DSH) 插件，非 DeepSeek
 | Git 安装 | 任意 git 主机上的 `SKILL.md` 仓库，可锁到分支、tag 或 commit；集合仓库用部分克隆 + 稀疏检出只装一个子目录；注册前先识别包装层 | `add` |
 | 版本管理 | 刷新分支跟踪的克隆、不检出就预览远端变更、把克隆切到另一个 ref、撤销最近一次版本变更 | `update` / `diff` / `switch-version` / `rollback` |
 | 外部引用 | 把已经装在别的 agent 目录里的技能登记进来——不克隆、不复制、不写那些目录 | [`link`](#支持-link-的外部来源) / `remove --group` |
-| 项目级技能 | 查看任意项目文件夹的技能（解析名称/描述），把目录链接进 `<project>/.dsh/skills`（provider 优先扫描的根），可启停/删除链接并报告悬空——不写 manifest、不克隆、不复制 | [`--project`](#项目技能) |
+| 项目级技能 | 查看任意项目文件夹的技能（解析名称/描述），把目录链接进 `<project>/.dsh/skills`（provider 优先扫描的根），可启停/删除链接并报告悬空——不写 manifest、不克隆、不复制；加 `--files` 后启停真实目录——不碰 link、不写 manifest | [`--project`](#项目技能) · [`--files`](#files-必须配-project) |
 | 跨机器搬运 | 把条目连同来路打包，在别处重建（可选恢复到记录的精确 commit），给冻结条目补回来路 | `export` / `import` / `adopt` |
 | 分组与开关 | 按来源或自定义 L1 组名分组，按单条目或整组前缀启停 | `enable` / `disable` / `--group` |
 | 体检与清理 | 只读检查清单、链接与克隆（可选比对远端更新），清理累积产物 | `doctor` / `purge` |

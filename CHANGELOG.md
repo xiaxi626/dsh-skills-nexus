@@ -27,7 +27,20 @@
 
 - **Task 4 · 宿主接线**：`src/index.ts` 的 `apply()` 改为 `createNexusRoutes({ workspaces: () => workspaceRegistryOf(ctx) })`。非 web profile 下三条路由全 unavailable，面板侧拉不到任何工作区。
 
-- **Task 6 · 客户端 API**：`src/client/api.ts` 新增类型 `WorkspaceRow` / `ProjectFileEntry` / `WorkspaceToggleStatus` 与三个方法 `workspacesList()` / `workspaceSkills(workspace)` / `workspaceToggle(workspace, name, enabled)`。`npm run build:client` 输出 `lib/client.js` 99 KB。
+- **Task 6 · 客户端 API**：`src/client/api.ts` 新增类型 `WorkspaceRow` / `ProjectFileEntry` / `WorkspaceToggleStatus` 与三个方法 `workspacesList()` / `workspaceSkills(workspace)` / `workspaceToggle(workspace, name, enabled)`。`npm run build:client` 输出 `lib/client.js` 107 KB。
+
+- **Task 5 · CLI `--files`**：
+  - `src/cli/args.ts` — `ToggleOptions` 加 `files?: boolean`；`parseToggleArgs` 加 `--files` flag 分支（无值、单独不能用、与 `--group` 互斥）、双闸门验证（files 必须配 project；files 不能配 group）。
+  - `src/cli/commands/toggle.ts` — 循环内 `if (opts.files) setProjectFilesEnabled(...) else setProjectLinkEnabled(...)`；返回联合类型 `ProjectToggleStatus | ProjectFilesToggleStatus`。
+  - `src/cli/json-types.ts` — `ProjectToggleJsonStatus` 加 `not-files` 成员（files 模式遇到 symlink 拒绝，语义反转 link 模式的 `not-a-link`）。
+  - 四套 shell 补全模板（bash / zsh / fish / powershell）enable|disable 行同步加 `--files`。
+
+- **Task 7 · 面板 UI**：`src/client/panel.tsx` Project skills 页签加**完全独立的 host-registered workspace 区块**——6 个新 state 与旧区块完全隔离（不共享 projectRoot、不共享 handler、不共享条件渲染分支）；`<hr />` 分隔线之上是 workspace、之下是旧区块逐字不变（`aria-label="project root"` 和 hint 原文 `any absolute folder — it does not have to be a registered DSH workspace` 保持原样）。默认 `workspaceAvailable === null` 时只显示"click load workspaces"按钮——渲染期不触发任何新 API。点击后才调 `workspacesList()` 拉注册工作区；返回 `{ available: true, items[] }` 时出现 select + load workspaces 按钮；选中后调 `workspaceSkills(workspacePath)` 拉真实目录条目，每行渲染导出组件 `WorkspaceSkillRow`（Switch 启停、无 remove 按钮——真实目录永不可删）。
+  - 验证：`panel-render.test.tsx` 32/32 零回归；`panel-workspaces.test.tsx` 5/5（默认块占位、上/下分区顺序+`<hr />`、旧 hint 原文、`WorkspaceSkillRow` switch、disabled 行显示 enable）。
+
+- **Task 8 · 文档**：`README_FULL.zh-CN.md` 增量更新——能力总览表加 `--files` 描述、usage 示例补 disable/enable --project --files、项目技能小节双模式说明（link 与 files 语义反转）、新增"工作区授权"小节（三条路由表格 + 双重闸门说明：请求里的 workspace 只作授权 key，实际路径由 detectProjectRoot 解析，symlink 拒绝）。
+
+- **Task 9 · 收尾**：`package.json` 的 npm test 脚本显式列表纳入四个新测试文件（`test/project-files.test.ts test/workspaces.test.ts test/workspace-routes.test.ts test/panel-workspaces.test.tsx`）。BOM 问题修了（用 Node `fs.writeFileSync` 写 UTF-8 无 BOM）。真机验证 `npx dsh web` 正常加载 plugin。
 
 ## [0.10.0] - 2026-11-09
 

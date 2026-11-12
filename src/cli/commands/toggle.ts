@@ -13,8 +13,8 @@ import { parseToggleArgs } from '../args.js'
 import type { ToggleOptions } from '../args.js'
 import { jsonIO, emitJson, fatalJsonError } from '../json-io.js'
 import type { ProjectToggleJsonResult, ToggleJsonResult } from '../json-types.js'
-import { setProjectLinkEnabled } from '../../project.js'
-import type { ProjectToggleStatus } from '../../project.js'
+import { setProjectLinkEnabled, setProjectFilesEnabled } from '../../project.js'
+import type { ProjectToggleStatus, ProjectFilesToggleStatus } from '../../project.js'
 import { resolveProjectScope } from '../project-scope.js'
 
 /**
@@ -95,10 +95,14 @@ async function toggleProject(
   let failures = 0
 
   for (const name of opts.names) {
-    let status: ProjectToggleStatus
+    let status: ProjectToggleStatus | ProjectFilesToggleStatus
     let error: string | undefined
     try {
-      status = await setProjectLinkEnabled(scope.root, name, enabled)
+      if (opts.files) {
+        status = await setProjectFilesEnabled(scope.root, name, enabled)
+      } else {
+        status = await setProjectLinkEnabled(scope.root, name, enabled)
+      }
     } catch (err) {
       status = 'failed'
       error = err instanceof Error ? err.message : String(err)
