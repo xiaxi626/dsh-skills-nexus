@@ -12,6 +12,13 @@
   - 名字闸门 `isDirectChildName` 复用：拒绝 `.` / `..` / 路径分隔符 / 空串。
   - `test/project-files.test.ts`（6 条）：disable→enable 往返、already 语义、not-found、路径穿越拒绝、双根同名独立可见、占用冲突。6/6 绿，旧 `test/project.test.ts` 零回归。
 
+- **Task 2 · 工作区授权模块**：新增 `src/workspaces.ts`——**零硬依赖**，通过 `workspaceRegistryOf(ctx)` 反射式读取 `ctx.get('workspaceRegistry')`，headless profile 里返回 `undefined`。三个函数：
+  - `detectProjectRoot(start)` — 向上爬祖先直到找到 `.git`（最多 32 层安全上限），爬不动就返回原路径。
+  - `listWorkspaces(registry)` — 规范化 host row → `WorkspaceRow { id, path, title, projectRoot, exists }`；`projectRoot` 由 `detectProjectRoot` 填，`exists` 由 `stat(path)` 判断。row 缺 path/非 object 跳过。
+  - `resolveWorkspaceTarget(registry, requested)` — **四层拒绝**：非绝对路径（POSIX `/` 或 Windows drive letter）→ registry 抛错 → registry 不认识 → `.dsh` / `.dsh/skills` / `.dsh/skills-disabled` 是 symlink（`unsafe-root`，防止面板通过 symlink 把写请求指到用户别处）。成功返回 `{ ok: true, path: projectRoot }`。
+  - 安全设计：请求里的 `workspace` 只作**授权 key**，实际用 `detectProjectRoot` 解析，**永远不信任请求里给的路径**。
+  - `test/workspaces.test.ts`（8 绿 + 1 skip）：`workspaceRegistryOf` 在各种 ctx 形状下的降级、`listWorkspaces` 正常化 + projectRoot 填充 + exists 标记 + row 跳过、`detectProjectRoot` 回退原路径、`resolveWorkspaceTarget` 相对路径拒绝/未知拒绝/symlink 拒绝（Windows skip，需管理员权限）/正常返回。
+
 ## [0.10.0] - 2026-11-09
 
 > **Project skills 标记为实验性**：`--project` 作用域与面板的 Project skills 页签功能与测试完整、CI 三平台全绿，但交互手感尚未经真实使用验证。既有全局技能的命令契约未变，不使用该作用域的用户不受影响；0.10.x 会按实际体验继续调整。
