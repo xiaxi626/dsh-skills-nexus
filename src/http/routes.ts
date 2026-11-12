@@ -27,14 +27,13 @@
  * later phase).
  */
 
-import { stat, mkdir, rm, writeFile, mkdtemp, lstat } from 'node:fs/promises'
+import { stat, mkdir, rm, writeFile, mkdtemp } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { ExportError, exportSkills } from '../export.js'
 import { HttpError, PLUGIN_ID } from './types.js'
 import type { RouteRequest, RouteResponse, RouteSpec } from './types.js'
 import { setProjectFilesEnabled, listProjectFiles, type ProjectFilesToggleStatus } from '../project.js'
 import {
-  workspaceRegistryOf,
   listWorkspaces,
   resolveWorkspaceTarget,
   type WorkspaceRegistryLike,

@@ -33,14 +33,19 @@
   - `src/cli/args.ts` — `ToggleOptions` 加 `files?: boolean`；`parseToggleArgs` 加 `--files` flag 分支（无值、单独不能用、与 `--group` 互斥）、双闸门验证（files 必须配 project；files 不能配 group）。
   - `src/cli/commands/toggle.ts` — 循环内 `if (opts.files) setProjectFilesEnabled(...) else setProjectLinkEnabled(...)`；返回联合类型 `ProjectToggleStatus | ProjectFilesToggleStatus`。
   - `src/cli/json-types.ts` — `ProjectToggleJsonStatus` 加 `not-files` 成员（files 模式遇到 symlink 拒绝，语义反转 link 模式的 `not-a-link`）。
+  - `src/cli/commands/toggle.ts` — `not-files` 不再落到 `unknown error`：专用文案提示改用不带 `--files` 的链接通道。
   - 四套 shell 补全模板（bash / zsh / fish / powershell）enable|disable 行同步加 `--files`。
+  - 测试：`test/args.test.ts` 增 `--files` 解析用例（必须配 `--project`、互斥 `--group`、不接受值）；`test/cli-project.test.ts` 增两条进程级用例（真实目录 disable→enable 往返且 link 模式仍拒绝；`--files` 对链接返回错误且不移动）。
 
 - **Task 7 · 面板 UI**：`src/client/panel.tsx` Project skills 页签加**完全独立的 host-registered workspace 区块**——6 个新 state 与旧区块完全隔离（不共享 projectRoot、不共享 handler、不共享条件渲染分支）；`<hr />` 分隔线之上是 workspace、之下是旧区块逐字不变（`aria-label="project root"` 和 hint 原文 `any absolute folder — it does not have to be a registered DSH workspace` 保持原样）。默认 `workspaceAvailable === null` 时只显示"click load workspaces"按钮——渲染期不触发任何新 API。点击后才调 `workspacesList()` 拉注册工作区；返回 `{ available: true, items[] }` 时出现 select + load workspaces 按钮；选中后调 `workspaceSkills(workspacePath)` 拉真实目录条目，每行渲染导出组件 `WorkspaceSkillRow`（Switch 启停、无 remove 按钮——真实目录永不可删）。
-  - 验证：`panel-render.test.tsx` 32/32 零回归；`panel-workspaces.test.tsx` 5/5（默认块占位、上/下分区顺序+`<hr />`、旧 hint 原文、`WorkspaceSkillRow` switch、disabled 行显示 enable）。
+  - 验证：`panel-render.test.tsx` 32/32 零回归；`panel-workspaces.test.tsx` 6/6（工作区块在旧区块之前且以 `<hr />` 分隔、默认只给 load workspaces 入口、旧输入框与 hint 原文、`WorkspaceSkillRow` 的 active/disabled/busy 三种状态）。
 
-- **Task 8 · 文档**：`README_FULL.zh-CN.md` 增量更新——能力总览表加 `--files` 描述、usage 示例补 disable/enable --project --files、项目技能小节双模式说明（link 与 files 语义反转）、新增"工作区授权"小节（三条路由表格 + 双重闸门说明：请求里的 workspace 只作授权 key，实际路径由 detectProjectRoot 解析，symlink 拒绝）。
+- **Task 8 · 文档**：
+  - `README_FULL.zh-CN.md` — 能力总览表加 `--files`；项目技能小节新增 `### --files：启停真实目录`（双通道语义反转、只移动不删除、共享 per-name 锁、`--json` 状态；并补上表格引用的锚点）；新增 `### 已登记工作区（.dsh）`（授权四层拒绝、三条路由表、headless 时 `available:false`）；「启停 = 移动」与「HTTP 接口」两处同步双通道。
+  - `docs/ARCHITECTURE.md` / `.zh-CN.md` — 新增 **Registered workspace mode** 章节：`ctx.get('workspaceRegistry')` 反射读取、`resolveWorkspaceTarget` 的四层授权、写操作仅一次 `rename`、两种通道互不越界。
+  - `docs/verify-project-skills.md` / `.zh-CN.md` — 命令/写入表格补 `--files`；新增真实目录开关的三步验收脚本；面板验收清单补 5 条（load workspaces、空 `.dsh` 工作区、headless `available:false` 等）；补三条工作区路由与错误码（`workspace-unavailable` / `workspace-unregistered` / `unsafe-root` / `not-files`）；测试清单纳入四个新文件。
 
-- **Task 9 · 收尾**：`package.json` 的 npm test 脚本显式列表纳入四个新测试文件（`test/project-files.test.ts test/workspaces.test.ts test/workspace-routes.test.ts test/panel-workspaces.test.tsx`）。BOM 问题修了（用 Node `fs.writeFileSync` 写 UTF-8 无 BOM）。真机验证 `npx dsh web` 正常加载 plugin。
+- **Task 9 · 收尾**：`package.json` 的 npm test 脚本显式列表纳入四个新测试文件（`test/project-files.test.ts test/workspaces.test.ts test/workspace-routes.test.ts test/panel-workspaces.test.tsx`）。BOM 问题修了（用 Node `fs.writeFileSync` 写 UTF-8 无 BOM）。全量验证：typecheck 0 error、build/build:client 成功、eslint `src test scripts` 0 error、测试全绿。真机验证 `npx dsh web` 正常加载 plugin。
 
 ## [0.10.0] - 2026-11-09
 

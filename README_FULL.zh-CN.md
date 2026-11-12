@@ -276,9 +276,10 @@ files  my-skill  SKILL.md  —       <description>
   `remove --project` 只删被证实的链接，遇到用户内容会以 `refusing to remove user files`
   拒绝。写入按「项目 + 名字」走 nexus 同一套跨进程文件锁；因为不碰 manifest，所以不取
   manifest 锁。
-- **启停 = 移动链接。** 停用把 `.dsh/skills/<name>` 移到同级的
+- **启停 = 移动。** 链接通道把 `.dsh/skills/<name>` 移到同级的
   `.dsh/skills-disabled/<name>`（provider 不扫描这个目录）；启用再移回来。链接自身携带
   目标（以及悬空状态），所以不需要记住路径、不需要状态文件，目标目录一个字节都不动。
+  真实目录走 [`--files`](#files-必须配-project) 通道，同样是移动，不是删除。
   停用项目同名技能后，全局同名技能会重新可见。
 - **冲突。** 已有活动链接会被改指向（`replace`）；已指向同一目录是 `unchanged`；真实
   目录或文件是 `collision`，内容原样保留。
@@ -293,8 +294,29 @@ files  my-skill  SKILL.md  —       <description>
 - **Git。** 链接记录的是机器本地绝对路径，纯 link 用法不要把 `.dsh/skills/` 与
   `.dsh/skills-disabled/` 下的链接提交进 git——把两者加入 `.gitignore`。要共享就把真实
   文件 vendored 进去。
-- **不支持。** `add` / `import` / `update` / `export` 没有项目形态；`remove --project`
-  与项目开关只接受精确链接名（不支持通配与 `--group`）。
+- **不支持。** `add` / `import` / `update` / `export` 没有项目形态；`remove --project`、
+  项目开关与 `--files` 只接受精确条目名（不支持通配与 `--group`）。
+
+<a id="files-必须配-project"></a>
+
+### `--files`：启停真实目录
+
+链接通道之外还有第二条通道：`--files` 直接在两棵根之间移动**真实目录**，用于你自己
+vendored 进 `.dsh/skills` 的技能。它必须与 `--project` 同时出现，且不能与 `--group`
+组合——两者都按精确名定位。
+
+```bash
+dsh-skills-nexus disable --project --files my-real-skill   # 移入 .dsh/skills-disabled
+dsh-skills-nexus enable  --project --files my-real-skill   # 移回 .dsh/skills
+```
+
+- **只认真实目录。** 遇到链接返回 `not-files`，并提示改用不带 `--files` 的链接通道；
+  反过来，链接通道遇到真实目录返回 `not-a-link`。两条通道都不猜你想干什么。
+- **写入只有一次 `rename`。** 目标目录、`SKILL.md` 内容与目录内其它文件都不动；位置就是
+  状态，不写 manifest、不编辑任何 `SKILL.md`。
+- **同一把锁。** 与链接通道共用 per-name 文件锁，两个终端同时操作同一个名字不会互相踩踏。
+- **机器输出。** `--json` 的 `results[].status` 会如实给出 `not-files` / `collision` /
+  `not-found` 等判定，脚本无需解析人类文案。
 
 
 隔离演练与面板验收见[验证项目级技能作用域](docs/verify-project-skills.zh-CN.md)。
@@ -370,8 +392,8 @@ dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo --subdir skill
 - 在 **项目技能**页签查看并管理项目文件夹：填入任意绝对路径（不必是 DSH 工作区），
   页签会列出该文件夹自身的技能（解析后的名称/描述，逐行提供 **link**），以及
   `.dsh/skills` 下的条目（链接 vs 用户文件）。链接行带启停 **Switch**——停用会把链接移到
-  `.dsh/skills-disabled`，目标目录不动——以及 **remove**；`user files` 行只读。项目根按
-  会话手填、不持久化（该客户端上下文只注入 `slots`，没有可读取项目根的 workspace 服务）；
+  `.dsh/skills-disabled`，目标目录不动——以及 **remove**；`user files` 行只读。手填的根按
+  会话有效、不持久化；它上方另有一个**已登记工作区（.dsh）**区块，读取宿主注册表（见下）；
 - 管理**外部条目**（由 CLI `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` / `link codebuddy` / `link workbuddy` 创建）——面板以 `linked directory` 标签显示它们及其外部路径，支持启用/禁用和删除（删除只移除链接，不碰用户目录）；
 - 带 `groupPath` 的条目（如来自 `link trae-cn`）渲染在可折叠的 L1 组头下，带组级 Switch（✓/○/◐ 表示 on/off/mixed）——切换组 Switch 批量启用或禁用该组所有条目；
 - 在工具栏过滤列表——搜索框按名字或 url 匹配；右侧的徽标在有待更新条目时显示待更新数量，并常驻显示已注册技能总数；
@@ -385,9 +407,35 @@ dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo --subdir skill
 
 面板底部一行文字指向宿主自带的 **Skill Manager**，用于查看其他工具管理的本地技能——本面板只列出 nexus 安装的条目。
 
+### 已登记工作区（`.dsh`）
+
+项目页签顶部还有一个**已登记工作区**区块，用来管理 DSH 已经登记过的项目，无需手填
+路径。点 **load workspaces** 后，面板读取宿主通过 `ctx.get('workspaceRegistry')` 暴露的
+注册表（由 `@deepseek-ai/dsh-web-app` 提供）：
+
+- 下拉按 title 列出注册表里的工作区；选中后只扫描**该工作区登记的路径**。不在注册表里的
+  目录无法在这里选中，请改用下方的手填输入框。
+- 区块只列 `.dsh/skills` 与 `.dsh/skills-disabled` 下的**真实目录**，每行一个启停
+  **Switch**（`active dir` / `disabled dir`）。链接不在这里出现——它们属于下方的链接通道。
+- 授权是显式的：路径必须已登记、目录仍存在，且项目根的 `.dsh` / `.dsh/skills` /
+  `.dsh/skills-disabled` 任一层不得是符号链接或 junction。写操作只有一次 `rename`，
+  不触碰目录内容，也不写 manifest。
+
+对应三条内部路由（面板管道，不是稳定机器接口）：
+
+| 路由 | Body / query | 返回 |
+|---|---|---|
+| `GET /skills-nexus/workspaces/list` | — | `{ data: { available, items[] } }` |
+| `GET /skills-nexus/workspace/skills` | `?workspace=<已登记路径>` | `{ data: { workspace, entries[] } }` |
+| `POST /skills-nexus/workspace/toggle` | `{ workspace, name, enabled }` | `{ data: { workspace, name, enabled, status } }` |
+
+没有 workspace 注册表的 headless 宿主上，列表返回 `available: false`，两条写入路由返回
+`503 workspace-unavailable`；面板会显示说明，不会静默回退到未登记路径。toggle 遇到链接
+返回 `status: 'not-files'`，提示改用链接通道。
+
 **热加载。** 链接变化由官方 filesystem provider 的 watcher 拾取，面板操作在稳定窗口内即对运行中的宿主生效——无需重启。宿主未启用 watcher 时，面板会明说该变更在下次宿主启动时生效。
 
-**HTTP 接口（内部）。** 面板与 `/skills-nexus/*` 路由通信——GET 为 ping / list / doctor / project/list / job 轮询；POST 为 add / import / adopt / remove / update / check-updates / switch-version / toggle / toggleGroup / link / project/link / project/remove / export / job cancel。成功返回 `{ data, hotReload }`，长操作以 `202 { data: { jobId } }` 受理，所有变更路由均做同源校验（remove 额外仅接受 loopback）。这些路由是面板自身的管道——**不**属于[在 nexus 之上构建](docs/build-on-nexus.zh-CN.md)承诺的稳定机器接口；工具开发者请继续 shell out 调 CLI。
+**HTTP 接口（内部）。** 面板与 `/skills-nexus/*` 路由通信——GET 为 ping / list / doctor / project/list / workspaces/list / workspace/skills / job 轮询；POST 为 add / import / adopt / remove / update / check-updates / switch-version / toggle / toggleGroup / link / project/link / project/remove / workspace/toggle / export / job cancel。成功返回 `{ data, hotReload }`，长操作以 `202 { data: { jobId } }` 受理，所有变更路由均做同源校验（remove 额外仅接受 loopback）。这些路由是面板自身的管道——**不**属于[在 nexus 之上构建](docs/build-on-nexus.zh-CN.md)承诺的稳定机器接口；工具开发者请继续 shell out 调 CLI。
 
 ## Shell 补全
 

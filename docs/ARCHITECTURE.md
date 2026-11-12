@@ -187,6 +187,34 @@ A project carries its own root, scanned by the provider before `~/.dsh/skills`:
   The link keeps its target, so no state file is needed and no `SKILL.md` is
   ever edited.
 
+### Registered workspace mode
+
+The Project tab can also reach a project the user did not type in: the web host
+exposes a workspace registry through `ctx.get('workspaceRegistry')` (shipped by
+`@deepseek-ai/dsh-web-app`; absent on headless hosts). `src/workspaces.ts` is a
+zero-dependency adapter over it — `workspaceRegistryOf(ctx)` reads the service
+reflectively, so the plugin carries no import of the host package and simply
+reports `available: false` when the registry is missing.
+
+Authorisation is explicit, never inferred from a path string:
+
+- `resolveWorkspaceTarget()` accepts only a path **registered** in that registry,
+  and only while the row still exists on disk (`unregistered` / `unavailable`
+  otherwise);
+- the root and its `.dsh`, `.dsh/skills` and `.dsh/skills-disabled` levels must
+  not be symlinks or junctions (`unsafe-root`), so a link cannot redirect the
+  move outside the project;
+- a relative or absolute path that no row names is refused — the registry is the
+  only issuer of permission.
+
+Writes are a single `rename` between the two roots, and real directories only.
+Links stay in the link channel: `setProjectFilesEnabled()` answers `not-files`
+instead of moving a junction, while `setProjectLinkEnabled()` still answers
+`not-a-link` for a real directory. Location is the only state, so neither mode
+reads or writes a manifest. The manual project-folder field and the link
+workflow are unchanged; the registered-workspace block is additive and sits
+above them in the Project tab.
+
 The local source registry in `src/external.ts` configures `envVar`,
 `defaultDirName` or ordered `rootCandidates`, and one `discover` function per
 source — `(root) => DiscoveredSkill[]`. `trae-cn` uses `TRAE_CN_DIR` /

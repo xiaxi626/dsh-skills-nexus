@@ -128,6 +128,8 @@ async function toggleProject(
       out.error(`No project link named "${name}".`)
     } else if (status === 'not-a-link') {
       out.error(`"${name}" is not a link — refusing to touch user files.`)
+    } else if (status === 'not-files') {
+      out.error(`"${name}" is a link — re-run without --files to toggle links, not real directories.`)
     } else if (status === 'collision') {
       out.error(
         `Cannot move "${name}": the other location holds a non-link entry.`,

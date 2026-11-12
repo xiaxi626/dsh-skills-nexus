@@ -9,8 +9,10 @@
 本指南验证：
 
 - `list --project`、`link --project <dir>`、`remove --project <name>...`、`doctor --project`；
+- `enable --project` / `disable --project`（链接通道），以及用 `--files` 在 `.dsh/skills` 与 `.dsh/skills-disabled` 之间移动真实目录；
+- 已登记工作区块：`GET /workspaces/list`、`GET /workspace/skills`、`POST /workspace/toggle`；
 - `list --all`（仅供人读的双作用域表，带 `overrides` / `shadowed` 标记）；
-- 四条 HTTP 路由与面板区块；
+- 手填项目文件夹的四条 HTTP 路由与面板区块；
 - 不变量：**不写 manifest、不复制/克隆、绝不删除用户文件**。
 
 ## 项目作用域是什么、不是什么
@@ -20,10 +22,10 @@
 | 条目位置 | `~/.dsh/skills/<name>` | `<projectRoot>/.dsh/skills/<name>` |
 | 目标 | nexus 克隆，或外部目录 | 用户指定的任意目录 |
 | 状态 | `manifest.json` 记录来源/版本/归属 | **无状态**——文件系统即真相 |
-| 命令 | 完整生命周期 | 只有 `list` / `link` / `remove` / `doctor` |
-| 写入 | manifest、克隆、链接 | 只有链接 |
+| 命令 | 完整生命周期 | `list` / `link` / `remove` / `doctor` / `enable` / `disable` |
+| 写入 | manifest、克隆、链接 | 链接；`--files` 模式下是一次真实目录的 `rename` |
 
-`--project` 不支持：`add`、`import`、`update`、`export`、`enable`、`disable`。`remove --project` 只接受精确链接名（不支持通配，也不支持 `--group`）。
+`--project` 不支持：`add`、`import`、`update`、`export`。`remove --project` 只接受精确链接名（不支持通配，也不支持 `--group`），`enable` / `disable` 同样只接受精确名；`--files` 还额外拒绝 `--group`，因为两者都按精确名定位。
 
 ## 前置条件与两次构建
 
@@ -52,21 +54,28 @@
   set -e
   node -e "require('node:assert/strict').equal(require('./package.json').name, 'dsh-skills-nexus')"
   node --import tsx --import ./test/register-css.mjs --test \
-    test/project.test.ts test/cli-project.test.ts \
+    test/project.test.ts test/project-files.test.ts \
+    test/cli-project.test.ts \
+    test/workspaces.test.ts test/workspace-routes.test.ts \
     test/args.test.ts test/api.test.ts test/client-api.test.ts \
-    test/panel-render.test.tsx test/completions.test.ts
+    test/panel-render.test.tsx test/panel-workspaces.test.tsx \
+    test/completions.test.ts
 )
 ```
 
 | 测试文件 | 覆盖内容 |
 |---|---|
 | `project.test.ts` | `detectProjectRoot`（目录型与文件型 `.git`、回退 cwd）；列表（空根、链接、用户文件、可恢复目标的悬空链接）；三种布局的命名与非 ASCII 回退；`replace` / `unchanged` / `collision` / 同名冲突计划；执行后重新计划；删除拒绝真实目录；路径穿越拒绝；Windows UNC 拒绝 |
-| `cli-project.test.ts` | 进程级链路：cwd 根检测、`link --project` → `list --project` → `remove --project`、JSON 纯净性、退出码、不产生 manifest、用户文件被拒、悬空 `doctor` 警告、`list --all`、错误显式根、来源式 flag 被拒、UNC 被拒 |
-| `args.test.ts` | `--project` / `--project-root` / `--all` 解析、「root 必须配 project」规则、互斥、项目模式下的 flag/通配拒绝 |
-| `api.test.ts` | 三条路由：root 校验、loopback 与来源校验、预览与 `202` job、`confirm-required`、`404 not-found`、`409 not-a-link`、`400 invalid-name`、UNC 拒绝 |
+| `project-files.test.ts` | `setProjectFilesEnabled` / `listProjectFiles`：disable → enable 往返、`already-*` 语义、`not-found`、路径穿越拒绝、两棵根同名独立可见、另一位置被占用时的 `collision` |
+| `cli-project.test.ts` | 进程级链路：cwd 根检测、`link --project` → `list --project` → `remove --project`、JSON 纯净性、退出码、不产生 manifest、用户文件被拒、悬空 `doctor` 警告、`list --all`、错误显式根、来源式 flag 被拒、UNC 被拒；`--files` 移动真实目录且拒绝链接 |
+| `workspaces.test.ts` | `workspaceRegistryOf` 在缺失/畸形 `ctx` 下的行为；`listWorkspaces` 行归一化；`resolveWorkspaceTarget` 拒绝绝对路径、未登记路径、已消失的行与符号链接化的 `.dsh` 层级 |
+| `workspace-routes.test.ts` | 三条路由经假 request/response：不可用分支、`workspace` 查询、toggle 请求体、错误状态映射 |
+| `args.test.ts` | `--project` / `--project-root` / `--all` / `--files` 解析、「root 必须配 project」规则、`--files` 必须配 `--project`、互斥、项目模式下的 flag/通配拒绝 |
+| `api.test.ts` | 手填文件夹四条路由：root 校验、loopback 与来源校验、预览与 `202` job、`confirm-required`、`404 not-found`、`409 not-a-link`/`collision`、`400 invalid-name`、UNC 拒绝 |
 | `client-api.test.ts` | `projectList` 的 URL 编码、`projectLink` 预览/job 请求体、`projectRemove` 的 confirm 标志 |
 | `panel-render.test.tsx` | 项目区块渲染 root 输入与受控表单；`link` 行有 `remove`，`user files` 行永远没有；悬空行显示 `dangling` 徽标 |
-| `completions.test.ts` | 四个补全模板都提供 `--project` / `--project-root` / `--all`；位置计数会跳过 `--project-root` 的值 |
+| `panel-workspaces.test.tsx` | 已登记工作区块在最前、带 `<hr/>` 分隔；手填区块与提示原文未变；`WorkspaceSkillRow` 只提供开关（`active dir` / `disabled dir`） |
+| `completions.test.ts` | 四个补全模板都提供 `--project` / `--project-root` / `--all` / `--files`；位置计数会跳过 `--project-root` 的值 |
 
 ## 隔离的 CLI 演练
 
@@ -170,6 +179,47 @@ cleaned
 `disable --project <name> --json`；断言 `.dsh/skills-disabled/<name>` 存在且目标目录的
 `SKILL.md` 原样未动，然后 `enable --project <name>` 应恢复活动链接。
 
+### 真实目录开关（`--files`）
+
+`--files` 是第二条启停通道：它只在两棵项目根之间移动**真实目录**，并拒绝链接（链接属于链接通道）。沿用上面的 ***$PROJ***：
+
+```bash
+(
+  set -e
+  PROJECT="$(pwd)"
+  BASE="${TMPDIR:-/tmp}/nexus-files-verify-$$"
+  if command -v cygpath >/dev/null 2>&1; then BASE="$(cygpath -m "$BASE")"; fi
+  export DSH_HOME="$BASE/home"
+  PROJ="$BASE/proj"
+  nexus() { node "$PROJECT/lib/cli/index.js" "$@"; }
+  expect_fail() { if "$@" >/dev/null 2>&1; then echo "FAIL: expected a non-zero exit: $*"; exit 1; fi; }
+
+  mkdir -p "$PROJ/.git" "$PROJ/.dsh/skills/real-skill"
+  printf -- '---\nname: real-skill\ndescription: demo\n---\n' > "$PROJ/.dsh/skills/real-skill/SKILL.md"
+
+  # F1) disable --files 把真实目录移入 skills-disabled
+  nexus disable --project --files real-skill --project-root "$PROJ"
+  test ! -e "$PROJ/.dsh/skills/real-skill"
+  test -f "$PROJ/.dsh/skills-disabled/real-skill/SKILL.md"
+  echo 'PASS F1 disable --files moves a real directory'
+
+  # F2) enable --files 再移回
+  nexus enable --project --files real-skill --project-root "$PROJ"
+  test -f "$PROJ/.dsh/skills/real-skill/SKILL.md"
+  echo 'PASS F2 enable --files restores it'
+
+  # F3) 不加 --files 时真实目录属于用户内容：拒绝、退出码 1
+  expect_fail nexus disable --project real-skill --project-root "$PROJ"
+  test -f "$PROJ/.dsh/skills/real-skill/SKILL.md"
+  echo 'PASS F3 link mode still refuses real directories'
+
+  rm -rf "$BASE"
+  echo 'cleaned'
+)
+```
+
+预期输出三行 `PASS` 与一行 `cleaned`。
+
 ## 面板验收清单
 
 需要挂载了插件的 DSH **web** 宿主（见[本地测试步骤](../README_CN.md#本地测试步骤)）。静态渲染由测试套件覆盖；下面是 UI 集成门禁。
@@ -183,10 +233,15 @@ cleaned
 7. 你自己放进 `.dsh/skills` 的真实目录显示 `user files` 徽标，**没有 Switch、没有 remove**。
 8. 在 link 行点 **remove**：确认浮层写明只删链接；确认后该行消失，目标目录仍然存在。
 9. 修改项目文件夹：旧列表立即清空（不会残留上一个项目的行）。
+10. 在文件夹输入框**上方**的**已登记工作区（.dsh）**区块点 **load workspaces**。web 宿主下列表按 title 列出注册表里的工作区；随后的扫描针对该工作区**已登记**的路径——不在注册表里的路径无法在这里选中（请改用下方文件夹输入框）。
+11. 选一个 `.dsh/skills` 里有真实目录的工作区。行显示 `active dir` 与 **Switch**，没有 remove 按钮——工作区通道从不删除用户内容。
+12. 关掉该 Switch：行变成 `disabled dir`，目录出现在该工作区的 `.dsh/skills-disabled` 下；再打开即移回。链接不能在这里移动，因为只有真实条目才会成行。
+13. 选一个完全没有 `.dsh` 的工作区：区块显示 `no real directories under the project skills root.`，这是空结果，不是错误。
+14. 在 headless 宿主（没有 `@deepseek-ai/dsh-web-app`）上，**load workspaces** 返回 `available: false` 并给出说明；手填文件夹照常可用，且不会静默回退到未登记路径。
 
 ## HTTP 接口
 
-面板与四条路由通信；它们是面板内部管道，不是稳定机器接口（稳定接口是 CLI 的 `--json` 报告）。
+手填项目文件夹使用四条路由；它们是面板内部管道，不是稳定机器接口（稳定接口是 CLI 的 `--json` 报告）。
 
 | 路由 | Body / query | 返回 |
 |---|---|---|
@@ -198,6 +253,18 @@ cleaned
 
 四条路由都要求同源且 socket 为 loopback。`root` 不是已存在目录返回 `400 invalid-root`；name 含路径分隔符返回 `400 invalid-name`；真实目录/文件返回 `409 not-a-link`（另一位置被占用时返回 `409 collision`）；缺字段返回 `400 missing-field`；Windows 下 UNC 来源返回 `400 unsupported-source`。
 
+已登记工作区块使用另外三条路由。它们在构造上就是特权通道：目标必须是宿主注册表已知的路径。
+
+| 路由 | Body / query | 返回 |
+|---|---|---|
+| `GET /skills-nexus/workspaces/list` | — | `{ data: { available, items: [{ id, path, title, projectRoot, exists }] } }` |
+| `GET /skills-nexus/workspace/skills` | `?workspace=<已登记路径>` | `{ data: { workspace, entries } }` |
+| `POST /skills-nexus/workspace/toggle` | `{ workspace, name, enabled }` | `{ data: { workspace, name, enabled, status } }` |
+
+宿主没有 workspace 注册表时，列表返回 `available: false` 与空 `items`，另外两条路由返回 `503 workspace-unavailable`；这里刻意不回退到任意路径。非绝对路径返回 `400 invalid-workspace`，注册表里没有该路径返回 `400 workspace-unregistered`，而项目根的 `.dsh` / `.dsh/skills` / `.dsh/skills-disabled` 任一层是符号链接或 junction 时返回 `409 unsafe-root`。注册表 `list()` 抛错返回 `500 registry-error`。
+
+toggle 只移动**真实目录**：遇到链接仍返回 HTTP 200，但 `status` 是 `'not-files'` 而不是 `'enabled'` / `'disabled'`——链接属于 `/project/toggle`，客户端会把该判定作为行错误显示，而不是假装移动成功。
+
 ## 已知边界
 
 - **无状态。** manifest 里没有 `projectRoot`，没有迁移，也没有「projectRoot 失效」故障类。目录本身就是记录。
@@ -207,6 +274,6 @@ cleaned
 - **只按精确名删除。** `remove --project` 只接受名字，不接受通配或组前缀；这个拒绝是刻意的，把破坏面限制在单条链接上。
 - **`list --all` 仅供人读。** 它合并两个数据集（文件系统链接与 manifest 条目），不属于 version-1 JSON 契约；机器读取请分别用 `list --json` 与 `list --project --json`。
 - **Windows junction 目标。** junction 需要本地绝对路径；UNC 共享会被前置拒绝，而不是抛出原生 `EPERM`。
-- **面板的根是手填的。** 该客户端上下文只注入 `slots`，没有 workspace 服务可读项目根，所以输入框按会话有效、不持久化。
+- **面板有两扇门。** 手填文件夹输入框按会话有效、不持久化（该客户端上下文只注入 `slots`，没有可读的根）；已登记工作区块读取宿主注册表，因此只在 DSH web profile 下有内容。两者都不持久化任何状态。
 
 完整的命令与选项见 README 的[项目技能](../README_CN.md#项目技能)一节。

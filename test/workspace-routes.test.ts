@@ -1,9 +1,10 @@
 import { strict as assert } from 'node:assert'
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createNexusRoutes } from '../src/http/routes.js'
+import type { NexusRouteDeps } from '../src/http/routes.js'
 import type { RouteRequest, RouteResponse } from '../src/http/types.js'
 
 async function makeProject(): Promise<string> {
@@ -46,19 +47,19 @@ function makeReq(path: string, body?: unknown, method = 'GET'): RouteRequest {
     on(event: string, cb: (chunk?: Buffer | Error) => void) {
       if (event === 'data' && buf.length > 0) cb(buf)
       else if (event === 'end') cb()
-      else if (event === 'error') cb(undefined as any)
-      return this as any
+      else if (event === 'error') cb()
+      return this
     },
-  } as any
+  } as unknown as RouteRequest
 }
 
 function registryFor(path: string) {
   return { list: () => [{ id: 'ws-1', path, title: 'Test' }] }
 }
 
-async function runRoute(path: string, body?: unknown, deps: { workspaces?: () => unknown } = {}, method = 'GET'): Promise<FakeRes> {
+async function runRoute(path: string, body?: unknown, deps: NexusRouteDeps = {}, method = 'GET'): Promise<FakeRes> {
   const routePath = path.split('?')[0]!
-  const routes = createNexusRoutes(deps as any)
+  const routes = createNexusRoutes(deps)
   const spec = routes.find((r) => r.path === routePath)
   assert.ok(spec, `route ${routePath} not found (available: ${routes.map((r) => r.path).join(',')})`)
   const res = new FakeRes()
@@ -140,7 +141,7 @@ test('/workspace/toggle disables a real directory via the workspace route', asyn
     const res = await runRoute('/skills-nexus/workspace/skills?workspace=' + encodeURIComponent(root), undefined, deps)
     assert.equal(res.status, 200)
     const entries = JSON.parse(res.body).data.entries
-    const disabled = entries.find((e: any) => e.name === 'alpha')
+    const disabled = entries.find((e: { name: string }) => e.name === 'alpha')
     assert.ok(disabled)
     assert.equal(disabled.enabled, false)
   } finally {
