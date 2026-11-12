@@ -42,6 +42,7 @@
 
 - **Task 8 · 文档**：
   - `README_FULL.zh-CN.md` — 能力总览表加 `--files`；项目技能小节新增 `### --files：启停真实目录`（双通道语义反转、只移动不删除、共享 per-name 锁、`--json` 状态；并补上表格引用的锚点）；新增 `### 已登记工作区（.dsh）`（授权四层拒绝、三条路由表、headless 时 `available:false`）；「启停 = 移动」与「HTTP 接口」两处同步双通道。
+  - `README_FULL.md` / `README.md` — 英文文档同步 `--files` 与已登记工作区；修正真实目录只读、宿主没有 workspace service 的旧描述，简版 README 增加项目技能入口。
   - `docs/ARCHITECTURE.md` / `.zh-CN.md` — 新增 **Registered workspace mode** 章节：`ctx.get('workspaceRegistry')` 反射读取、`resolveWorkspaceTarget` 的四层授权、写操作仅一次 `rename`、两种通道互不越界。
   - `docs/verify-project-skills.md` / `.zh-CN.md` — 命令/写入表格补 `--files`；新增真实目录开关的三步验收脚本；面板验收清单补 5 条（load workspaces、空 `.dsh` 工作区、headless `available:false` 等）；补三条工作区路由与错误码（`workspace-unavailable` / `workspace-unregistered` / `unsafe-root` / `not-files`）；测试清单纳入四个新文件。
 

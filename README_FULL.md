@@ -24,7 +24,7 @@ dsh-skills-nexus is a community-maintained DeepSeek Harness (DSH) plugin, not an
 | Git-backed installs | Any `SKILL.md` repo from any git host, pinned to a branch, tag or commit; collection repos install one subdirectory with partial clone + sparse checkout; wrapper detection runs before registering | `add` |
 | Version management | Refresh branch-tracked clones, preview remote changes without a checkout, move a clone to another ref, undo the last version change | `update` / `diff` / `switch-version` / `rollback` |
 | External references | Register skills that already live in another agent's directory — no clone, no copy, no writes there | [`link`](#supported-external-sources-link) / `remove --group` |
-| Project-scope skills | View any project folder's skills (parsed names/descriptions), link directories into `<project>/.dsh/skills` (the root the provider scans first), enable/disable/remove links, report dangling ones; no manifest, clone or copy | [`--project`](#project-skills) |
+| Project-scope skills | View any project folder's skills (parsed names/descriptions), link directories into `<project>/.dsh/skills` (the root the provider scans first), enable/disable/remove links, report dangling ones; no manifest, clone or copy. Add `--files` to toggle real directories instead—links and file contents stay untouched | [`--project`](#project-skills) · [`--files`](#files-requires-project) |
 | Cross-machine transport | Package entries with their provenance, rebuild them elsewhere (optionally at the exact recorded commit), give a frozen entry its git source back | `export` / `import` / `adopt` |
 | Grouping and toggles | Group by source or a custom L1 name; enable or disable one entry or a whole group prefix | `enable` / `disable` / `--group` |
 | Health and cleanup | Read-only checkup of the manifest, links and clones, with an optional remote update check; purge accumulated artifacts | `doctor` / `purge` |
@@ -196,7 +196,7 @@ dsh-skills-nexus remove --group trae --yes          # unlink the group; keep ext
 dsh-skills-nexus link trae-cn --group custom        # override the L1 group name (default: trae-cn)
 dsh-skills-nexus link trae-cn --force               # replace existing entries on conflict
 
-# project scope: any project folder + links under <project>/.dsh/skills
+# project scope: any project folder + entries under <project>/.dsh/skills
 dsh-skills-nexus link --project /path/to/my-skill     # project root = nearest .git ancestor of cwd
 dsh-skills-nexus link --project /path/to/collection   # one link per discovered skill
 dsh-skills-nexus link --project /path/to/my-skill --dry-run
@@ -205,6 +205,8 @@ dsh-skills-nexus list --project --json                # version-1 project report
 dsh-skills-nexus list --all                           # project + global, overrides/shadowed (human only)
 dsh-skills-nexus disable --project my-skill           # move the link out; target untouched
 dsh-skills-nexus enable --project my-skill            # move it back
+dsh-skills-nexus disable --project --files my-skill   # move a real directory into skills-disabled
+dsh-skills-nexus enable --project --files my-skill    # move the real directory back
 dsh-skills-nexus remove --project my-skill            # removes the link only; user files are refused
 dsh-skills-nexus doctor --project                     # dangling project links
 dsh-skills-nexus list --project --project-root /path/to/project  # explicit project root
@@ -340,17 +342,20 @@ files  my-skill  SKILL.md  —       <description>
   parsed `NAME`.
 - **No manifest, no copies, no file edits.** Project scope never writes
   `manifest.json`, never clones or copies, and never edits a `SKILL.md`. Real
-  directories and files under `.dsh/skills` are shown read-only with no remove
-  action. `remove --project` deletes a proven link and refuses user content with
-  `refusing to remove user files`. Writes serialize per project + name through
-  the same cross-process file lock the rest of nexus uses; the manifest lock is
-  not taken because the manifest is not touched.
-- **Enable / disable = move the link.** Disabling moves
+  directories and files under `.dsh/skills` are never offered a remove action.
+  `remove --project` deletes a proven link and refuses user content with
+  `refusing to remove user files`. Real directories can be toggled reversibly
+  through [`--files`](#files-requires-project), described below. Writes
+  serialize per project + name through the same cross-process file lock the
+  rest of nexus uses; the manifest lock is not taken because the manifest is
+  not touched.
+- **Enable / disable = move.** The link channel moves
   `.dsh/skills/<name>` to the sibling `.dsh/skills-disabled/<name>`, which the
   provider does not scan; enabling moves it back. The link carries its target
   (and dangling state), so no remembered path or state file is needed and the
-  target directory is never touched. Disabling a project skill un-shadows a
-  global skill of the same name.
+  target directory is never touched. Real directories use the
+  [`--files`](#files-requires-project) channel: again a move, never a delete.
+  Disabling a project skill un-shadows a global skill of the same name.
 - **Conflicts.** An existing active link is repointed (`replace`); a link to the
   same directory is `unchanged`; a real directory or file is a `collision` and
   is left byte-for-byte untouched.
@@ -367,8 +372,35 @@ files  my-skill  SKILL.md  —       <description>
   `.dsh/skills/` or `.dsh/skills-disabled/` links for the link-only workflow —
   add both to `.gitignore`. Vendored real directories are the shareable form.
 - **Not available.** `add` / `import` / `update` / `export` have no project
-  form; `remove --project` and the project switches take exact link names only
-  (no globs, no `--group`).
+  form; `remove --project`, the project switches and `--files` take exact entry
+  names only (no globs, no `--group`).
+
+<a id="files-requires-project"></a>
+
+### `--files`: toggle real directories
+
+Alongside the link channel, `--files` is a second channel that moves **real
+directories** between the two roots. Use it for skills you have vendored into
+`.dsh/skills` yourself. It must accompany `--project` and cannot be combined
+with `--group`; both channels resolve exact entry names rather than globs.
+
+```bash
+dsh-skills-nexus disable --project --files my-real-skill   # move into .dsh/skills-disabled
+dsh-skills-nexus enable  --project --files my-real-skill   # move back into .dsh/skills
+```
+
+- **Real directories only.** A link returns `not-files` and a hint to use the
+  link channel without `--files`. Conversely, the link channel returns
+  `not-a-link` for a real directory. Neither channel guesses which one you
+  meant.
+- **One `rename` is the only write.** The target directory, its `SKILL.md` and
+  every other file inside remain untouched. Location is the state: no manifest
+  and no skill-file edits.
+- **The same lock.** Both channels share the per-name file lock, so two
+  terminals toggling the same name cannot move it out from under each other.
+- **Machine output.** `--json` reports verdicts such as `not-files`,
+  `collision` and `not-found` in `results[].status`; scripts never need to
+  parse the human-readable message.
 
 See [Verifying project-scope skills](docs/verify-project-skills.md) for the
 isolated walkthrough and the panel checklist.
@@ -506,9 +538,10 @@ From the panel you can:
   **Link** action, and the entries under `.dsh/skills` (links vs. user files). A
   link row has an enable/disable **Switch** — disabling moves the link to
   `.dsh/skills-disabled` and leaves its target untouched — plus **Remove**;
-  `user files` rows are read-only. The folder is typed per session and never
-  stored — this client context injects only `slots`, with no workspace service
-  to read a project root from;
+  `user files` rows have no remove action. The typed folder lasts for the
+  session and is never stored. Above this form, an independent **Registered
+  workspaces** section reads the host registry and toggles real directories,
+  as described below;
 - manage **external entries** (created by CLI `link trae-cn` / `link trae` / `link qoder` / `link qoder-cn` / `link codebuddy` / `link workbuddy`) alongside
   git-managed ones — the panel displays them with a `linked directory` tag,
   shows their external path, and supports enable/disable and remove (which
@@ -547,6 +580,40 @@ From the panel you can:
 A footer line points to the host's own **Skill Manager** for local skills
 managed by other tools — this panel only lists what nexus installed.
 
+### Registered workspaces (`.dsh`)
+
+The top of the Project skills tab also has a **Registered workspaces** section
+for projects DSH already knows, without typing a path. Click **load
+workspaces** to read the registry exposed by the host through
+`ctx.get('workspaceRegistry')` (provided by `@deepseek-ai/dsh-web-app`):
+
+- The select lists registered workspaces by title. Selecting one scans only
+  the **path registered for that workspace**. An unregistered directory cannot
+  be selected here; use the manual folder input below instead.
+- The section lists only **real directories** under `.dsh/skills` and
+  `.dsh/skills-disabled`, each with an enable/disable **Switch** (`active dir`
+  / `disabled dir`). Links do not appear here—they belong to the link channel
+  below.
+- Authorization is explicit: the path must be registered and still exist, and
+  none of the project root's `.dsh`, `.dsh/skills` or `.dsh/skills-disabled`
+  levels may be a symlink or junction. The only write is one `rename`; directory
+  contents and the manifest remain untouched.
+
+The three corresponding internal routes (panel plumbing, not stable machine
+interfaces) are:
+
+| Route | Body / query | Success response |
+|---|---|---|
+| `GET /skills-nexus/workspaces/list` | — | `{ data: { available, items[] } }` |
+| `GET /skills-nexus/workspace/skills` | `?workspace=<registered-path>` | `{ data: { workspace, entries[] } }` |
+| `POST /skills-nexus/workspace/toggle` | `{ workspace, name, enabled }` | `{ data: { workspace, name, enabled, status } }` |
+
+On a headless host without a workspace registry, the list returns
+`available: false`; the skills and toggle routes return
+`503 workspace-unavailable`. The panel explains this instead of silently
+falling back to an unregistered path. Toggling a link through the workspace
+route reports `status: 'not-files'` and directs the user to the link channel.
+
 **Hot reload.** Link changes are picked up by the official filesystem
 provider's watcher, so panel operations take effect in the running host
 within its stability window — no restart needed. On hosts running without
@@ -554,10 +621,10 @@ the watcher, the panel says plainly that a change takes effect on the next
 host start.
 
 **HTTP surface (internal).** The panel talks to `/skills-nexus/*` routes —
-ping / list / doctor / project/list / job polling on GET; add / import /
-adopt / remove / update / check-updates / switch-version / toggle /
-toggleGroup / link / project/link / project/remove / export / job cancel on
-POST. Success
+ping / list / doctor / project/list / workspaces/list / workspace/skills /
+job polling on GET; add / import / adopt / remove / update / check-updates /
+switch-version / toggle / toggleGroup / link / project/link / project/remove /
+workspace/toggle / export / job cancel on POST. Success
 answers `{ data, hotReload }`, long operations are accepted as
 `202 { data: { jobId } }`, and every mutation is same-origin-checked (remove
 additionally accepts loopback only). These routes are the panel's own

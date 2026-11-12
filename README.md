@@ -45,6 +45,7 @@ That's it. For the three installation paths (npm registry, GitHub direct, or DSH
 | Pin to a branch / tag / commit | `dsh-skills-nexus add github:owner/repo#dev` |
 | Install one subdirectory from a collection repo | `dsh-skills-nexus add github:owner/repo --subdir skills/foo` |
 | Link skills already installed in Trae / Qoder / CodeBuddy… | `dsh-skills-nexus link trae-cn` (or `trae`, `qoder`, `codebuddy`, `workbuddy`, `kimi-code`, `cursor`, `claude-code`, …) |
+| Manage project links and toggle vendored skill directories | `dsh-skills-nexus list --project` · `dsh-skills-nexus disable --project --files my-skill` |
 | List everything with status | `dsh-skills-nexus list` |
 | Batch enable/disable by group | `dsh-skills-nexus enable --group trae-cn` |
 | Move all skills to another machine | `dsh-skills-nexus export --all -o migrate.zip` → `dsh-skills-nexus import migrate.zip` |
@@ -53,7 +54,7 @@ That's it. For the three installation paths (npm registry, GitHub direct, or DSH
 
 ## Web Panel
 
-When registered as a DSH plugin (`dsh plugin add`), the Settings page gets a **Skills Nexus** section with a full UI: browse entry cards, toggle groups, add skills by URL, import packages, run health checks, watch long operations stream progress.
+When registered as a DSH plugin (`dsh plugin add`), the Settings page gets a **Skills Nexus** section with a full UI: browse entry cards, toggle groups, add skills by URL, import packages, run health checks, watch long operations stream progress. The **Project skills** tab covers manually entered folders (links) and host-registered workspaces (real directories), with reversible enable/disable toggles.
 
 See the [full panel description](README_FULL.md#web-panel-optional-plugin-side) for every action the UI supports.
 
