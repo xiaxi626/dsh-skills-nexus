@@ -259,6 +259,23 @@ export interface ProjectSkillEntry {
     /** Parsed metadata when the entry (or a link's target) is a skill, else null. */
     skill: ProjectSkillInfo | null;
 }
+/** One host-registered workspace row from `/workspaces/list`. */
+export interface WorkspaceRow {
+    id: string;
+    path: string;
+    title: string;
+    projectRoot: string;
+    exists: boolean;
+}
+/** One real (non-link) entry from `/workspace/skills`. */
+export interface ProjectFileEntry {
+    name: string;
+    path: string;
+    enabled: boolean;
+    skill: ProjectSkillInfo | null;
+}
+/** Union accepted by `workspaceToggle`'s status field. */
+export type WorkspaceToggleStatus = 'enabled' | 'disabled' | 'already-enabled' | 'already-disabled' | 'not-found' | 'not-files' | 'collision' | 'failed';
 /** The project page's one read-only report. */
 export interface ProjectReport {
     projectRoot: string;
@@ -395,6 +412,23 @@ export interface NexusApi {
         name: string;
         enabled: boolean;
         status: string;
+    }>>;
+    /** Host-registered workspace rows — only populated on DSH web profile. */
+    workspacesList(): Promise<Envelope<{
+        available: boolean;
+        items: WorkspaceRow[];
+    }>>;
+    /** Real (non-link) entries under `<ws>/.dsh/skills{,-disabled}`. */
+    workspaceSkills(workspace: string): Promise<Envelope<{
+        workspace: string;
+        entries: ProjectFileEntry[];
+    }>>;
+    /** Toggle one real entry via the host-authorised workspace route. */
+    workspaceToggle(workspace: string, name: string, enabled: boolean): Promise<Envelope<{
+        workspace: string;
+        name: string;
+        enabled: boolean;
+        status: WorkspaceToggleStatus;
     }>>;
     job(id: string): Promise<Envelope<{
         job: Job;

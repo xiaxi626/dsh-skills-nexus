@@ -30,6 +30,7 @@
  */
 
 import { createNexusRoutes } from './http/routes.js'
+import { workspaceRegistryOf } from './workspaces.js'
 
 /** Plugin id — matches the `cordis.patch.yml` insert id; the loader reads it for diagnostics. */
 export { PLUGIN_ID as name } from './http/types.js'
@@ -49,7 +50,7 @@ export function apply(ctx?: any): void {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ctx.inject(['webServer'], (webCtx: any) => {
-    for (const spec of createNexusRoutes()) {
+    for (const spec of createNexusRoutes({ workspaces: () => workspaceRegistryOf(ctx) })) {
       // The registration disposer must be owned by an effect: the route table
       // throws on a duplicate (kind, path), so a hot remount has to release
       // its own registrations before re-adding them.

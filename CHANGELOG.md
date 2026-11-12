@@ -19,6 +19,16 @@
   - 安全设计：请求里的 `workspace` 只作**授权 key**，实际用 `detectProjectRoot` 解析，**永远不信任请求里给的路径**。
   - `test/workspaces.test.ts`（8 绿 + 1 skip）：`workspaceRegistryOf` 在各种 ctx 形状下的降级、`listWorkspaces` 正常化 + projectRoot 填充 + exists 标记 + row 跳过、`detectProjectRoot` 回退原路径、`resolveWorkspaceTarget` 相对路径拒绝/未知拒绝/symlink 拒绝（Windows skip，需管理员权限）/正常返回。
 
+- **Task 3 · HTTP 路由**：`createNexusRoutes` 签名扩为 `createNexusRoutes(deps?: { workspaces?: () => WorkspaceRegistryLike | undefined })`，默认空 deps 下三条新路由全走 unavailable 分支（503 或 `{available:false}`）：
+  - `GET /skills-nexus/workspaces/list` → registry 缺失时返回 `{ data: { available: false, items: [] } }`；可用时返回规范化 row 列表。
+  - `GET /skills-nexus/workspace/skills?workspace=` → 400/400/400/409（missing-field/invalid-workspace/workspace-unregistered/unsafe-root），成功返回 `{ data: { workspace, entries: ProjectFileEntry[] } }`。
+  - `POST /skills-nexus/workspace/toggle` → 名字拒绝 `/`/`\`/`.`/`..`/空串（路由层闸门 + `setProjectFilesEnabled` 内部文件系统闸门双重验证），成功返回 `{ data: { workspace, name, enabled, status: ProjectFilesToggleStatus } }`。
+  - 三条路由都先过 `resolveWorkspaceTarget` 授权再调 `listProjectFiles` / `setProjectFilesEnabled`，不直接信任请求里的路径。
+
+- **Task 4 · 宿主接线**：`src/index.ts` 的 `apply()` 改为 `createNexusRoutes({ workspaces: () => workspaceRegistryOf(ctx) })`。非 web profile 下三条路由全 unavailable，面板侧拉不到任何工作区。
+
+- **Task 6 · 客户端 API**：`src/client/api.ts` 新增类型 `WorkspaceRow` / `ProjectFileEntry` / `WorkspaceToggleStatus` 与三个方法 `workspacesList()` / `workspaceSkills(workspace)` / `workspaceToggle(workspace, name, enabled)`。`npm run build:client` 输出 `lib/client.js` 99 KB。
+
 ## [0.10.0] - 2026-11-09
 
 > **Project skills 标记为实验性**：`--project` 作用域与面板的 Project skills 页签功能与测试完整、CI 三平台全绿，但交互手感尚未经真实使用验证。既有全局技能的命令契约未变，不使用该作用域的用户不受影响；0.10.x 会按实际体验继续调整。
