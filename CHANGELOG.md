@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+**Added · 项目真实技能目录可逆启停（`--files`）与工作区授权 HTTP 路由**
+
+- **Task 1 · 核心真实目录启停函数**：`src/project.ts` 新增 `ProjectFilesToggleStatus`（`enabled`/`disabled`/`already-*`/`not-found`/`not-files`/`collision`/`failed`）、`ProjectFileEntry` 类型与两个函数：
+  - `setProjectFilesEnabled(root, name, enabled)` — 按名字在 `.dsh/skills` 与 `.dsh/skills-disabled` 之间移动真实目录或扁平 `.md` 文件。移动前后都做 link 拒绝检查（遇到 symlink 以 `not-files` 拒绝——语义反转 link toggle 的 `not-a-link`），与 `setProjectLinkEnabled` 使用**同一 per-name 锁 key**避免两种模式互相踩。preflight outside + re-check inside 锁双重闸门，防止并发下 link 和 files 对同名条目交替操作。
+  - `listProjectFiles(root)` — **无名称去重**地列出两棵目录下的真实条目（link 跳过）。同名同 enabled 并排返回——旧 `listProjectSkills` 用 `seen` set 让活动根赢，但真实目录在 disabled 根必须始终可见，否则用户永远 re-enable 不了。
+  - 名字闸门 `isDirectChildName` 复用：拒绝 `.` / `..` / 路径分隔符 / 空串。
+  - `test/project-files.test.ts`（6 条）：disable→enable 往返、already 语义、not-found、路径穿越拒绝、双根同名独立可见、占用冲突。6/6 绿，旧 `test/project.test.ts` 零回归。
+
 ## [0.10.0] - 2026-11-09
 
 > **Project skills 标记为实验性**：`--project` 作用域与面板的 Project skills 页签功能与测试完整、CI 三平台全绿，但交互手感尚未经真实使用验证。既有全局技能的命令契约未变，不使用该作用域的用户不受影响；0.10.x 会按实际体验继续调整。
