@@ -233,11 +233,11 @@ cleaned
 7. 你自己放进 `.dsh/skills` 的真实目录显示 `user files` 徽标，**没有 Switch、没有 remove**。
 8. 在 link 行点 **remove**：确认浮层写明只删链接；确认后该行消失，目标目录仍然存在。
 9. 修改项目文件夹：旧列表立即清空（不会残留上一个项目的行）。
-10. 在文件夹输入框**上方**的**已登记工作区（.dsh）**区块点 **load workspaces**。web 宿主下列表按 title 列出注册表里的工作区；随后的扫描针对该工作区**已登记**的路径——不在注册表里的路径无法在这里选中（请改用下方文件夹输入框）。
-11. 选一个 `.dsh/skills` 里有真实目录的工作区。行显示 `active dir` 与 **Switch**，没有 remove 按钮——工作区通道从不删除用户内容。
+10. 打开**项目技能**页签：文件夹输入框**上方**的**已登记工作区（.dsh）**区块会自动读取注册表，按 title/path 逐行列出全部工作区，每行一个 **load** 按钮（没有下拉框；**load workspaces** 用于重新读取注册表）。
+11. 在某个 `.dsh/skills` 里有真实目录的工作区旁点 **load**。扫描只针对该工作区**已登记**的路径——不在注册表里的路径不会出现在这里（请改用下方文件夹输入框）。行显示 `active dir` 与 **Switch**，没有 remove 按钮——工作区通道从不删除用户内容。
 12. 关掉该 Switch：行变成 `disabled dir`，目录出现在该工作区的 `.dsh/skills-disabled` 下；再打开即移回。链接不能在这里移动，因为只有真实条目才会成行。
-13. 选一个完全没有 `.dsh` 的工作区：区块显示 `no real directories under the project skills root.`，这是空结果，不是错误。
-14. 在 headless 宿主（没有 `@deepseek-ai/dsh-web-app`）上，**load workspaces** 返回 `available: false` 并给出说明；手填文件夹照常可用，且不会静默回退到未登记路径。
+13. 在一个完全没有 `.dsh` 的工作区旁点 **load**：该工作区区域显示 `no real directories under the project skills root.`，这是空结果，不是错误。加载第二个工作区不会顺带扫描其他工作区。
+14. 在 headless 宿主（没有 `@deepseek-ai/dsh-web-app`）上，自动探测返回 `available: false` 并给出说明；手填文件夹照常可用，且不会静默回退到未登记路径。
 
 ## HTTP 接口
 

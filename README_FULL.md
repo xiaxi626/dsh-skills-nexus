@@ -583,13 +583,15 @@ managed by other tools — this panel only lists what nexus installed.
 ### Registered workspaces (`.dsh`)
 
 The top of the Project skills tab also has a **Registered workspaces** section
-for projects DSH already knows, without typing a path. Click **load
-workspaces** to read the registry exposed by the host through
-`ctx.get('workspaceRegistry')` (provided by `@deepseek-ai/dsh-web-app`):
+for projects DSH already knows, without typing a path. Opening the tab reads
+the registry exposed by the host through `ctx.get('workspaceRegistry')`
+(provided by `@deepseek-ai/dsh-web-app`) once — **load workspaces** re-reads it
+on demand:
 
-- The select lists registered workspaces by title. Selecting one scans only
-  the **path registered for that workspace**. An unregistered directory cannot
-  be selected here; use the manual folder input below instead.
+- Every registered workspace is listed by title/path with its own **load**
+  button. Loading one scans only the **path registered for that workspace**,
+  one workspace at a time — an unregistered directory cannot be listed here;
+  use the manual folder input below instead.
 - The section lists only **real directories** under `.dsh/skills` and
   `.dsh/skills-disabled`, each with an enable/disable **Switch** (`active dir`
   / `disabled dir`). Links do not appear here—they belong to the link channel

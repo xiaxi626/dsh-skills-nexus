@@ -9,12 +9,15 @@ import type { NexusApi, ProjectFileEntry } from '../src/client/api.js'
  * The registered-workspace block, as far as a *static* render reaches.
  *
  * Same bench as `panel-render.test.tsx`: no DOM, no effects, so the block's
- * three states (`null` before the first click → unavailable → available) cannot
- * be advanced here. What is asserted is the structural contract that the plan
- * pins down: the new block comes **first**, a divider separates it from the
- * untouched manual block, and the row component only ever offers a switch.
+ * three states (`null` before the first probe → unavailable → available) cannot
+ * be advanced here. The project tab's automatic registry probe is an effect,
+ * so this bench only sees the paint before it runs; the mount-time claim below
+ * is about that static paint, not about the effect's runtime behaviour. What is
+ * asserted is the structural contract that the plan pins down: the new block
+ * comes **first**, a divider separates it from the untouched manual block, and
+ * the row component only ever offers a switch.
  *
- * The interactive half — load workspaces, pick one, flip a switch, watch the
+ * The interactive half — auto-probe, pick one, flip a switch, watch the
  * directory move — is the real-host acceptance walk in
  * `docs/verify-project-skills.md`.
  */
@@ -66,10 +69,11 @@ test('the registered workspace block sits above the untouched manual folder bloc
   assert.match(html.slice(workspaceAt, folderAt), /<hr/)
 })
 
-test('the workspace block starts from the explicit load-workspaces affordance', () => {
+test('the static first paint still offers the explicit load-workspaces affordance', () => {
   const html = renderToStaticMarkup(<NexusPanel api={mountApi()} />)
-  // The registry is not probed on mount: the first render only offers the
-  // click, so a headless host can never be mistaken for an empty registry.
+  // Effects never run in a static render, so this is the paint before the
+  // project tab's automatic probe: the click remains as the fallback
+  // affordance and keeps the host-registry wording under test.
   assert.match(html, /load workspaces/)
   assert.match(html, /only available on the DSH web profile/)
 })
