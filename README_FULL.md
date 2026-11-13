@@ -585,7 +585,7 @@ managed by other tools — this panel only lists what nexus installed.
 The top of the Project skills tab also has a **Registered workspaces** section
 for projects DSH already knows, without typing a path. Opening the tab reads
 the registry exposed by the host through `ctx.get('workspaceRegistry')`
-(provided by `@deepseek-ai/dsh-web-app`) once — **load workspaces** re-reads it
+(provided by `@deepseek-ai/dsh-web-app`) once — **refresh list** re-reads it
 on demand:
 
 - Every registered workspace is listed by title/path with its own **load**

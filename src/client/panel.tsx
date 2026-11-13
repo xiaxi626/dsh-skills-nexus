@@ -1550,7 +1550,7 @@ export function NexusPanel({ api: apiProp }: { api?: NexusApi }): ReactElement {
                   onClick={() => void loadWorkspaces()}
                   disabled={workspaceBusy}
                 >
-                  {workspaceBusy ? '…' : 'load workspaces'}
+                  {workspaceBusy ? '…' : 'refresh list'}
                 </Button>
               </div>
               {workspaceError !== null && (

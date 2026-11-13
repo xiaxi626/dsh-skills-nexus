@@ -411,7 +411,7 @@ dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo --subdir skill
 
 项目页签顶部还有一个**已登记工作区**区块，用来管理 DSH 已经登记过的项目，无需手填
 路径。打开页签时会自动读取一次宿主通过 `ctx.get('workspaceRegistry')` 暴露的注册表
-（由 `@deepseek-ai/dsh-web-app` 提供）；**load workspaces** 按钮用于按需重新读取：
+（由 `@deepseek-ai/dsh-web-app` 提供）；**refresh list** 按钮用于按需重新读取：
 
 - 所有已登记工作区按 title/path 逐行列出，每行一个 **load** 按钮；加载某个工作区
   时只扫描**该工作区登记的路径**，一次只加载一个——不在注册表里的目录不会出现在这里，
