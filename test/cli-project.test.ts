@@ -265,3 +265,46 @@ test('link --project rejects the source-registry flags', async () => {
   assert.equal(result.code, 2)
   assert.match(result.stderr, /do not apply/)
 })
+
+test('enable/disable --project --files moves a real directory between both roots', async () => {
+  const project = await makeProject('files-toggle')
+  const real = join(project, '.dsh', 'skills', 'real-skill')
+  await mkdir(real, { recursive: true })
+  await writeFile(
+    join(real, 'SKILL.md'),
+    '---\nname: real-skill\ndescription: demo\n---\n\n# real-skill\n',
+    'utf8',
+  )
+
+  const already = await runCli(['enable', '--project', '--files', 'real-skill'], project)
+  assert.equal(already.code, 0, already.stderr)
+  assert.match(already.stdout, /already enabled/)
+
+  const off = await runCli(['disable', '--project', '--files', 'real-skill'], project)
+  assert.equal(off.code, 0, off.stderr)
+  await assert.rejects(stat(real), { code: 'ENOENT' })
+  assert.ok((await stat(join(project, '.dsh', 'skills-disabled', 'real-skill'))).isDirectory())
+
+  const on = await runCli(['enable', '--project', '--files', 'real-skill'], project)
+  assert.equal(on.code, 0, on.stderr)
+  assert.ok((await stat(real)).isDirectory())
+
+  // Without --files the same real directory is user content: refused, not moved.
+  const refused = await runCli(['disable', '--project', 'real-skill'], project)
+  assert.equal(refused.code, 1)
+  assert.match(refused.stderr, /is not a link/)
+  assert.ok((await stat(real)).isDirectory())
+})
+
+test('--files refuses a linked entry instead of moving it', async () => {
+  const project = await makeProject('files-refuse-link')
+  const source = await makeSkill('files-refuse-link/linked-skill', 'linked-skill')
+  const skills = join(project, '.dsh', 'skills')
+  await mkdir(skills, { recursive: true })
+  await symlink(source, join(skills, 'linked-skill'), 'junction')
+
+  const result = await runCli(['disable', '--project', '--files', 'linked-skill'], project)
+  assert.equal(result.code, 1)
+  assert.match(result.stderr, /is a link/)
+  assert.ok((await stat(join(skills, 'linked-skill'))).isDirectory())
+})

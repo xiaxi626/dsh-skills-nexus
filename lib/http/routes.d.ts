@@ -27,6 +27,7 @@
  * later phase).
  */
 import type { RouteSpec } from './types.js';
+import { type WorkspaceRegistryLike } from '../workspaces.js';
 import type { ListedEntry } from '../manifest.js';
 /**
  * A derived group state: for each distinct L1 group prefix found in
@@ -52,5 +53,10 @@ export declare function deriveGroupStates(listed: ListedEntry[]): GroupState[];
  * package's own static rules and size caps once the bytes are staged.
  */
 export declare const MAX_PACKAGE_BYTES: number;
-export declare function createNexusRoutes(): RouteSpec[];
+/** Optional runtime deps injected by src/index.ts for the workspace routes. */
+export interface NexusRouteDeps {
+    /** Lazy getter for the host workspace registry; undefined on headless hosts. */
+    workspaces?: () => WorkspaceRegistryLike | undefined;
+}
+export declare function createNexusRoutes(deps?: NexusRouteDeps): RouteSpec[];
 //# sourceMappingURL=routes.d.ts.map

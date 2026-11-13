@@ -102,6 +102,22 @@ export interface ProjectLinkPlan {
     source: string;
     results: ProjectLinkResult[];
 }
+/**
+ * Result of moving a **real** (non-link) entry between the active and
+ * disabled project roots. Deliberately a separate union from
+ * `ProjectToggleStatus`: `not-files` means "this is a link, use the link
+ * toggle", which is the exact opposite of the link function's `not-a-link`.
+ */
+export type ProjectFilesToggleStatus = 'enabled' | 'disabled' | 'already-enabled' | 'already-disabled' | 'not-found' | 'not-files' | 'collision' | 'failed';
+/** One real (non-link) entry under `<projectRoot>/.dsh/skills{,-disabled}`. */
+export interface ProjectFileEntry {
+    name: string;
+    /** Absolute path of the real directory or flat markdown file. */
+    path: string;
+    /** True for entries under `.dsh/skills`, false for `.dsh/skills-disabled`. */
+    enabled: boolean;
+    skill: ProjectSkillInfo | null;
+}
 export interface ProjectLinkSummary {
     linked: number;
     replaced: number;
@@ -164,6 +180,27 @@ export declare function summarizeProjectLink(plan: ProjectLinkPlan): ProjectLink
  * location is never moved: `not-a-link` / `collision` is returned instead.
  */
 export declare function setProjectLinkEnabled(root: string, name: string, enabled: boolean): Promise<ProjectToggleStatus>;
+/**
+ * Enable or disable one **real** project entry by moving it between
+ * `<root>/.dsh/skills/<name>` and `<root>/.dsh/skills-disabled/<name>`.
+ *
+ * This is the file counterpart of `setProjectLinkEnabled`: the link function
+ * refuses `files`, this one refuses links (`not-files`). Both use the same
+ * lock key so a link and a file with the same name can never be moved over
+ * each other. Both preflight outside the lock and re-check inside it, because
+ * a concurrent change between the two must not turn into a move of the wrong
+ * kind of entry.
+ */
+export declare function setProjectFilesEnabled(root: string, name: string, enabled: boolean): Promise<ProjectFilesToggleStatus>;
+/**
+ * List real entries in both project roots **without name deduplication**.
+ *
+ * `listProjectSkills()` keeps a `seen` set so the active root wins on a name
+ * clash. That rule is correct for links but wrong here: a disabled real entry
+ * must stay visible even when the active root holds a same-named entry,
+ * otherwise the user can never re-enable it.
+ */
+export declare function listProjectFiles(root: string): Promise<ProjectFileEntry[]>;
 /**
  * Remove the link called `name` from the project skills root.
  *

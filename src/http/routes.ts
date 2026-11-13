@@ -32,6 +32,13 @@ import { join, resolve } from 'node:path'
 import { ExportError, exportSkills } from '../export.js'
 import { HttpError, PLUGIN_ID } from './types.js'
 import type { RouteRequest, RouteResponse, RouteSpec } from './types.js'
+import { setProjectFilesEnabled, listProjectFiles, type ProjectFilesToggleStatus } from '../project.js'
+import {
+  listWorkspaces,
+  resolveWorkspaceTarget,
+  type WorkspaceRegistryLike,
+  type WorkspaceRow,
+} from '../workspaces.js'
 import {
   JSON_HEADERS,
   boolField,
@@ -1233,7 +1240,72 @@ async function toggleEntryCore(
 /* Route table (§7.1)                                                  */
 /* ------------------------------------------------------------------ */
 
-export function createNexusRoutes(): RouteSpec[] {
+/** Optional runtime deps injected by src/index.ts for the workspace routes. */
+export interface NexusRouteDeps {
+  /** Lazy getter for the host workspace registry; undefined on headless hosts. */
+  workspaces?: () => WorkspaceRegistryLike | undefined
+}
+
+export function createNexusRoutes(deps: NexusRouteDeps = {}): RouteSpec[] {
+  const getRegistry = deps.workspaces ?? (() => undefined)
+
+  async function workspacesListRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
+    const registry = getRegistry()
+    if (!registry) {
+      res.writeHead(200, JSON_HEADERS)
+      res.end(JSON.stringify({ data: { available: false, items: [] } }))
+      return
+    }
+    let rows: WorkspaceRow[]
+    try {
+      rows = await listWorkspaces(registry)
+    } catch (err) {
+      throw new HttpError(500, 'registry-error', err instanceof Error ? err.message : String(err))
+    }
+    res.writeHead(200, JSON_HEADERS)
+    res.end(JSON.stringify({ data: { available: true, items: rows } }))
+  }
+
+  async function workspaceSkillsRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
+    const registry = getRegistry()
+    if (!registry) throw new HttpError(503, 'workspace-unavailable', 'host workspace registry not available')
+    const requested = queryOf(req).get('workspace')
+    if (!requested) throw new HttpError(400, 'missing-field', 'workspace query required')
+    const resolved = await resolveWorkspaceTarget(registry, requested)
+    if (!resolved.ok) {
+      if (resolved.reason === 'invalid-path') throw new HttpError(400, 'invalid-workspace', 'workspace must be an absolute path')
+      if (resolved.reason === 'unavailable') throw new HttpError(503, 'workspace-unavailable', 'host registry threw')
+      if (resolved.reason === 'unregistered') throw new HttpError(400, 'workspace-unregistered', 'workspace path not registered')
+      throw new HttpError(409, 'unsafe-root', '.dsh or its skills subdirs are a symlink — refusing to traverse')
+    }
+    const entries = await listProjectFiles(resolved.path)
+    res.writeHead(200, JSON_HEADERS)
+    res.end(JSON.stringify({ data: { workspace: resolved.path, entries } }))
+  }
+
+  async function workspaceToggleRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
+    const registry = getRegistry()
+    if (!registry) throw new HttpError(503, 'workspace-unavailable', 'host workspace registry not available')
+    const body = await readJson(req)
+    const workspace = strField(body, 'workspace')
+    const name = strField(body, 'name')
+    if (!workspace || !name) throw new HttpError(400, 'missing-field', 'workspace and name both required')
+    const enabled = boolField(body, 'enabled') ?? false
+    if (/[\\/]|\.\.?$|^\.$/.test(name) || name.length === 0) {
+      throw new HttpError(400, 'invalid-name', 'name must be a single non-empty segment')
+    }
+    const resolved = await resolveWorkspaceTarget(registry, workspace)
+    if (!resolved.ok) {
+      if (resolved.reason === 'invalid-path') throw new HttpError(400, 'invalid-workspace', 'workspace must be absolute')
+      if (resolved.reason === 'unavailable') throw new HttpError(503, 'workspace-unavailable', 'host registry threw')
+      if (resolved.reason === 'unregistered') throw new HttpError(400, 'workspace-unregistered', 'workspace path not registered')
+      throw new HttpError(409, 'unsafe-root', '.dsh or its skills subdirs are a symlink — refusing to traverse')
+    }
+    const status: ProjectFilesToggleStatus = await setProjectFilesEnabled(resolved.path, name, enabled)
+    res.writeHead(200, JSON_HEADERS)
+    res.end(JSON.stringify({ data: { workspace: resolved.path, name, enabled, status } }))
+  }
+
   return [
     { kind: 'exact', path: '/skills-nexus/ping', handler: wrap(ping) },
     { kind: 'exact', path: '/skills-nexus/list', handler: wrap(listRoute) },
@@ -1254,5 +1326,8 @@ export function createNexusRoutes(): RouteSpec[] {
     { kind: 'exact', path: '/skills-nexus/export', handler: wrap(exportRoute) },
     { kind: 'exact', path: '/skills-nexus/job', handler: wrap(jobStatus) },
     { kind: 'exact', path: '/skills-nexus/job/cancel', handler: wrap(jobCancel) },
+    { kind: 'exact', path: '/skills-nexus/workspaces/list', handler: wrap(workspacesListRoute) },
+    { kind: 'exact', path: '/skills-nexus/workspace/skills', handler: wrap(workspaceSkillsRoute) },
+    { kind: 'exact', path: '/skills-nexus/workspace/toggle', handler: wrap(workspaceToggleRoute) },
   ]
 }

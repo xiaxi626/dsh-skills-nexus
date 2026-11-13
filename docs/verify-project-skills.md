@@ -9,8 +9,10 @@ Project scope manages the skills a project carries with it: links under `<projec
 This guide verifies:
 
 - `list --project`, `link --project <dir>`, `remove --project <name>...` and `doctor --project`;
+- `enable --project` / `disable --project` for links, and the `--files` variant that moves a real directory between `.dsh/skills` and `.dsh/skills-disabled`;
+- the registered-workspace block: `GET /workspaces/list`, `GET /workspace/skills`, `POST /workspace/toggle`;
 - `list --all`, the human-only joined view with `overrides` / `shadowed` markers;
-- the four HTTP routes and the panel section;
+- the four routes of the manual project folder and the panel section;
 - the invariants: **no manifest write, no copy or clone, and never a user-file deletion**.
 
 ## What project scope is and is not
@@ -20,10 +22,10 @@ This guide verifies:
 | Entry location | `~/.dsh/skills/<name>` | `<projectRoot>/.dsh/skills/<name>` |
 | Target | a nexus clone, or an external directory | any directory the user names |
 | State | `manifest.json` records source/version/ownership | **none** — the filesystem is the truth |
-| Commands | the full lifecycle | `list` / `link` / `remove` / `doctor` only |
-| Writes | manifest, clones, links | links only |
+| Commands | the full lifecycle | `list` / `link` / `remove` / `doctor` / `enable` / `disable` |
+| Writes | manifest, clones, links | links, or a `rename` of a real directory in `--files` mode |
 
-Not available with `--project`: `add`, `import`, `update`, `export`, `enable`, `disable`. `remove --project` takes exact link names only (no globs, no `--group`).
+Not available with `--project`: `add`, `import`, `update`, `export`. `remove --project` takes exact link names only (no globs, no `--group`), and so do `enable` / `disable`; `--files` additionally refuses `--group`, because both target exact names.
 
 ## Prerequisites and the two builds
 
@@ -52,21 +54,28 @@ Every command should exit 0. To check committed artifact freshness, run `git dif
   set -e
   node -e "require('node:assert/strict').equal(require('./package.json').name, 'dsh-skills-nexus')"
   node --import tsx --import ./test/register-css.mjs --test \
-    test/project.test.ts test/cli-project.test.ts \
+    test/project.test.ts test/project-files.test.ts \
+    test/cli-project.test.ts \
+    test/workspaces.test.ts test/workspace-routes.test.ts \
     test/args.test.ts test/api.test.ts test/client-api.test.ts \
-    test/panel-render.test.tsx test/completions.test.ts
+    test/panel-render.test.tsx test/panel-workspaces.test.tsx \
+    test/completions.test.ts
 )
 ```
 
 | Test file | Coverage |
 |---|---|
 | `project.test.ts` | `detectProjectRoot` (directory and file `.git`, fallback to cwd); listing (empty root, link, user files, dangling link with recovered target); name derivation for the three layouts and the non-ASCII fallback; `replace` / `unchanged` / `collision` / duplicate-name plans; apply and re-plan; removal refusing real directories; path-traversal rejection; the Windows UNC refusal |
-| `cli-project.test.ts` | The process-level chain: cwd root detection, `link --project` → `list --project` → `remove --project`, JSON purity, exit codes, no manifest created, user files refused, dangling `doctor` warning, `list --all`, bad explicit root, registry flags rejected, UNC refused |
-| `args.test.ts` | `--project` / `--project-root` / `--all` parsing, the "root requires project" rule, mutual exclusions, project-mode flag/glob refusals |
-| `api.test.ts` | The four routes: root validation, loopback and origin guards, preview vs `202` job, `confirm-required`, toggle, `404 not-found`, `409 not-a-link`/`collision`, `400 invalid-name`, UNC refusal |
+| `project-files.test.ts` | `setProjectFilesEnabled` / `listProjectFiles`: disable → enable round trip, `already-*` verdicts, `not-found`, path-traversal rejection, the same name tracked independently in both roots, `collision` when the other root is occupied |
+| `cli-project.test.ts` | The process-level chain: cwd root detection, `link --project` → `list --project` → `remove --project`, JSON purity, exit codes, no manifest created, user files refused, dangling `doctor` warning, `list --all`, bad explicit root, registry flags rejected, UNC refused, `--files` moving a real directory while refusing a link |
+| `workspaces.test.ts` | `workspaceRegistryOf` on a missing/odd `ctx`; `listWorkspaces` row normalisation; `resolveWorkspaceTarget` refusing absolute paths, unregistered paths, missing rows and symlinked `.dsh` levels |
+| `workspace-routes.test.ts` | The three routes through a fake request/response: unavailability answers, the `workspace` query, toggle bodies, error status mapping |
+| `args.test.ts` | `--project` / `--project-root` / `--all` / `--files` parsing, the "root requires project" rule, `--files` requiring `--project`, mutual exclusions, project-mode flag/glob refusals |
+| `api.test.ts` | The four manual-folder routes: root validation, loopback and origin guards, preview vs `202` job, `confirm-required`, toggle, `404 not-found`, `409 not-a-link`/`collision`, `400 invalid-name`, UNC refusal |
 | `client-api.test.ts` | `projectList` URL encoding, `projectLink` preview/job bodies, `projectRemove` confirm flag |
 | `panel-render.test.tsx` | The project section renders its root input and gated form; a `link` row has `remove`, a `user files` row never does; a dangling row shows the `dangling` badge |
-| `completions.test.ts` | `--project` / `--project-root` / `--all` offered by all four templates; the `--project-root` value is skipped when counting positionals |
+| `panel-workspaces.test.tsx` | The registered-workspace block comes first with an `<hr/>` divider, the manual block and its hint are unchanged, and `WorkspaceSkillRow` offers only a switch (`active dir` / `disabled dir`) |
+| `completions.test.ts` | `--project` / `--project-root` / `--all` / `--files` offered by all four templates; the `--project-root` value is skipped when counting positionals |
 
 ## Isolated CLI walkthrough
 
@@ -172,6 +181,49 @@ filename. To exercise the switch, link a source and run
 and the target's `SKILL.md` is untouched, then `enable --project <name>`
 restores the active link.
 
+### Real-directory toggle (`--files`)
+
+`--files` is the second toggle channel: it moves a **real** directory between
+the two project roots and refuses links (which belong to the link channel). With
+the walkthrough's project still in place:
+
+```bash
+(
+  set -e
+  PROJECT="$(pwd)"
+  BASE="${TMPDIR:-/tmp}/nexus-files-verify-$$"
+  if command -v cygpath >/dev/null 2>&1; then BASE="$(cygpath -m "$BASE")"; fi
+  export DSH_HOME="$BASE/home"
+  PROJ="$BASE/proj"
+  nexus() { node "$PROJECT/lib/cli/index.js" "$@"; }
+  expect_fail() { if "$@" >/dev/null 2>&1; then echo "FAIL: expected a non-zero exit: $*"; exit 1; fi; }
+
+  mkdir -p "$PROJ/.git" "$PROJ/.dsh/skills/real-skill"
+  printf -- '---\nname: real-skill\ndescription: demo\n---\n' > "$PROJ/.dsh/skills/real-skill/SKILL.md"
+
+  # F1) disable --files parks the real directory
+  nexus disable --project --files real-skill --project-root "$PROJ"
+  test ! -e "$PROJ/.dsh/skills/real-skill"
+  test -f "$PROJ/.dsh/skills-disabled/real-skill/SKILL.md"
+  echo 'PASS F1 disable --files moves a real directory'
+
+  # F2) enable --files brings it back
+  nexus enable --project --files real-skill --project-root "$PROJ"
+  test -f "$PROJ/.dsh/skills/real-skill/SKILL.md"
+  echo 'PASS F2 enable --files restores it'
+
+  # F3) without --files a real directory is user content: refused, exit 1
+  expect_fail nexus disable --project real-skill --project-root "$PROJ"
+  test -f "$PROJ/.dsh/skills/real-skill/SKILL.md"
+  echo 'PASS F3 link mode still refuses real directories'
+
+  rm -rf "$BASE"
+  echo 'cleaned'
+)
+```
+
+Expected three `PASS` lines then `cleaned`.
+
 ## Panel acceptance checklist
 
 Requires a DSH **web** host with the plugin mounted (see [Local testing steps](../README.md#local-testing-steps)). Static rendering is covered by the test suite; the checklist below is the UI integration gate.
@@ -185,10 +237,15 @@ Requires a DSH **web** host with the plugin mounted (see [Local testing steps](.
 7. A real directory you placed in `.dsh/skills` shows a `user files` badge, **no Switch** and **no remove button**.
 8. Press **remove** on a link row: the confirmation overlay says only the link is deleted; after confirming, the row disappears and the target directory still exists.
 9. Change the project folder: the old lists are cleared immediately (no stale rows from the previous folder).
+10. In the **registered workspace (.dsh)** block above the folder field, click **load workspaces**. On a web host the select lists the registry's workspaces by title; the scan then runs against that workspace's registered path — a path that is not in the registry cannot be selected here (type it into the folder field instead).
+11. Pick a workspace whose `.dsh/skills` holds a real directory. Rows show `active dir` and a **Switch**; there is no remove button — the workspace channel never deletes user content.
+12. Toggle that switch off: the row becomes `disabled dir` and the directory appears under that workspace's `.dsh/skills-disabled`; toggle it back and the directory returns. Links are not movable here — the row only exists for real entries.
+13. Pick a workspace with no `.dsh` at all: the block says `no real directories under the project skills root.` That is an empty result, not an error.
+14. On a headless host (no `@deepseek-ai/dsh-web-app`), **load workspaces** answers `available: false` with an explanatory hint, the manual folder field keeps working, and nothing silently falls back to an unregistered path.
 
 ## HTTP surface
 
-The panel talks to four routes; they are internal plumbing, not the stable machine interface (that is the CLI `--json` reports).
+The manual project folder talks to four routes; they are internal plumbing, not the stable machine interface (that is the CLI `--json` reports).
 
 | Route | Body / query | Answer |
 |---|---|---|
@@ -200,6 +257,28 @@ The panel talks to four routes; they are internal plumbing, not the stable machi
 
 All four require same-origin and a loopback socket. A `root` that is not an existing directory answers `400 invalid-root`; a name with a path separator answers `400 invalid-name`; a real directory or file answers `409 not-a-link` (or `409 collision` when the other location is occupied); a missing route input answers `400 missing-field`; a UNC source on Windows answers `400 unsupported-source`.
 
+The registered-workspace block talks to three more routes. They are privileged by
+construction: the target must be a path the host registry already knows.
+
+| Route | Body / query | Answer |
+|---|---|---|
+| `GET /skills-nexus/workspaces/list` | — | `{ data: { available, items: [{ id, path, title, projectRoot, exists }] } }` |
+| `GET /skills-nexus/workspace/skills` | `?workspace=<registered path>` | `{ data: { workspace, entries } }` |
+| `POST /skills-nexus/workspace/toggle` | `{ workspace, name, enabled }` | `{ data: { workspace, name, enabled, status } }` |
+
+When the host has no workspace registry, the list answers `available: false` with
+an empty `items`, and the other two routes answer `503 workspace-unavailable`;
+there is deliberately no fallback to an arbitrary path. A non-absolute query
+answers `400 invalid-workspace`, a path no registry row names answers
+`400 workspace-unregistered`, and a root whose `.dsh` / `.dsh/skills` /
+`.dsh/skills-disabled` level is a symlink or junction answers `409 unsafe-root`.
+A registry that throws on `list()` answers `500 registry-error`.
+
+The toggle moves **real directories only**: a link there still answers HTTP 200,
+but with `status: 'not-files'` instead of `'enabled'` / `'disabled'` — links
+belong to `/project/toggle`, and the client surfaces that verdict as the row's
+error instead of pretending the move happened.
+
 ## Known boundaries
 
 - **No state.** There is no `projectRoot` in the manifest, no migration and no "stale project" failure class. The folder is the record.
@@ -209,6 +288,6 @@ All four require same-origin and a loopback socket. A `root` that is not an exis
 - **Exact-name removal.** `remove --project` accepts names, not globs or group prefixes; the refusal is deliberate, to keep the destructive surface one link wide.
 - **`list --all` is human-only.** It joins two datasets (filesystem links and manifest entries) and is not part of the version-1 JSON contract; use `list --json` and `list --project --json` for machines.
 - **Windows junction targets.** A junction needs a local absolute path; UNC shares are refused up front instead of surfacing a raw `EPERM`.
-- **The panel root is typed.** This client context injects only `slots`, with no workspace service to read a project root from, so the field is per-session and not persisted.
+- **The panel has two doors.** The manual folder field is typed and per-session (this client context injects only `slots`, so there is no root to read), while the registered-workspace block reads the host registry and is therefore only populated on the DSH web profile. Neither persists anything.
 
 For the full command and option surface, see [Project skills](../README.md#project-skills) in the README.

@@ -187,6 +187,7 @@ export type ProjectToggleJsonStatus =
   | 'already-disabled'
   | 'not-found'
   | 'not-a-link'
+  | 'not-files'
   | 'collision'
   | 'failed'
 

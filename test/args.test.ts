@@ -308,6 +308,25 @@ test('parseToggleArgs --project rejects --group and a root without --project', (
   assert.throws(() => parseToggleArgs(['--project'], 'enable'), /missing link name/)
 })
 
+test('parseToggleArgs accepts --files only together with --project', () => {
+  const opts = parseToggleArgs(['--project', '--files', 'alpha'], 'enable')
+  assert.equal(opts.files, true)
+  assert.equal(opts.project, true)
+  assert.deepEqual(opts.names, ['alpha'])
+  assert.throws(
+    () => parseToggleArgs(['--files', 'alpha'], 'enable'),
+    /--files requires --project/,
+  )
+  assert.throws(
+    () => parseToggleArgs(['--project', '--files', '--group', 'g', 'alpha'], 'disable'),
+    /--files cannot combine with --group/,
+  )
+  assert.throws(
+    () => parseToggleArgs(['--project', '--files=true', 'alpha'], 'enable'),
+    /takes no value/,
+  )
+})
+
 /* ------------------------------------------------------------------ */
 /* parseToggleArgs — --group extension                                 */
 /* ------------------------------------------------------------------ */

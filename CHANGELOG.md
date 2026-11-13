@@ -4,6 +4,50 @@
 
 ## [Unreleased]
 
+**Added · 项目真实技能目录可逆启停（`--files`）与工作区授权 HTTP 路由**
+
+- **Task 1 · 核心真实目录启停函数**：`src/project.ts` 新增 `ProjectFilesToggleStatus`（`enabled`/`disabled`/`already-*`/`not-found`/`not-files`/`collision`/`failed`）、`ProjectFileEntry` 类型与两个函数：
+  - `setProjectFilesEnabled(root, name, enabled)` — 按名字在 `.dsh/skills` 与 `.dsh/skills-disabled` 之间移动真实目录或扁平 `.md` 文件。移动前后都做 link 拒绝检查（遇到 symlink 以 `not-files` 拒绝——语义反转 link toggle 的 `not-a-link`），与 `setProjectLinkEnabled` 使用**同一 per-name 锁 key**避免两种模式互相踩。preflight outside + re-check inside 锁双重闸门，防止并发下 link 和 files 对同名条目交替操作。
+  - `listProjectFiles(root)` — **无名称去重**地列出两棵目录下的真实条目（link 跳过）。同名同 enabled 并排返回——旧 `listProjectSkills` 用 `seen` set 让活动根赢，但真实目录在 disabled 根必须始终可见，否则用户永远 re-enable 不了。
+  - 名字闸门 `isDirectChildName` 复用：拒绝 `.` / `..` / 路径分隔符 / 空串。
+  - `test/project-files.test.ts`（6 条）：disable→enable 往返、already 语义、not-found、路径穿越拒绝、双根同名独立可见、占用冲突。6/6 绿，旧 `test/project.test.ts` 零回归。
+
+- **Task 2 · 工作区授权模块**：新增 `src/workspaces.ts`——**零硬依赖**，通过 `workspaceRegistryOf(ctx)` 反射式读取 `ctx.get('workspaceRegistry')`，headless profile 里返回 `undefined`。三个函数：
+  - `detectProjectRoot(start)` — 向上爬祖先直到找到 `.git`（最多 32 层安全上限），爬不动就返回原路径。
+  - `listWorkspaces(registry)` — 规范化 host row → `WorkspaceRow { id, path, title, projectRoot, exists }`；`projectRoot` 由 `detectProjectRoot` 填，`exists` 由 `stat(path)` 判断。row 缺 path/非 object 跳过。
+  - `resolveWorkspaceTarget(registry, requested)` — **四层拒绝**：非绝对路径（POSIX `/` 或 Windows drive letter）→ registry 抛错 → registry 不认识 → `.dsh` / `.dsh/skills` / `.dsh/skills-disabled` 是 symlink（`unsafe-root`，防止面板通过 symlink 把写请求指到用户别处）。成功返回 `{ ok: true, path: projectRoot }`。
+  - 安全设计：请求里的 `workspace` 只作**授权 key**，实际用 `detectProjectRoot` 解析，**永远不信任请求里给的路径**。
+  - `test/workspaces.test.ts`（8 绿 + 1 skip）：`workspaceRegistryOf` 在各种 ctx 形状下的降级、`listWorkspaces` 正常化 + projectRoot 填充 + exists 标记 + row 跳过、`detectProjectRoot` 回退原路径、`resolveWorkspaceTarget` 相对路径拒绝/未知拒绝/symlink 拒绝（Windows skip，需管理员权限）/正常返回。
+
+- **Task 3 · HTTP 路由**：`createNexusRoutes` 签名扩为 `createNexusRoutes(deps?: { workspaces?: () => WorkspaceRegistryLike | undefined })`，默认空 deps 下三条新路由全走 unavailable 分支（503 或 `{available:false}`）：
+  - `GET /skills-nexus/workspaces/list` → registry 缺失时返回 `{ data: { available: false, items: [] } }`；可用时返回规范化 row 列表。
+  - `GET /skills-nexus/workspace/skills?workspace=` → 400/400/400/409（missing-field/invalid-workspace/workspace-unregistered/unsafe-root），成功返回 `{ data: { workspace, entries: ProjectFileEntry[] } }`。
+  - `POST /skills-nexus/workspace/toggle` → 名字拒绝 `/`/`\`/`.`/`..`/空串（路由层闸门 + `setProjectFilesEnabled` 内部文件系统闸门双重验证），成功返回 `{ data: { workspace, name, enabled, status: ProjectFilesToggleStatus } }`。
+  - 三条路由都先过 `resolveWorkspaceTarget` 授权再调 `listProjectFiles` / `setProjectFilesEnabled`，不直接信任请求里的路径。
+
+- **Task 4 · 宿主接线**：`src/index.ts` 的 `apply()` 改为 `createNexusRoutes({ workspaces: () => workspaceRegistryOf(ctx) })`。非 web profile 下三条路由全 unavailable，面板侧拉不到任何工作区。
+
+- **Task 6 · 客户端 API**：`src/client/api.ts` 新增类型 `WorkspaceRow` / `ProjectFileEntry` / `WorkspaceToggleStatus` 与三个方法 `workspacesList()` / `workspaceSkills(workspace)` / `workspaceToggle(workspace, name, enabled)`。`npm run build:client` 输出 `lib/client.js` 107 KB。
+
+- **Task 5 · CLI `--files`**：
+  - `src/cli/args.ts` — `ToggleOptions` 加 `files?: boolean`；`parseToggleArgs` 加 `--files` flag 分支（无值、单独不能用、与 `--group` 互斥）、双闸门验证（files 必须配 project；files 不能配 group）。
+  - `src/cli/commands/toggle.ts` — 循环内 `if (opts.files) setProjectFilesEnabled(...) else setProjectLinkEnabled(...)`；返回联合类型 `ProjectToggleStatus | ProjectFilesToggleStatus`。
+  - `src/cli/json-types.ts` — `ProjectToggleJsonStatus` 加 `not-files` 成员（files 模式遇到 symlink 拒绝，语义反转 link 模式的 `not-a-link`）。
+  - `src/cli/commands/toggle.ts` — `not-files` 不再落到 `unknown error`：专用文案提示改用不带 `--files` 的链接通道。
+  - 四套 shell 补全模板（bash / zsh / fish / powershell）enable|disable 行同步加 `--files`。
+  - 测试：`test/args.test.ts` 增 `--files` 解析用例（必须配 `--project`、互斥 `--group`、不接受值）；`test/cli-project.test.ts` 增两条进程级用例（真实目录 disable→enable 往返且 link 模式仍拒绝；`--files` 对链接返回错误且不移动）。
+
+- **Task 7 · 面板 UI**：`src/client/panel.tsx` Project skills 页签加**完全独立的 host-registered workspace 区块**——6 个新 state 与旧区块完全隔离（不共享 projectRoot、不共享 handler、不共享条件渲染分支）；`<hr />` 分隔线之上是 workspace、之下是旧区块逐字不变（`aria-label="project root"` 和 hint 原文 `any absolute folder — it does not have to be a registered DSH workspace` 保持原样）。默认 `workspaceAvailable === null` 时只显示"click load workspaces"按钮——渲染期不触发任何新 API。点击后才调 `workspacesList()` 拉注册工作区；返回 `{ available: true, items[] }` 时出现 select + load workspaces 按钮；选中后调 `workspaceSkills(workspacePath)` 拉真实目录条目，每行渲染导出组件 `WorkspaceSkillRow`（Switch 启停、无 remove 按钮——真实目录永不可删）。
+  - 验证：`panel-render.test.tsx` 32/32 零回归；`panel-workspaces.test.tsx` 6/6（工作区块在旧区块之前且以 `<hr />` 分隔、默认只给 load workspaces 入口、旧输入框与 hint 原文、`WorkspaceSkillRow` 的 active/disabled/busy 三种状态）。
+
+- **Task 8 · 文档**：
+  - `README_FULL.zh-CN.md` — 能力总览表加 `--files`；项目技能小节新增 `### --files：启停真实目录`（双通道语义反转、只移动不删除、共享 per-name 锁、`--json` 状态；并补上表格引用的锚点）；新增 `### 已登记工作区（.dsh）`（授权四层拒绝、三条路由表、headless 时 `available:false`）；「启停 = 移动」与「HTTP 接口」两处同步双通道。
+  - `README_FULL.md` / `README.md` — 英文文档同步 `--files` 与已登记工作区；修正真实目录只读、宿主没有 workspace service 的旧描述，简版 README 增加项目技能入口。
+  - `docs/ARCHITECTURE.md` / `.zh-CN.md` — 新增 **Registered workspace mode** 章节：`ctx.get('workspaceRegistry')` 反射读取、`resolveWorkspaceTarget` 的四层授权、写操作仅一次 `rename`、两种通道互不越界。
+  - `docs/verify-project-skills.md` / `.zh-CN.md` — 命令/写入表格补 `--files`；新增真实目录开关的三步验收脚本；面板验收清单补 5 条（load workspaces、空 `.dsh` 工作区、headless `available:false` 等）；补三条工作区路由与错误码（`workspace-unavailable` / `workspace-unregistered` / `unsafe-root` / `not-files`）；测试清单纳入四个新文件。
+
+- **Task 9 · 收尾**：`package.json` 的 npm test 脚本显式列表纳入四个新测试文件（`test/project-files.test.ts test/workspaces.test.ts test/workspace-routes.test.ts test/panel-workspaces.test.tsx`）。BOM 问题修了（用 Node `fs.writeFileSync` 写 UTF-8 无 BOM）。全量验证：typecheck 0 error、build/build:client 成功、eslint `src test scripts` 0 error、测试全绿。真机验证 `npx dsh web` 正常加载 plugin。
+
 ## [0.10.0] - 2026-11-09
 
 > **Project skills 标记为实验性**：`--project` 作用域与面板的 Project skills 页签功能与测试完整、CI 三平台全绿，但交互手感尚未经真实使用验证。既有全局技能的命令契约未变，不使用该作用域的用户不受影响；0.10.x 会按实际体验继续调整。

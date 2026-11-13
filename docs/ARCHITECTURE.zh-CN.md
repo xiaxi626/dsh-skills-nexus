@@ -149,6 +149,18 @@ DSH filesystem provider（官方内置）
 - **外部条目**（由 `link <source>` 创建，来源共十九个）符号链接到 nexus 控制范围之外的目录——通常是 `~/.trae-cn/skills/`、`~/.trae/skills/`、`~/.codebuddy/skills/`、`~/.workbuddy/skills/`、`~/.agents/skills/`、`~/.config/opencode/skills/`、`~/.codeium/windsurf/skills/`、`~/.kimi-code/skills/`，或 `~/.qoder/` 与 `~/.qoder-cn/` 下的某个技能（用户级 `skills/`，或市场插件声明的技能目录）。nexus 不克隆、不更新、不删除那些目录。`remove` 只删除链接和 manifest 条目。
 - **项目根是独立的**：provider 扫描 `<projectRoot>/.dsh/skills/` 的 rank 高于 `~/.dsh/skills/`。项目作用域只往那里写链接，别的什么都不写——没有 manifest 条目、没有克隆、没有复制——所以删除或移动项目不会留下 nexus 状态。项目页同时也是只读查看器：解析文件夹自身的 `SKILL.md` 与链接目标用于展示；`disable` 只是把链接移到同级的 `.dsh/skills-disabled/`（扫描根之外），`enable` 再移回。链接保留目标，因此不需要状态文件，也从不编辑任何 `SKILL.md`。
 
+### 已登记工作区模式
+
+Project 页签还能直接进入用户没有手填的项目：web 宿主通过 `ctx.get('workspaceRegistry')` 暴露工作区注册表（由 `@deepseek-ai/dsh-web-app` 提供；headless 宿主没有）。`src/workspaces.ts` 是零依赖适配层——`workspaceRegistryOf(ctx)` 反射式读取该服务，因此插件不 import 宿主包；注册表缺失时只报 `available: false`，不降级。
+
+授权是显式的，绝不从路径字符串推断：
+
+- `resolveWorkspaceTarget()` 只接受注册表中**已登记**、且磁盘上仍存在的路径（否则 `unregistered` / `unavailable`）；
+- 项目根及其 `.dsh`、`.dsh/skills`、`.dsh/skills-disabled` 各级不得是符号链接或 junction（`unsafe-root`），避免链接把移动操作重定向到项目之外；
+- 任何未被某行登记的路径都会被拒绝——注册表是唯一的授权签发者。
+
+写操作只有一次 `rename`，且只针对真实目录。链接留在链接通道：`setProjectFilesEnabled()` 对链接返回 `not-files` 而不是移动 junction，`setProjectLinkEnabled()` 对真实目录仍返回 `not-a-link`。位置就是唯一状态，两种模式都不读也不写 manifest。手填 project folder 与链接流程保持不变；已登记工作区块是纯增量，位于 Project 页签中它们之上。
+
 `src/external.ts` 的来源注册表配置 `envVar`、`defaultDirName` 或有序 `rootCandidates`，以及每个来源自带的 `discover`（`(root) => DiscoveredSkill[]`）。
 `trae-cn` 使用 `TRAE_CN_DIR` / `.trae-cn`，`trae` 使用 `TRAE_DIR` / `.trae`，两者都走 `plainDiscovery(['skills'])`。
 `qoder` 使用 `QODER_DIR` / `.qoder`，`qoder-cn` 使用 `QODER_CN_DIR` / `.qoder-cn`；两者共用 `src/qoder.ts` 的同一个发现函数，因为两个客户端的布局一致：用户级 `<root>/skills/` + `<root>/plugins/installed_plugins_v2.json` 中列出的市场插件，逐个读插件的 `plugin.json`。

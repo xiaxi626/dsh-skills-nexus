@@ -151,7 +151,7 @@ export interface ProjectRemoveJsonReport {
     };
 }
 /** `failed` is set when the move itself threw (permissions, cross-volume). */
-export type ProjectToggleJsonStatus = 'enabled' | 'disabled' | 'already-enabled' | 'already-disabled' | 'not-found' | 'not-a-link' | 'collision' | 'failed';
+export type ProjectToggleJsonStatus = 'enabled' | 'disabled' | 'already-enabled' | 'already-disabled' | 'not-found' | 'not-a-link' | 'not-files' | 'collision' | 'failed';
 export interface ProjectToggleJsonResult {
     name: string;
     status: ProjectToggleJsonStatus;

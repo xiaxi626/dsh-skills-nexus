@@ -150,6 +150,32 @@ export interface ProjectLinkPlan {
   results: ProjectLinkResult[]
 }
 
+/**
+ * Result of moving a **real** (non-link) entry between the active and
+ * disabled project roots. Deliberately a separate union from
+ * `ProjectToggleStatus`: `not-files` means "this is a link, use the link
+ * toggle", which is the exact opposite of the link function's `not-a-link`.
+ */
+export type ProjectFilesToggleStatus =
+  | 'enabled'
+  | 'disabled'
+  | 'already-enabled'
+  | 'already-disabled'
+  | 'not-found'
+  | 'not-files'
+  | 'collision'
+  | 'failed'
+
+/** One real (non-link) entry under `<projectRoot>/.dsh/skills{,-disabled}`. */
+export interface ProjectFileEntry {
+  name: string
+  /** Absolute path of the real directory or flat markdown file. */
+  path: string
+  /** True for entries under `.dsh/skills`, false for `.dsh/skills-disabled`. */
+  enabled: boolean
+  skill: ProjectSkillInfo | null
+}
+
 export interface ProjectLinkSummary {
   linked: number
   replaced: number
@@ -634,6 +660,100 @@ export async function setProjectLinkEnabled(
     await rename(active, disabled)
     return 'disabled'
   })
+}
+
+/**
+ * Enable or disable one **real** project entry by moving it between
+ * `<root>/.dsh/skills/<name>` and `<root>/.dsh/skills-disabled/<name>`.
+ *
+ * This is the file counterpart of `setProjectLinkEnabled`: the link function
+ * refuses `files`, this one refuses links (`not-files`). Both use the same
+ * lock key so a link and a file with the same name can never be moved over
+ * each other. Both preflight outside the lock and re-check inside it, because
+ * a concurrent change between the two must not turn into a move of the wrong
+ * kind of entry.
+ */
+export async function setProjectFilesEnabled(
+  root: string,
+  name: string,
+  enabled: boolean,
+): Promise<ProjectFilesToggleStatus> {
+  if (!isDirectChildName(name)) return 'not-found'
+  const projectRoot = resolve(root)
+  const active = projectSkillPath(projectRoot, name)
+  const disabled = join(projectDisabledSkillsDir(projectRoot), name)
+
+  const activeNow = await existsAt(active)
+  const disabledNow = await existsAt(disabled)
+  if (enabled) {
+    if (activeNow) return (await isLinkAt(active)) ? 'not-files' : 'already-enabled'
+    if (!disabledNow) return 'not-found'
+    if (await isLinkAt(disabled)) return 'not-files'
+  } else {
+    if (!activeNow && !disabledNow) return 'not-found'
+    if (activeNow) {
+      if (await isLinkAt(active)) return 'not-files'
+      if (disabledNow) return 'collision'
+    } else {
+      return (await isLinkAt(disabled)) ? 'not-files' : 'already-disabled'
+    }
+  }
+
+  const rootTag = await projectLockTag(projectRoot)
+  return withSkillFileLock(`${rootTag}-${name}`, async () => {
+    const activeExists = await existsAt(active)
+    const disabledExists = await existsAt(disabled)
+
+    if (enabled) {
+      if (activeExists) return (await isLinkAt(active)) ? 'not-files' : 'already-enabled'
+      if (!disabledExists) return 'not-found'
+      if (await isLinkAt(disabled)) return 'not-files'
+      await mkdir(dirname(active), { recursive: true })
+      await rename(disabled, active)
+      return 'enabled'
+    }
+
+    if (!activeExists) return disabledExists ? 'already-disabled' : 'not-found'
+    if (await isLinkAt(active)) return 'not-files'
+    if (disabledExists) return 'collision'
+    await mkdir(projectDisabledSkillsDir(projectRoot), { recursive: true })
+    await rename(active, disabled)
+    return 'disabled'
+  })
+}
+
+/**
+ * List real entries in both project roots **without name deduplication**.
+ *
+ * `listProjectSkills()` keeps a `seen` set so the active root wins on a name
+ * clash. That rule is correct for links but wrong here: a disabled real entry
+ * must stay visible even when the active root holds a same-named entry,
+ * otherwise the user can never re-enable it.
+ */
+export async function listProjectFiles(root: string): Promise<ProjectFileEntry[]> {
+  const scans = [
+    { dir: projectSkillsDir(root), enabled: true },
+    { dir: projectDisabledSkillsDir(root), enabled: false },
+  ]
+  const entries: ProjectFileEntry[] = []
+  for (const { dir, enabled } of scans) {
+    let names: string[]
+    try {
+      names = await readdir(dir)
+    } catch {
+      continue
+    }
+    for (const name of names) {
+      const path = join(dir, name)
+      if (await isLinkAt(path)) continue
+      entries.push({ name, path, enabled, skill: await readSkillInfo(path) })
+    }
+  }
+  entries.sort((a, b) => {
+    if (a.name !== b.name) return a.name < b.name ? -1 : 1
+    return a.enabled === b.enabled ? 0 : a.enabled ? -1 : 1
+  })
+  return entries
 }
 
 /**

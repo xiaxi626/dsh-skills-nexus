@@ -287,6 +287,34 @@ export interface ProjectSkillEntry {
   skill: ProjectSkillInfo | null
 }
 
+/** One host-registered workspace row from `/workspaces/list`. */
+export interface WorkspaceRow {
+  id: string
+  path: string
+  title: string
+  projectRoot: string
+  exists: boolean
+}
+
+/** One real (non-link) entry from `/workspace/skills`. */
+export interface ProjectFileEntry {
+  name: string
+  path: string
+  enabled: boolean
+  skill: ProjectSkillInfo | null
+}
+
+/** Union accepted by `workspaceToggle`'s status field. */
+export type WorkspaceToggleStatus =
+  | 'enabled'
+  | 'disabled'
+  | 'already-enabled'
+  | 'already-disabled'
+  | 'not-found'
+  | 'not-files'
+  | 'collision'
+  | 'failed'
+
 /** The project page's one read-only report. */
 export interface ProjectReport {
   projectRoot: string
@@ -381,6 +409,16 @@ export interface NexusApi {
     name: string,
     enabled: boolean,
   ): Promise<Envelope<{ projectRoot: string; name: string; enabled: boolean; status: string }>>
+  /** Host-registered workspace rows — only populated on DSH web profile. */
+  workspacesList(): Promise<Envelope<{ available: boolean; items: WorkspaceRow[] }>>
+  /** Real (non-link) entries under `<ws>/.dsh/skills{,-disabled}`. */
+  workspaceSkills(workspace: string): Promise<Envelope<{ workspace: string; entries: ProjectFileEntry[] }>>
+  /** Toggle one real entry via the host-authorised workspace route. */
+  workspaceToggle(
+    workspace: string,
+    name: string,
+    enabled: boolean,
+  ): Promise<Envelope<{ workspace: string; name: string; enabled: boolean; status: WorkspaceToggleStatus }>>
   job(id: string): Promise<Envelope<{ job: Job }>>
   cancelJob(id: string): Promise<Envelope<{ id: string; status: JobStatus }>>
   export(body: ExportBody): Promise<Envelope<ExportResult>>
@@ -482,6 +520,11 @@ export function createApi(fetchImpl: ApiFetch = (input, init) => fetch(input, in
       postJson(fetchImpl, '/skills-nexus/project/remove', { root, name, confirm: confirm === true }),
     projectToggle: (root, name, enabled) =>
       postJson(fetchImpl, '/skills-nexus/project/toggle', { root, name, enabled }),
+    workspacesList: () => request(fetchImpl, '/skills-nexus/workspaces/list'),
+    workspaceSkills: (workspace) =>
+      request(fetchImpl, `/skills-nexus/workspace/skills?workspace=${encodeURIComponent(workspace)}`),
+    workspaceToggle: (workspace, name, enabled) =>
+      postJson(fetchImpl, '/skills-nexus/workspace/toggle', { workspace, name, enabled }),
     job: (id) => request(fetchImpl, `/skills-nexus/job?id=${encodeURIComponent(id)}`),
     cancelJob: (id) => postJson(fetchImpl, '/skills-nexus/job/cancel', { id }),
     export: (body) => postJson(fetchImpl, '/skills-nexus/export', body as unknown as Record<string, unknown>),
