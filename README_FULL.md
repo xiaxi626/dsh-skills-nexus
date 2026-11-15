@@ -596,6 +596,12 @@ on demand:
   `.dsh/skills-disabled`, each with an enable/disable **Switch** (`active dir`
   / `disabled dir`). Links do not appear here—they belong to the link channel
   below.
+- Disabling a real entry renames it into `.dsh/skills-disabled/`, so the
+  disabled state is stored **with the project**, not in a separate state file.
+  Unregistering the workspace leaves that folder in place; re-registering the
+  same path restores the previous disabled state. nexus never deletes it
+  automatically — remove the folder yourself if you no longer need it, or add
+  `.dsh/skills-disabled/` to `.gitignore`.
 - Authorization is explicit: the path must be registered and still exist, and
   none of the project root's `.dsh`, `.dsh/skills` or `.dsh/skills-disabled`
   levels may be a symlink or junction. The only write is one `rename`; directory

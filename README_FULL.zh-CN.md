@@ -418,6 +418,10 @@ dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo --subdir skill
   请改用下方的手填输入框。
 - 区块只列 `.dsh/skills` 与 `.dsh/skills-disabled` 下的**真实目录**，每行一个启停
   **Switch**（`active dir` / `disabled dir`）。链接不在这里出现——它们属于下方的链接通道。
+- 停用真实条目会把它 rename 到 `.dsh/skills-disabled/`，所以禁用状态**随项目保存**，
+  不是独立的状态文件。DSH 取消工作区登记后该目录仍留在原处；重新登记同一路径即可恢复
+  之前的禁用状态。nexus 不会自动删除它——不需要时请自行删除该目录，或把
+  `.dsh/skills-disabled/` 加进 `.gitignore`。
 - 授权是显式的：路径必须已登记、目录仍存在，且项目根的 `.dsh` / `.dsh/skills` /
   `.dsh/skills-disabled` 任一层不得是符号链接或 junction。写操作只有一次 `rename`，
   不触碰目录内容，也不写 manifest。

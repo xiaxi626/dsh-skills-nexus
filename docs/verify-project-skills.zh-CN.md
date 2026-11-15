@@ -237,7 +237,8 @@ cleaned
 11. 在某个 `.dsh/skills` 里有真实目录的工作区旁点 **load**。扫描只针对该工作区**已登记**的路径——不在注册表里的路径不会出现在这里（请改用下方文件夹输入框）。行显示 `active dir` 与 **Switch**，没有 remove 按钮——工作区通道从不删除用户内容。
 12. 关掉该 Switch：行变成 `disabled dir`，目录出现在该工作区的 `.dsh/skills-disabled` 下；再打开即移回。链接不能在这里移动，因为只有真实条目才会成行。
 13. 在一个完全没有 `.dsh` 的工作区旁点 **load**：该工作区区域显示 `no real directories under the project skills root.`，这是空结果，不是错误。加载第二个工作区不会顺带扫描其他工作区。
-14. 在 headless 宿主（没有 `@deepseek-ai/dsh-web-app`）上，自动探测返回 `available: false` 并给出说明；手填文件夹照常可用，且不会静默回退到未登记路径。
+14. 在 DSH 里取消该工作区登记，然后点 **refresh list**：该行从面板消失。磁盘上的 `.dsh/skills-disabled/<name>` 仍然存在。重新登记同一个文件夹：该行重新出现，条目仍是 `disabled dir`，打开 Switch 即可移回。这是设计行为——该文件夹是随项目保存的禁用状态，不是待清理的垃圾；nexus 不会自动清理它。
+15. 在 headless 宿主（没有 `@deepseek-ai/dsh-web-app`）上，自动探测返回 `available: false` 并给出说明；手填文件夹照常可用，且不会静默回退到未登记路径。
 
 ## HTTP 接口
 

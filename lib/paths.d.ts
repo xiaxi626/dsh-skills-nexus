@@ -41,9 +41,12 @@ export declare function skillLinkPath(name: string): string;
  */
 export declare function projectSkillsDir(projectRoot: string): string;
 /**
- * Where project links go while disabled: a sibling of `skills`, outside the
- * provider's scanned root. Moving a link here keeps its target (and dangling
- * state) intact, so re-enabling needs no remembered path.
+ * Where disabled project entries go: a sibling of `skills`, outside the
+ * provider's scanned root. Moving an entry here keeps its target/content (and
+ * dangling state) intact, so re-enabling needs no remembered path. This
+ * directory is the project's persisted disable state — it is never cleaned up
+ * when a workspace registration disappears; re-registering the same folder
+ * restores the user's choices.
  */
 export declare function projectDisabledSkillsDir(projectRoot: string): string;
 /**
