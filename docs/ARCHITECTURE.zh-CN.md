@@ -138,7 +138,7 @@ DSH filesystem provider（官方内置）
     ├── skills/                     # provider rank 100（覆盖用户级根）
     │   ├── my-skill/      → link → /path/to/my-skill/
     │   └── vendored-skill/         # 用户提交的真实文件
-    └── skills-disabled/            # 停用的链接；provider 不扫描这里
+    └── skills-disabled/            # 停用的条目（链接与真实目录）；provider 不扫描这里
         └── old-skill/     → link → /path/to/old-skill/
 ```
 
@@ -147,7 +147,7 @@ DSH filesystem provider（官方内置）
 - `repos/` 是 nexus 的私有存储——所有 git 克隆都放在这里，保持原始结构不变。CLI 通过 git 对这些目录做 clone / pull / checkout 等操作。克隆由 nexus 管理：`add` / `update` 可能原地归一化 frontmatter（修正非法名称、补全缺失的 `description`），`update` 在拉取前会丢弃本地改动（有警告）——请勿手动编辑克隆。
 - `~/.dsh/skills/` 是 DSH 官方的 skills 根目录——官方 filesystem provider 只扫描这一层。nexus 在这里为每个 skill 创建一个 symlink，指向 `repos/` 中的实际目录。这样官方 provider 就能自动发现所有 skill，无需自定义 provider。
 - **外部条目**（由 `link <source>` 创建，来源共十九个）符号链接到 nexus 控制范围之外的目录——通常是 `~/.trae-cn/skills/`、`~/.trae/skills/`、`~/.codebuddy/skills/`、`~/.workbuddy/skills/`、`~/.agents/skills/`、`~/.config/opencode/skills/`、`~/.codeium/windsurf/skills/`、`~/.kimi-code/skills/`，或 `~/.qoder/` 与 `~/.qoder-cn/` 下的某个技能（用户级 `skills/`，或市场插件声明的技能目录）。nexus 不克隆、不更新、不删除那些目录。`remove` 只删除链接和 manifest 条目。
-- **项目根是独立的**：provider 扫描 `<projectRoot>/.dsh/skills/` 的 rank 高于 `~/.dsh/skills/`。项目作用域只往那里写链接，别的什么都不写——没有 manifest 条目、没有克隆、没有复制——所以删除或移动项目不会留下 nexus 状态。项目页同时也是只读查看器：解析文件夹自身的 `SKILL.md` 与链接目标用于展示；`disable` 只是把链接移到同级的 `.dsh/skills-disabled/`（扫描根之外），`enable` 再移回。链接保留目标，因此不需要状态文件，也从不编辑任何 `SKILL.md`。
+- **项目根是独立的**：provider 扫描 `<projectRoot>/.dsh/skills/` 的 rank 高于 `~/.dsh/skills/`。项目作用域只往那里写链接，别的什么都不写——没有 manifest 条目、没有克隆、没有复制——所以删除或移动项目不会留下 nexus 状态。已登记工作区通道还会切换文件夹里**已有的真实条目**；它从不创建或编辑它们。项目页同时也是只读查看器：解析文件夹自身的 `SKILL.md` 与链接目标用于展示；`disable` 把链接或真实条目移到同级的 `.dsh/skills-disabled/`（扫描根之外），`enable` 再移回。条目保留目标/内容，因此不需要状态文件，也从不编辑任何 `SKILL.md`。
 
 ### 已登记工作区模式
 
@@ -160,6 +160,15 @@ Project 页签还能直接进入用户没有手填的项目：web 宿主通过 `
 - 任何未被某行登记的路径都会被拒绝——注册表是唯一的授权签发者。
 
 写操作只有一次 `rename`，且只针对真实目录。链接留在链接通道：`setProjectFilesEnabled()` 对链接返回 `not-files` 而不是移动 junction，`setProjectLinkEnabled()` 对真实目录仍返回 `not-a-link`。位置就是唯一状态，两种模式都不读也不写 manifest。手填 project folder 与链接流程保持不变；已登记工作区块是纯增量，位于 Project 页签中它们之上。
+
+### `.dsh/skills-disabled` 是随项目保存的禁用状态
+
+停用一个条目，就是把它 rename 到同级的 `.dsh/skills-disabled/`——provider 扫描根之外。这个目录是**随项目保存的状态**，不是临时垃圾：
+
+- 在 DSH 里取消工作区登记不会删除它。下一次刷新注册表后该行从面板消失、注册表也不再授权写入，但项目文件夹保留用户的禁用选择；重新登记同一路径后这些选择仍在，enable 即可移回。
+- nexus 从不删除禁用条目：没有“取消登记时清理”、没有 keep/delete 设置、也没有状态文件。是否删除由用户决定；如果不想提交，可以把 `.dsh/skills-disabled/` 加进 `.gitignore`。
+- 这也是工作区通道不注册自定义 provider 的原因。provider 覆盖层必须压过官方 filesystem provider 和其他技能插件，依赖内部的 rank/layering 规则，而且会让“装了 nexus”改变 DSH 看到的技能集合。rename 只改文件系统，官方和第三方 provider 读到的是同一份事实。
+- 如果宿主以后提供原生 disable/override API，nexus 可以在同一套 UI 后面适配；在那之前，位置就是状态。
 
 `src/external.ts` 的来源注册表配置 `envVar`、`defaultDirName` 或有序 `rootCandidates`，以及每个来源自带的 `discover`（`(root) => DiscoveredSkill[]`）。
 `trae-cn` 使用 `TRAE_CN_DIR` / `.trae-cn`，`trae` 使用 `TRAE_DIR` / `.trae`，两者都走 `plainDiscovery(['skills'])`。

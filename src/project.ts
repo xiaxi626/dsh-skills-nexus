@@ -666,6 +666,11 @@ export async function setProjectLinkEnabled(
  * Enable or disable one **real** project entry by moving it between
  * `<root>/.dsh/skills/<name>` and `<root>/.dsh/skills-disabled/<name>`.
  *
+ * The disabled entry stays inside the project: `.dsh/skills-disabled` is the
+ * project's persisted disable state, so unregistering the workspace removes no
+ * files, and re-registering the same folder restores the user's choices.
+ * nexus never deletes user content here.
+ *
  * This is the file counterpart of `setProjectLinkEnabled`: the link function
  * refuses `files`, this one refuses links (`not-files`). Both use the same
  * lock key so a link and a file with the same name can never be moved over

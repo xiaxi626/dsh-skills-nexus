@@ -237,11 +237,12 @@ Requires a DSH **web** host with the plugin mounted (see [Local testing steps](.
 7. A real directory you placed in `.dsh/skills` shows a `user files` badge, **no Switch** and **no remove button**.
 8. Press **remove** on a link row: the confirmation overlay says only the link is deleted; after confirming, the row disappears and the target directory still exists.
 9. Change the project folder: the old lists are cleared immediately (no stale rows from the previous folder).
-10. In the **registered workspace (.dsh)** block above the folder field, click **load workspaces**. On a web host the select lists the registry's workspaces by title; the scan then runs against that workspace's registered path — a path that is not in the registry cannot be selected here (type it into the folder field instead).
-11. Pick a workspace whose `.dsh/skills` holds a real directory. Rows show `active dir` and a **Switch**; there is no remove button — the workspace channel never deletes user content.
+10. Open the **Project skills** tab: the **registered workspace (.dsh)** block above the folder field reads the registry automatically and lists every workspace by title/path, each with its own **load** button (no dropdown; **refresh list** re-reads the registry).
+11. Click **load** beside a workspace whose `.dsh/skills` holds a real directory. That workspace's scan runs against its registered path only — a path that is not in the registry cannot appear here (type it into the folder field instead). Rows show `active dir` and a **Switch**; there is no remove button — the workspace channel never deletes user content.
 12. Toggle that switch off: the row becomes `disabled dir` and the directory appears under that workspace's `.dsh/skills-disabled`; toggle it back and the directory returns. Links are not movable here — the row only exists for real entries.
-13. Pick a workspace with no `.dsh` at all: the block says `no real directories under the project skills root.` That is an empty result, not an error.
-14. On a headless host (no `@deepseek-ai/dsh-web-app`), **load workspaces** answers `available: false` with an explanatory hint, the manual folder field keeps working, and nothing silently falls back to an unregistered path.
+13. Click **load** on a workspace with no `.dsh` at all: its section says `no real directories under the project skills root.` That is an empty result, not an error. Loading a second workspace does not scan the others.
+14. Unregister that workspace in DSH, then press **refresh list**: its row disappears from the panel. On disk, `.dsh/skills-disabled/<name>` is still there. Re-register the same folder: the row returns, the entry is still `disabled dir`, and toggling it back restores it. This is by design — the folder is the project's persisted disable state, not leftover garbage; nexus never cleans it up automatically.
+15. On a headless host (no `@deepseek-ai/dsh-web-app`), the automatic probe answers `available: false` with an explanatory hint, the manual folder field keeps working, and nothing silently falls back to an unregistered path.
 
 ## HTTP surface
 

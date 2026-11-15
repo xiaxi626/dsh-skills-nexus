@@ -168,7 +168,7 @@ A project carries its own root, scanned by the provider before `~/.dsh/skills`:
     ├── skills/                     # provider rank 100 (shadows the user root)
     │   ├── my-skill/      → link → /path/to/my-skill/
     │   └── vendored-skill/         # real files, committed by the user
-    └── skills-disabled/            # parked links; the provider does not scan this
+    └── skills-disabled/            # disabled entries (links and real dirs); the provider does not scan this
         └── old-skill/     → link → /path/to/old-skill/
 ```
 
@@ -180,12 +180,14 @@ A project carries its own root, scanned by the provider before `~/.dsh/skills`:
 - **Project roots are separate**: `<projectRoot>/.dsh/skills/` is scanned by the
   provider at a higher rank than `~/.dsh/skills/`. Project scope writes links
   there and nothing else — no manifest entry, no clone, no copy — so deleting or
-  moving the project leaves no nexus state behind. The project page is also a
-  read-only viewer: it parses the folder's own `SKILL.md` files (and the links'
-  targets) for display, and `disable` merely moves a link to the sibling
+  moving the project leaves no nexus state behind. The registered-workspace
+  channel can additionally toggle **real entries already in the folder**; it
+  never creates or edits them. The project page is also a read-only viewer: it
+  parses the folder's own `SKILL.md` files (and the links' targets) for display,
+  and `disable` moves a link or a real entry to the sibling
   `.dsh/skills-disabled/` (outside the scanned root); `enable` moves it back.
-  The link keeps its target, so no state file is needed and no `SKILL.md` is
-  ever edited.
+  The entry keeps its target/content, so no state file is needed and no
+  `SKILL.md` is ever edited.
 
 ### Registered workspace mode
 
@@ -214,6 +216,29 @@ instead of moving a junction, while `setProjectLinkEnabled()` still answers
 reads or writes a manifest. The manual project-folder field and the link
 workflow are unchanged; the registered-workspace block is additive and sits
 above them in the Project tab.
+
+### `.dsh/skills-disabled` is the project's persisted disable state
+
+Disabling an entry renames it into the sibling `.dsh/skills-disabled/`, outside
+the provider's scanned root. That directory is **state that travels with the
+project**, not a temporary trash can:
+
+- Unregistering a workspace in DSH does not delete it. On the next registry
+  refresh the row disappears and the registry stops authorising writes, but the
+  project folder keeps the user's disabled choices; re-registering the same
+  path restores them, and enabling the entry moves it back.
+- nexus never deletes disabled entries. There is no cleanup-on-unregister, no
+  keep/delete setting and no state file. Removing the folder is the user's
+  decision; `.dsh/skills-disabled/` can be added to `.gitignore` if it should not
+  be committed.
+- This is also why the workspace channel does not register a custom skill
+  provider. A provider overlay would have to outrank the official filesystem
+  provider and every other skill plugin, depends on internal rank/layering
+  rules, and would change what DSH sees merely because nexus is installed. The
+  rename changes only the filesystem, so the official and third-party providers
+  all read the same truth.
+- If the host later exposes a native disable/override API, nexus can adapt to it
+  behind the same UI; until then, location is the state.
 
 The local source registry in `src/external.ts` configures `envVar`,
 `defaultDirName` or ordered `rootCandidates`, and one `discover` function per

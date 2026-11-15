@@ -583,17 +583,25 @@ managed by other tools — this panel only lists what nexus installed.
 ### Registered workspaces (`.dsh`)
 
 The top of the Project skills tab also has a **Registered workspaces** section
-for projects DSH already knows, without typing a path. Click **load
-workspaces** to read the registry exposed by the host through
-`ctx.get('workspaceRegistry')` (provided by `@deepseek-ai/dsh-web-app`):
+for projects DSH already knows, without typing a path. Opening the tab reads
+the registry exposed by the host through `ctx.get('workspaceRegistry')`
+(provided by `@deepseek-ai/dsh-web-app`) once — **refresh list** re-reads it
+on demand:
 
-- The select lists registered workspaces by title. Selecting one scans only
-  the **path registered for that workspace**. An unregistered directory cannot
-  be selected here; use the manual folder input below instead.
+- Every registered workspace is listed by title/path with its own **load**
+  button. Loading one scans only the **path registered for that workspace**,
+  one workspace at a time — an unregistered directory cannot be listed here;
+  use the manual folder input below instead.
 - The section lists only **real directories** under `.dsh/skills` and
   `.dsh/skills-disabled`, each with an enable/disable **Switch** (`active dir`
   / `disabled dir`). Links do not appear here—they belong to the link channel
   below.
+- Disabling a real entry renames it into `.dsh/skills-disabled/`, so the
+  disabled state is stored **with the project**, not in a separate state file.
+  Unregistering the workspace leaves that folder in place; re-registering the
+  same path restores the previous disabled state. nexus never deletes it
+  automatically — remove the folder yourself if you no longer need it, or add
+  `.dsh/skills-disabled/` to `.gitignore`.
 - Authorization is explicit: the path must be registered and still exist, and
   none of the project root's `.dsh`, `.dsh/skills` or `.dsh/skills-disabled`
   levels may be a symlink or junction. The only write is one `rename`; directory

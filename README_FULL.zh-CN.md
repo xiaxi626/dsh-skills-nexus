@@ -410,13 +410,18 @@ dsh-skills-nexus adopt daily-trend-writer --url github:owner/repo --subdir skill
 ### 已登记工作区（`.dsh`）
 
 项目页签顶部还有一个**已登记工作区**区块，用来管理 DSH 已经登记过的项目，无需手填
-路径。点 **load workspaces** 后，面板读取宿主通过 `ctx.get('workspaceRegistry')` 暴露的
-注册表（由 `@deepseek-ai/dsh-web-app` 提供）：
+路径。打开页签时会自动读取一次宿主通过 `ctx.get('workspaceRegistry')` 暴露的注册表
+（由 `@deepseek-ai/dsh-web-app` 提供）；**refresh list** 按钮用于按需重新读取：
 
-- 下拉按 title 列出注册表里的工作区；选中后只扫描**该工作区登记的路径**。不在注册表里的
-  目录无法在这里选中，请改用下方的手填输入框。
+- 所有已登记工作区按 title/path 逐行列出，每行一个 **load** 按钮；加载某个工作区
+  时只扫描**该工作区登记的路径**，一次只加载一个——不在注册表里的目录不会出现在这里，
+  请改用下方的手填输入框。
 - 区块只列 `.dsh/skills` 与 `.dsh/skills-disabled` 下的**真实目录**，每行一个启停
   **Switch**（`active dir` / `disabled dir`）。链接不在这里出现——它们属于下方的链接通道。
+- 停用真实条目会把它 rename 到 `.dsh/skills-disabled/`，所以禁用状态**随项目保存**，
+  不是独立的状态文件。DSH 取消工作区登记后该目录仍留在原处；重新登记同一路径即可恢复
+  之前的禁用状态。nexus 不会自动删除它——不需要时请自行删除该目录，或把
+  `.dsh/skills-disabled/` 加进 `.gitignore`。
 - 授权是显式的：路径必须已登记、目录仍存在，且项目根的 `.dsh` / `.dsh/skills` /
   `.dsh/skills-disabled` 任一层不得是符号链接或 junction。写操作只有一次 `rename`，
   不触碰目录内容，也不写 manifest。
