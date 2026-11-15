@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-15
+
 **Added · 项目真实技能目录可逆启停（`--files`）与工作区授权 HTTP 路由**
 
 - **Task 1 · 核心真实目录启停函数**：`src/project.ts` 新增 `ProjectFilesToggleStatus`（`enabled`/`disabled`/`already-*`/`not-found`/`not-files`/`collision`/`failed`）、`ProjectFileEntry` 类型与两个函数：
