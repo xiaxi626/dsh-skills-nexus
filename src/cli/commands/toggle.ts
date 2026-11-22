@@ -1,10 +1,11 @@
 import { readdir } from 'node:fs/promises'
 import { readManifest, findEntry } from '../../manifest.js'
 import { repoDir, OFFICIAL_SKILLS_DIR, skillLinkPath } from '../../paths.js'
-import { linkSkill, unlinkIfPointsInto, isEntryEnabled } from '../../link.js'
+import { linkSkill, unlinkIfPointsInto, isEntryEnabled, entryLinks, expectedLinks, hasCollision } from '../../link.js'
+import type { EntryLink } from '../../link.js'
 import { entrySkillDir } from '../../external.js'
 import { previewSkills } from '../../resolve.js'
-import { sanitizeName } from '../../git.js'
+import { toggleEntrySkill, SkillToggleError } from '../../toggle-skill.js'
 import { cliIO } from '../../ops-io.js'
 import type { OpsIO } from '../../ops-io.js'
 import { withSkillFileLock, SkillLockedError } from '../../locks.js'
@@ -48,7 +49,12 @@ export async function toggle(argv: string[], enabled: boolean, io: OpsIO = cliIO
 
   if (opts.project) return toggleProject(opts, enabled, io)
 
-  const { names, json, group } = opts
+  const { names, json, group, skill } = opts
+
+  // Per-skill mode: exactly one entry name (the parser guarantees it), one
+  // skill of that entry. Shares the HTTP route's core so both surfaces record
+  // the same exclusion intent.
+  if (skill !== undefined) return toggleSkill(names[0]!, skill, enabled, json, io)
 
   // --group mode: filter entries by groupPath prefix and toggle each match.
   if (group) {
@@ -202,7 +208,9 @@ async function toggleByGroup(
 /**
  * The per-name path of the human (non-`--json`) run: short-circuits on the
  * already-in-that-state cases so no lock is taken, and shares `toggleLinks`
- * with the JSON path.
+ * with the JSON path. "Already enabled" is a reconciliation, not a bare state
+ * probe (#22): an entry that lost some of its links is still enabled, and
+ * enable must fill the gap instead of reporting a no-op.
  *
  * Returns 0 on success (including a no-op) and 1 on failure, exactly the
  * per-item verdict the old single-name command returned.
@@ -214,7 +222,7 @@ async function toggleOne(
   io: OpsIO,
 ): Promise<number> {
   const alreadyEnabled = await isEntryEnabled(entry)
-  if (enabled && alreadyEnabled) {
+  if (enabled && alreadyEnabled && (await missingExpectedLinks(entry)).length === 0) {
     io.emit(`Skill "${name}" is already enabled.\n`)
     return 0
   }
@@ -252,7 +260,10 @@ async function toggleJson(names: string[], enabled: boolean, io: OpsIO): Promise
       continue
     }
     const wasEnabled = await isEntryEnabled(entry)
-    if (wasEnabled === enabled) {
+    // Same reconciliation as toggleOne: enable on an enabled entry is only a
+    // no-op when no expected link is missing; otherwise it fills the gap and
+    // reports `toggled` with linksChanged = the number of links repaired.
+    if (wasEnabled === enabled && (!enabled || (await missingExpectedLinks(entry)).length === 0)) {
       results.push({ name, action: action(enabled), status: 'already', enabled, linksChanged: 0, already: true })
       continue
     }
@@ -279,6 +290,83 @@ async function toggleJson(names: string[], enabled: boolean, io: OpsIO): Promise
 
 function action(enabled: boolean): 'enable' | 'disable' {
   return enabled ? 'enable' : 'disable'
+}
+
+/**
+ * The expected links an entry does not have yet (#22 reconcile input). Empty
+ * when the clone yields no skills — there is nothing to rebuild, so the
+ * caller keeps its already-in-that-state verdict. Shares the naming invariant
+ * and exclusion helper with every other rebuild path, and the same
+ * "fill only what is missing" semantics as the HTTP toggleEntryCore.
+ */
+async function missingExpectedLinks(entry: SkillEntry): Promise<EntryLink[]> {
+  const skills = await previewSkills(entrySkillDir(entry))
+  if (skills.length === 0) return []
+  const present = new Set((await entryLinks(entry)).map((l) => l.name))
+  return expectedLinks(entry, skills).filter((l) => !present.has(l.name))
+}
+
+/**
+ * `enable|disable <entry> --skill <name>` — the per-skill front end over the
+ * shared `toggleEntrySkill` core. One `ToggleJsonResult` for the entry (the
+ * version-1 status enum is locked; intent-only runs are `toggled` with
+ * `linksChanged: 0`, and `enabled` stays the entry's link-derived state).
+ */
+async function toggleSkill(
+  entryName: string,
+  skillName: string,
+  enabled: boolean,
+  json: boolean,
+  io: OpsIO,
+): Promise<number> {
+  const out = json ? jsonIO(io) : io
+  const manifest = await readManifest()
+  const entry = findEntry(manifest, entryName)
+
+  const fail = (status: 'not-found' | 'failed', error: string): number => {
+    if (json) {
+      const results: ToggleJsonResult[] = [
+        { name: entryName, action: action(enabled), status, enabled: !enabled, linksChanged: 0, already: false, error },
+      ]
+      emitJson(io, { version: 1, results, summary: { toggled: 0, already: 0, failed: 1 } })
+    } else {
+      io.error(error)
+    }
+    return 1
+  }
+
+  if (!entry) return fail('not-found', `No skill named "${entryName}".`)
+  try {
+    const res = await withSkillFileLock(entry.name, () => toggleEntrySkill(entry, skillName, enabled))
+    if (json) {
+      const status = res.already ? 'already' : 'toggled'
+      const results: ToggleJsonResult[] = [
+        { name: entryName, action: action(enabled), status, enabled: res.enabled, linksChanged: res.linksChanged, already: res.already },
+      ]
+      emitJson(io, {
+        version: 1,
+        results,
+        summary: { toggled: res.already ? 0 : 1, already: res.already ? 1 : 0, failed: 0 },
+      })
+    } else if (res.already) {
+      out.emit(`Skill "${skillName}" of "${entryName}" is already ${enabled ? 'enabled' : 'disabled'}.\n`)
+    } else if (enabled) {
+      out.emit(
+        `Enabled skill "${skillName}" of "${entryName}" — ${res.linksChanged} link(s) created; exclusion lifted.\n`,
+      )
+    } else {
+      out.emit(
+        `Disabled skill "${skillName}" of "${entryName}" — ${res.linksChanged} link(s) removed; excluded from future enable/update rebuilds.\n`,
+      )
+    }
+    return 0
+  } catch (err) {
+    if (err instanceof SkillLockedError) return fail('failed', err.message)
+    if (err instanceof SkillToggleError) {
+      return fail(err.code === 'not-found' ? 'not-found' : 'failed', err.message)
+    }
+    throw err
+  }
 }
 
 /**
@@ -314,17 +402,26 @@ async function toggleLinks(
   let count = 0
 
   if (enabled) {
-    // Re-discover skills and create symlinks for each one.
+    // Re-discover skills and fill only the MISSING expected links — the
+    // shared helper applies the naming invariant AND the user's per-skill
+    // exclusions, so a whole-entry enable never resurrects an excluded skill.
+    // Existing links are left untouched and a real directory/file in a link
+    // slot is skipped with a warning (the CLI dialect of the HTTP route's
+    // 409 collision guard — never overwrite user content).
     const skills = await previewSkills(skillRoot)
-    for (const s of skills) {
-      const fmName = s.invalidName ? sanitizeName(s.invalidName) : s.name
-      const linkName = skills.length === 1 ? entry.name : (fmName || entry.name)
+    const existing = new Set((await entryLinks(entry)).map((l) => l.name))
+    for (const l of expectedLinks(entry, skills)) {
+      if (existing.has(l.name)) continue
+      if (await hasCollision(l.name)) {
+        io.error(`  ⚠ "${l.name}" is occupied by a real directory or file — skipped`)
+        continue
+      }
       try {
-        await linkSkill(linkName, s.resourceBase)
+        await linkSkill(l.name, l.target)
         count++
       } catch (err) {
         io.error(
-          `  ⚠ failed to link "${linkName}": ${err instanceof Error ? err.message : String(err)}`,
+          `  ⚠ failed to link "${l.name}": ${err instanceof Error ? err.message : String(err)}`,
         )
       }
     }

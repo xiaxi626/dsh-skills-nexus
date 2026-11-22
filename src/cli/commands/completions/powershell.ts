@@ -21,11 +21,12 @@
  *
  * The first positional argument is counted as "words before the cursor that do
  * not start with `-`", not as a fixed slot: `remove --yes <TAB>` must still
- * offer names, because `--yes` is accepted before the names. The one
- * value-taking flag those commands accept, `--project-root`, has its value
- * skipped explicitly so a path can never be miscounted as a name. `export` and
- * `adopt` also take a positional (a name), but each has value-taking flags
- * (`--out`, `--url`), so both are deliberately outside it.
+ * offer names, because `--yes` is accepted before the names. The value-taking
+ * flags those commands accept (`--project-root`, `--skill`) have their values
+ * skipped explicitly so a path or skill name can never be miscounted as an
+ * entry name. `export` and `adopt` also take a positional (a name), but each
+ * has value-taking flags (`--out`, `--url`), so both are deliberately outside
+ * it.
  *
  * Layer 3 shells out to `list --names` instead of reading `manifest.json`, so
  * an internal schema change cannot silently break completion.
@@ -67,14 +68,14 @@ export const powershellTemplate = [
   "  } else {",
   "    $cmd = $els[1]",
   "    $prev = $els[$done - 1]",
-  "    # Positional arguments typed so far, ignoring flags. --project-root",
-  "    # consumes its value, which must not be counted as a name.",
+  "    # Positional arguments typed so far, ignoring flags. --project-root and",
+  "    # --skill consume their values, which must not be counted as a name.",
   "    $nargs = 0",
   "    if ($done -gt 2) {",
   "      $skip = $false",
   "      foreach ($token in @($els[2..($done - 1)])) {",
   "        if ($skip) { $skip = $false; continue }",
-  "        if ($token -eq '--project-root') { $skip = $true; continue }",
+  "        if ($token -eq '--project-root' -or $token -eq '--skill') { $skip = $true; continue }",
   "        if ($token -notlike '-*') { $nargs = $nargs + 1 }",
   "      }",
   "    }",
@@ -91,8 +92,8 @@ export const powershellTemplate = [
   "        'diff'        { '--stat' }",
   "        'remove'      { '--yes','--json','--group','--project','--project-root' }",
   "        'rm'          { '--yes','--json','--group','--project','--project-root' }",
-  "        'enable'      { '--group','--json','--project','--files','--project-root' }",
-  "        'disable'     { '--group','--json','--project','--files','--project-root' }",
+  "        'enable'      { '--group','--json','--project','--files','--project-root','--skill' }",
+  "        'disable'     { '--group','--json','--project','--files','--project-root','--skill' }",
   "        'export'      { '--all','--out' }",
   "        'import'      { '--dry-run','--subdir','--each','--force','--locked','--no-remote','--no-net-check','--name','--yes' }",
   "        'adopt'       { '--url','--ref','--subdir','--force','--prune' }",

@@ -85,6 +85,69 @@ test('re-adding a registered repo refuses without touching the existing clone', 
   await stat(dest) // clone still exists
 })
 
+test('a path conflict under a different name reports the actual occupant', async () => {
+  const src = join(home, 'src-occupant')
+  await makeSkillRepo(src)
+  const url = `${fileUrl(src)}#main`
+  const err: string[] = []
+  const io = {
+    interactive: false,
+    confirm: () => Promise.resolve(false),
+    progress: () => {},
+    emit: () => {},
+    error: (line: string) => {
+      err.push(line)
+    },
+  }
+
+  // Register under an explicit override; the clone path stays repo-based.
+  assert.equal(await add.add([url, '--name', 'custom-occupant']), 0)
+
+  // Re-adding without the override derives a different name but the same
+  // path: the refusal must point at the occupant, not the requested name
+  // (which has no entry to update/remove).
+  err.length = 0
+  assert.equal(await add.add([url], io), 1)
+  const text = err.join('')
+  assert.match(text, /already registered as "custom-occupant"/)
+  assert.match(text, /update custom-occupant/)
+  assert.match(text, /remove custom-occupant/)
+  const m = await manifest.readManifest()
+  assert.equal(m.skills.filter((s) => s.path === 'src-occupant').length, 1)
+
+  // A pure name conflict keeps the original wording: the requested name IS
+  // the occupant, so update/remove guidance stays actionable as-is.
+  err.length = 0
+  assert.equal(await add.add([url, '--name', 'custom-occupant'], io), 1)
+  assert.match(err.join(''), /A skill named "custom-occupant" is already registered/)
+})
+
+test('a requested name equal to an existing clone path stays rejected', async () => {
+  // hasEntry's name-or-path semantics rejected this cross collision before
+  // the occupant split; the rejection must survive (identifiers stay
+  // unambiguous for update/remove) and now names the holder of the path.
+  const src = join(home, 'src-cross')
+  await makeSkillRepo(src)
+  assert.equal(await add.add([`${fileUrl(src)}#main`, '--name', 'cross-holders']), 0)
+
+  const other = join(home, 'src-cross-other')
+  await makeSkillRepo(other)
+  const err: string[] = []
+  const io = {
+    interactive: false,
+    confirm: () => Promise.resolve(false),
+    progress: () => {},
+    emit: () => {},
+    error: (line: string) => {
+      err.push(line)
+    },
+  }
+  // The first entry's clone path is 'src-cross'; requesting it as a name
+  // for a different repo must refuse.
+  assert.equal(await add.add([`${fileUrl(other)}#main`, '--name', 'src-cross'], io), 1)
+  assert.match(err.join(''), /already the clone path of entry "cross-holders"/)
+})
+
 /* ------------------------------------------------------------------ */
 /* Collection repos (`skills/<name>/SKILL.md` layout + root docs)      */
 /* ------------------------------------------------------------------ */
@@ -179,8 +242,10 @@ test('large collections require confirmation unless --yes is given', async () =>
   await git(src, ['commit', '-m', 'large'])
   const url = `${fileUrl(src)}#main`
 
-  // Non-TTY confirm defaults to "no" → aborted, nothing registered.
-  assert.equal(await add.add([url]), 0)
+  // Non-TTY confirm defaults to "no" → aborted, nothing registered. The
+  // decline is a usage-level refusal in a non-interactive shell (#24): exit 2,
+  // the same dialect remove uses for its unconfirmable guard.
+  assert.equal(await add.add([url]), 2)
   let m = await manifest.readManifest()
   assert.equal(m.skills.filter((s) => s.path.startsWith('src-g')).length, 0)
 
@@ -231,6 +296,27 @@ test('add refuses per-repo options combined with multiple specs (installs nothin
   assert.equal(rc, 1)
   const m = await manifest.readManifest()
   assert.equal(m.skills.filter((s) => s.path.startsWith('src-guard')).length, 0)
+})
+
+test('add --dry-run refuses up front without cloning or registering', async () => {
+  // Safety-semantics exception to the unknown-flag tolerance: silently
+  // ignoring --dry-run would install immediately, the exact outcome the
+  // caller tried to avoid. Parse refusal is a usage error (exit 2).
+  const before = await manifest.readManifest()
+  const err: string[] = []
+  const io = {
+    interactive: false,
+    confirm: () => Promise.resolve(false),
+    progress: () => {},
+    emit: () => {},
+    error: (line: string) => {
+      err.push(line)
+    },
+  }
+  const rc = await add.add(['github:owner/repo', '--dry-run'], io)
+  assert.equal(rc, 2)
+  assert.match(err.join(''), /--dry-run is not supported by add/)
+  assert.deepEqual(await manifest.readManifest(), before)
 })
 
 test('add continues past a per-repo failure and reports it in the exit code', async () => {
@@ -473,12 +559,13 @@ test('C: no hint when a wrapped-skill install is aborted', async () => {
   await git(src, ['commit', '-m', 'wrapper'])
 
   // …and the non-TTY confirm defaults to "no" → aborted, with no hint.
-  const { stdout, result } = await captureOutput(() =>
+  const { stdout, stderr, result } = await captureOutput(() =>
     add.add([`${fileUrl(src)}#main`, '--subdir', 'skills/nh15-alpha', '--name', 'nh15-alpha']),
   )
-  assert.equal(result, 0) // skipped, not failed
+  assert.equal(result, 2) // non-interactive decline refuses (#24), not a failed install
   assert.equal(countHints(stdout), 0)
   assert.match(stdout, /Aborted/)
+  assert.match(stderr, /Re-run with --yes to proceed/)
   const m = await manifest.readManifest()
   assert.equal(m.skills.filter((s) => s.path.startsWith('src-nh-15')).length, 0)
 })
@@ -549,4 +636,83 @@ test('two subdirs of one repo install as independent clones', { skip: SPARSE_SKI
   // …and each clone materializes only its own subdir.
   await assert.rejects(stat(join(destA, 'skills', 'pair-b')), { code: 'ENOENT' })
   await assert.rejects(stat(join(destB, 'skills', 'pair-a')), { code: 'ENOENT' })
+})
+
+/* ------------------------------------------------------------------ */
+/* Non-interactive confirmation refusal (#24, remove dialect)          */
+/* ------------------------------------------------------------------ */
+
+/** A root SKILL.md next to a plugin marker → the wrapped-skill guard fires. */
+async function makeWrappedRepo(dir: string): Promise<void> {
+  await makeSkillRepo(dir)
+  await writeFile(join(dir, 'cordis.patch.yml'), 'plugins: {}\n', 'utf8')
+  await git(dir, ['add', '.'])
+  await git(dir, ['commit', '-m', 'wrapper'])
+}
+
+test('a non-interactive decline exits 2 with a --yes hint and leaves nothing behind', async () => {
+  const src = join(home, 'src-refuse')
+  await makeWrappedRepo(src)
+  const { stdout, stderr, result } = await captureOutput(() =>
+    add.add([`${fileUrl(src)}#main`]),
+  )
+  assert.equal(result, 2)
+  assert.match(stdout, /Aborted/)
+  assert.match(stderr, /Confirmation declined \(non-interactive default\)\. Re-run with --yes to proceed\./)
+  const m = await manifest.readManifest()
+  assert.equal(m.skills.filter((s) => s.path.startsWith('src-refuse')).length, 0)
+  // The clone was cleaned up — a retry must not hit "directory already in use".
+  await assert.rejects(stat(paths.repoDir('src-refuse')), { code: 'ENOENT' })
+})
+
+test('an interactive decline keeps exit 0 — the outcome the user chose', async () => {
+  const src = join(home, 'src-interactive-no')
+  await makeWrappedRepo(src)
+  const err: string[] = []
+  const io = {
+    interactive: true,
+    confirm: () => Promise.resolve(false),
+    progress: () => {},
+    emit: () => {},
+    error: (line: string) => {
+      err.push(line)
+    },
+  }
+  assert.equal(await add.add([`${fileUrl(src)}#main`], io), 0)
+  assert.equal(err.join('').includes('Re-run with --yes'), false)
+  const m = await manifest.readManifest()
+  assert.equal(m.skills.filter((s) => s.path.startsWith('src-interactive-no')).length, 0)
+})
+
+test('add --json keeps the version-1 skipped/aborted report and exits 2 on a non-interactive decline', async () => {
+  const src = join(home, 'src-refuse-json')
+  await makeWrappedRepo(src)
+  const { stdout, stderr, result } = await captureOutput(() =>
+    add.add([`${fileUrl(src)}#main`, '--json']),
+  )
+  assert.equal(result, 2)
+  const report = JSON.parse(stdout)
+  assert.equal(report.version, 1)
+  assert.deepEqual(report.results, [{ spec: `${fileUrl(src)}#main`, status: 'skipped', code: 'aborted' }])
+  assert.deepEqual(report.summary, { added: 0, skipped: 1, failed: 0 })
+  assert.match(stderr, /Re-run with --yes to proceed/)
+})
+
+test('a pure DSH plugin repo stays skipped with exit 0 even non-interactively', async () => {
+  // Only a plugin marker, no SKILL.md → the dsh-plugin-repo skip is advice,
+  // not a declined confirmation: the exit-2 escalation is 'aborted'-only.
+  const src = join(home, 'src-plugin-only')
+  await mkdir(src, { recursive: true })
+  await git(src, ['init'])
+  await git(src, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+  await git(src, ['config', 'user.email', 'test@example.com'])
+  await git(src, ['config', 'user.name', 'Nexus Test'])
+  await writeFile(join(src, 'cordis.patch.yml'), 'plugins: {}\n', 'utf8')
+  await git(src, ['add', '.'])
+  await git(src, ['commit', '-m', 'plugin'])
+
+  const { result } = await captureOutput(() => add.add([`${fileUrl(src)}#main`]))
+  assert.equal(result, 0)
+  const m = await manifest.readManifest()
+  assert.equal(m.skills.filter((s) => s.path.startsWith('src-plugin-only')).length, 0)
 })

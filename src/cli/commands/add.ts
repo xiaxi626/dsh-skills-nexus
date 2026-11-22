@@ -1,4 +1,4 @@
-import { hasEntry, readManifest } from '../../manifest.js'
+import { readManifest } from '../../manifest.js'
 import {
   getDefaultBranch,
   normalizeSubdir,
@@ -81,6 +81,7 @@ export async function add(argv: string[], io: OpsIO = cliIO): Promise<number> {
 
   const multi = specs.length > 1
   let failures = 0
+  let refused = false
   let addedCount = 0
   const results: AddJsonResult[] = []
   for (let i = 0; i < specs.length; i++) {
@@ -91,11 +92,18 @@ export async function add(argv: string[], io: OpsIO = cliIO): Promise<number> {
     try {
       const res = await addOne(spec, { name, ref, subdir, yes }, out)
       if (res.status === 'added') addedCount++
-      // `skipped` is a declined confirmation, not an error: the clone was
-      // removed and nothing was registered, which is the outcome the user
-      // chose. Only `failed` counts toward the exit code (v0.4.0 behaviour,
-      // kept deliberately).
+      // `skipped` is a declined confirmation, not an install error: the clone
+      // was removed and nothing was registered. An interactive "no" keeps
+      // exit 0 — the outcome the user chose. A NON-interactive decline is a
+      // usage-level refusal instead (#24): the guard could not prompt, so the
+      // run ends in exit 2 with a --yes hint, the same dialect `remove` uses
+      // for its unconfirmable destructive guard. The JSON report keeps its
+      // version-1 shape (skipped/aborted); only the exit code escalates.
       else if (res.status === 'failed') failures++
+      else if (res.code === 'aborted' && !io.interactive) {
+        refused = true
+        io.error('Confirmation declined (non-interactive default). Re-run with --yes to proceed.')
+      }
       results.push(toJsonResult(spec, res))
     } catch (err) {
       // A thrown error (e.g. clone / network failure) is a per-item failure —
@@ -114,7 +122,7 @@ export async function add(argv: string[], io: OpsIO = cliIO): Promise<number> {
       failed: results.filter((r) => r.status === 'failed').length,
     }
     emitJson(io, { version: 1, results, summary })
-    return failures === 0 ? 0 : 1
+    return refused ? 2 : failures === 0 ? 0 : 1
   }
 
   if (multi) {
@@ -124,7 +132,7 @@ export async function add(argv: string[], io: OpsIO = cliIO): Promise<number> {
         `.\n`,
     )
   }
-  return failures === 0 ? 0 : 1
+  return refused ? 2 : failures === 0 ? 0 : 1
 }
 
 /**
@@ -245,12 +253,37 @@ async function addOne(
   const path = normalizedSubdir ? `${repoBase}-${subdirLeaf}` : repoBase
   const skillName = sanitizeName(name ?? subdirLeaf ?? repoBase)
 
-  // Reject re-registration *before* touching the filesystem.
+  // Reject re-registration *before* touching the filesystem. `hasEntry`
+  // matches name OR path, so the occupant is resolved per conflict kind to
+  // keep the guidance actionable: a path conflict means the same repo+subdir
+  // is already registered under a *different* name (e.g. a prior --name
+  // override), and pointing update/remove at the requested name would send
+  // the caller after an entry that does not exist. The union of the three
+  // checks is exactly the old `hasEntry(name) || path match` rejection set.
   const manifest = await readManifest()
-  if (hasEntry(manifest, skillName) || manifest.skills.some((s) => s.path === path)) {
+  const nameOccupant = manifest.skills.find((s) => s.name === skillName)
+  if (nameOccupant !== undefined) {
     const message =
       `A skill named "${skillName}" is already registered (path "${path}").\n` +
       `Use "dsh-skills-nexus update ${skillName}" to refresh it, or "dsh-skills-nexus remove ${skillName}" first.`
+    io.error(message)
+    return { status: 'failed', code: 'already-registered', error: message }
+  }
+  const pathOccupant = manifest.skills.find((s) => s.path === path)
+  if (pathOccupant !== undefined) {
+    const message =
+      `Repo+subdir already registered as "${pathOccupant.name}" (path "${path}").\n` +
+      `Use "dsh-skills-nexus update ${pathOccupant.name}" to refresh it, or "dsh-skills-nexus remove ${pathOccupant.name}" first.`
+    io.error(message)
+    return { status: 'failed', code: 'already-registered', error: message }
+  }
+  // A requested name equal to an existing clone path stays rejected: entry
+  // identifiers must remain unambiguous for update/remove resolution.
+  const crossOccupant = manifest.skills.find((s) => s.path === skillName)
+  if (crossOccupant !== undefined) {
+    const message =
+      `The name "${skillName}" is already the clone path of entry "${crossOccupant.name}".\n` +
+      `Use --name to choose a different name.`
     io.error(message)
     return { status: 'failed', code: 'already-registered', error: message }
   }

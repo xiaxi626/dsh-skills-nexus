@@ -62,9 +62,11 @@ import {
 } from '../git.js'
 import { NEXUS_HOME } from '../paths.js'
 import { entrySkillDir } from '../external.js'
-import { findEntry, hasEntry, hasGitSource, isExternalEntry, listEntries, readManifest } from '../manifest.js'
+import { findEntry, hasGitSource, isExternalEntry, listEntries, readManifest } from '../manifest.js'
 import type { ListedEntry } from '../manifest.js'
-import { entryLinks, hasCollision, linkSkill, unlinkSkill, mapBounded, LINK_SCAN_CONCURRENCY } from '../link.js'
+import { entryLinks, expectedLinks, hasCollision, linkSkill, unlinkSkill, mapBounded, LINK_SCAN_CONCURRENCY } from '../link.js'
+import { toggleEntrySkill, SkillToggleError } from '../toggle-skill.js'
+import type { SkillToggleResult } from '../toggle-skill.js'
 import { removeSkill } from '../remove.js'
 import { previewSkills } from '../resolve.js'
 import { updateEntry } from '../update.js'
@@ -480,9 +482,21 @@ async function add(req: RouteRequest, res: RouteResponse): Promise<void> {
   const explicitName = strField(body, 'name')
   const skillName = sanitizeName(explicitName ?? subdirLeaf ?? repoBase)
 
+  // Same three-way split as the CLI preflight (addOne): `hasEntry` matches
+  // name OR path, so each conflict kind resolves its own occupant. The union
+  // keeps the old rejection set; `occupant` is additive payload — the panel's
+  // existing error display keeps working on `name` alone.
   const manifest = await readManifest()
-  if (hasEntry(manifest, skillName) || manifest.skills.some((s) => s.path === path)) {
+  if (manifest.skills.some((s) => s.name === skillName)) {
     throw new HttpError(409, 'already-registered', { name: skillName })
+  }
+  const pathOccupant = manifest.skills.find((s) => s.path === path)
+  if (pathOccupant !== undefined) {
+    throw new HttpError(409, 'already-registered', { name: skillName, occupant: pathOccupant.name })
+  }
+  const crossOccupant = manifest.skills.find((s) => s.path === skillName)
+  if (crossOccupant !== undefined) {
+    throw new HttpError(409, 'already-registered', { name: skillName, occupant: crossOccupant.name })
   }
   if (await hasCollision(skillName)) {
     throw new HttpError(409, 'collision', { name: skillName })
@@ -863,15 +877,19 @@ async function switchVersionRoute(req: RouteRequest, res: RouteResponse): Promis
   })
 }
 
-/** POST /toggle — `{ name, enabled }` or `{ group, enabled }`, synchronous, target-attribution semantics (§6.4). */
+/** POST /toggle — `{ name, enabled }`, `{ name, skill, enabled }` or `{ group, enabled }`, synchronous, target-attribution semantics (§6.4). */
 async function toggleRoute(req: RouteRequest, res: RouteResponse): Promise<void> {
   if (!requireMethod(req, res, 'POST')) return
   if (!requireMutationSafe(req, res)) return
   const body = await readJson(req)
   const name = strField(body, 'name')
   const group = strField(body, 'group')
+  const skill = strField(body, 'skill')
   const enabled = boolField(body, 'enabled')
   if (enabled === undefined) throw new HttpError(400, 'missing-field', { field: 'enabled' })
+  if (skill !== undefined && group !== undefined) {
+    throw new HttpError(400, 'ambiguous', { detail: 'skill and group are mutually exclusive' })
+  }
   // Group mode: toggle every entry whose groupPath matches the prefix
   // segment-by-segment. A joined-string `startsWith` was the bug this fixes:
   // 'trae-cn/skill' would also match every 'trae-cn/skills/*' entry, because
@@ -899,6 +917,27 @@ async function toggleRoute(req: RouteRequest, res: RouteResponse): Promise<void>
   const manifest = await readManifest()
   const entry = findEntry(manifest, name)
   if (entry === undefined) throw new HttpError(404, 'not-found', { name })
+
+  // Per-skill mode: the same core the CLI uses, so exclusion intent and link
+  // semantics cannot drift between the surfaces. The response keeps the
+  // whole-entry shape; hotReload stays 'done' for intent-only runs (no link
+  // was built or removed — §11).
+  if (skill !== undefined) {
+    let result: SkillToggleResult
+    try {
+      result = await lockedFor(entry.name, () => toggleEntrySkill(entry, skill, enabled))
+    } catch (err) {
+      if (err instanceof SkillToggleError) {
+        if (err.code === 'not-found') throw new HttpError(404, 'not-found', { name: entry.name, skill })
+        if (err.code === 'collision') throw new HttpError(409, 'collision', { name: skill })
+        throw new HttpError(400, 'single-skill', { name: entry.name, detail: err.message })
+      }
+      throw err
+    }
+    const links = (await entryLinks(entry)).map((l) => ({ linkName: l.name, enabled: true }))
+    sendData(res, { name: entry.name, enabled: result.enabled, links }, result.linksChanged > 0 ? 'pending' : 'done')
+    return
+  }
 
   const { changed, ...data } = await lockedFor(name, () => toggleEntryCore(entry, enabled))
   // §11: a no-op toggle (nothing to build or remove) leaves the watcher
@@ -1210,14 +1249,15 @@ async function toggleEntryCore(
     const existing = new Set((await entryLinks(entry)).map((l) => l.name))
     const skillRoot = entrySkillDir(entry)
     const skills = await previewSkills(skillRoot)
-    for (const s of skills) {
-      const fmName = s.invalidName ? sanitizeName(s.invalidName) : s.name
-      const linkName = skills.length === 1 ? entry.name : fmName || entry.name
-      if (existing.has(linkName)) continue
-      if (await hasCollision(linkName)) {
-        throw new HttpError(409, 'collision', { name: linkName })
+    // The shared expected-set helper applies the naming invariant AND the
+    // user's per-skill exclusions — the panel's whole-entry switch must not
+    // resurrect an excluded skill either.
+    for (const l of expectedLinks(entry, skills)) {
+      if (existing.has(l.name)) continue
+      if (await hasCollision(l.name)) {
+        throw new HttpError(409, 'collision', { name: l.name })
       }
-      await linkSkill(linkName, s.resourceBase)
+      await linkSkill(l.name, l.target)
       changed = true
     }
   } else {

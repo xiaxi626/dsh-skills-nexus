@@ -80,6 +80,8 @@ Usage:
   dsh-skills-nexus remove --project <name>... [--project-root <path>] [--json]
   dsh-skills-nexus enable  <name>... [--group <path>] [--json]
   dsh-skills-nexus disable <name>... [--group <path>] [--json]
+  dsh-skills-nexus enable  <name> --skill <skill> [--json]   # one skill of a multi-skill entry
+  dsh-skills-nexus disable <name> --skill <skill> [--json]
   dsh-skills-nexus enable  --project <name>... [--project-root <path>] [--json]
   dsh-skills-nexus disable --project <name>... [--project-root <path>] [--json]
   dsh-skills-nexus doctor [--json] [--updates] [--quiet]  # read-only full checkup
@@ -224,6 +226,12 @@ Options:
   --group <path>    toggle every entry whose groupPath starts with this prefix
                     (/-separated, e.g. --group trae-cn/skills). When --group is
                     given, names may be omitted to toggle the whole group
+  --skill <name>    toggle one skill of a multi-skill entry: disable removes its
+                    link and records the exclusion; enable lifts the exclusion
+                    and restores the link while the entry is enabled. Requires
+                    exactly one entry name; not available with --group or
+                    --project. Exclusions survive whole-entry enable, update
+                    and switch-version rebuilds until lifted
 
   remove options:
   --project         remove exact link names from <project>/.dsh/skills. Globs and

@@ -393,7 +393,7 @@ export interface NexusApi {
   update(name: string, confirm?: boolean): Promise<Envelope<{ jobId: string }>>
   checkUpdates(): Promise<Envelope<{ results: unknown }>>
   switchVersion(body: SwitchVersionBody): Promise<Envelope<{ jobId: string }>>
-  toggle(name: string, enabled: boolean): Promise<Envelope<{ name: string; enabled: boolean; links: Array<{ linkName: string; enabled: boolean }> }>>
+  toggle(name: string, enabled: boolean, skill?: string): Promise<Envelope<{ name: string; enabled: boolean; links: Array<{ linkName: string; enabled: boolean }> }>>
   toggleGroup(group: string, enabled: boolean): Promise<Envelope<{ group: string; results: Array<{ name: string; enabled: boolean; changed: boolean }> }>>
   linkPreview(source: string, opts?: Omit<LinkBody, 'source' | 'confirm'>): Promise<Envelope<{ plan: LinkPlan }>>
   linkLocal(source: string, opts?: Omit<LinkBody, 'source' | 'confirm'>): Promise<Envelope<{ jobId: string }>>
@@ -506,7 +506,7 @@ export function createApi(fetchImpl: ApiFetch = (input, init) => fetch(input, in
     update: (name, confirm) => postJson(fetchImpl, '/skills-nexus/update', { name, confirm: confirm === true }),
     checkUpdates: () => postJson(fetchImpl, '/skills-nexus/check-updates', {}),
     switchVersion: (body) => postJson(fetchImpl, '/skills-nexus/switch-version', body as unknown as Record<string, unknown>),
-    toggle: (name, enabled) => postJson(fetchImpl, '/skills-nexus/toggle', { name, enabled }),
+    toggle: (name, enabled, skill) => postJson(fetchImpl, '/skills-nexus/toggle', { name, enabled, ...(skill === undefined ? {} : { skill }) }),
     toggleGroup: (group, enabled) => postJson(fetchImpl, '/skills-nexus/toggle', { group, enabled }),
     linkPreview: (source, opts = {}) =>
       postJson(fetchImpl, '/skills-nexus/link', { source, ...opts, confirm: false }),

@@ -374,7 +374,7 @@ export interface NexusApi {
     switchVersion(body: SwitchVersionBody): Promise<Envelope<{
         jobId: string;
     }>>;
-    toggle(name: string, enabled: boolean): Promise<Envelope<{
+    toggle(name: string, enabled: boolean, skill?: string): Promise<Envelope<{
         name: string;
         enabled: boolean;
         links: Array<{

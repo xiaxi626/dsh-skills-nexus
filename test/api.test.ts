@@ -632,6 +632,141 @@ test('a no-op enable (links already present) answers hotReload done', async () =
 })
 
 /* ------------------------------------------------------------------ */
+/* POST /toggle — per-skill mode (issue #25 exclusion intent)          */
+/* ------------------------------------------------------------------ */
+
+/** Like seedClone, but the clone yields one flat skill per given name. */
+async function seedMultiClone(name: string, skillNames: string[]): Promise<string> {
+  await manifest.addEntry({
+    name,
+    url: `github:owner/${name}`,
+    gitUrl: `https://github.com/owner/${name}.git`,
+    ref: 'main',
+    path: name,
+    addedAt: new Date().toISOString(),
+  })
+  const dir = paths.repoDir(name)
+  await mkdir(dir, { recursive: true })
+  for (const n of skillNames) {
+    await writeFile(join(dir, `skill-${n}.md`), skillMd(`skill-${n}`), 'utf8')
+  }
+  return dir
+}
+
+test('toggle skill disable removes one link and records the exclusion', async () => {
+  const dir = await seedMultiClone('tog-multi', ['m-one', 'm-two'])
+  await link.linkSkill('skill-m-one', dir)
+  await link.linkSkill('skill-m-two', dir)
+
+  const res = await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'tog-multi', enabled: false, skill: 'skill-m-one' }),
+  })
+  assert.equal(res.status, 200)
+  // The entry stays enabled — its other link is still up.
+  assert.deepEqual(dataOf(res), {
+    name: 'tog-multi',
+    enabled: true,
+    links: [{ linkName: 'skill-m-two', enabled: true }],
+  })
+  assert.equal(envelope(res).hotReload, 'pending')
+  assert.ok(!(await exists(paths.skillLinkPath('skill-m-one'))))
+  assert.ok(await exists(paths.skillLinkPath('skill-m-two')))
+  const entry = manifest.findEntry(await manifest.readManifest(), 'tog-multi')!
+  assert.deepEqual(entry.excluded, ['skill-m-one'])
+})
+
+test('whole-entry enable after a per-skill exclusion does not resurrect it', async () => {
+  const off = await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'tog-multi', enabled: false }),
+  })
+  assert.equal(off.status, 200)
+  const on = await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'tog-multi', enabled: true }),
+  })
+  assert.equal(on.status, 200)
+  assert.deepEqual(dataOf(on), {
+    name: 'tog-multi',
+    enabled: true,
+    links: [{ linkName: 'skill-m-two', enabled: true }],
+  })
+  assert.ok(!(await exists(paths.skillLinkPath('skill-m-one'))))
+})
+
+test('toggle skill enable lifts the exclusion and restores the link', async () => {
+  const res = await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'tog-multi', enabled: true, skill: 'skill-m-one' }),
+  })
+  assert.equal(res.status, 200)
+  assert.equal(envelope(res).hotReload, 'pending')
+  assert.ok(await exists(paths.skillLinkPath('skill-m-one')))
+  const entry = manifest.findEntry(await manifest.readManifest(), 'tog-multi')!
+  assert.equal(entry.excluded, undefined)
+})
+
+test('an intent-only skill enable answers hotReload done and keeps links off', async () => {
+  // Exclude one skill while the entry is on, then switch the whole entry off.
+  await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'tog-multi', enabled: false, skill: 'skill-m-one' }),
+  })
+  await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'tog-multi', enabled: false }),
+  })
+  const res = await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'tog-multi', enabled: true, skill: 'skill-m-one' }),
+  })
+  assert.equal(res.status, 200)
+  // No link was built — the entry is off — so the watcher stays silent (§11).
+  assert.equal(envelope(res).hotReload, 'done')
+  assert.deepEqual(dataOf(res), { name: 'tog-multi', enabled: false, links: [] })
+  assert.ok(!(await exists(paths.skillLinkPath('skill-m-one'))))
+
+  // The next whole-entry enable builds both links: the intent was recorded.
+  const on = await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'tog-multi', enabled: true }),
+  })
+  assert.equal(on.status, 200)
+  assert.ok(await exists(paths.skillLinkPath('skill-m-one')))
+  assert.ok(await exists(paths.skillLinkPath('skill-m-two')))
+})
+
+test('toggle skill on a single-skill entry is a 400 single-skill', async () => {
+  await seedClone('tog-solo')
+  const res = await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'tog-solo', enabled: false, skill: 'tog-solo' }),
+  })
+  assert.equal(res.status, 400)
+  assert.equal(errorsOf(res).error, 'single-skill')
+})
+
+test('toggle skill with an unknown skill name is a 404 carrying the skill', async () => {
+  const res = await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'tog-multi', enabled: false, skill: 'nope' }),
+  })
+  assert.equal(res.status, 404)
+  assert.equal(errorsOf(res).data.name, 'tog-multi')
+  assert.equal(errorsOf(res).data.skill, 'nope')
+})
+
+test('toggle rejects skill together with group (400 ambiguous)', async () => {
+  const res = await call('/skills-nexus/toggle', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'tog-multi', enabled: false, skill: 'skill-m-one', group: 'g' }),
+  })
+  assert.equal(res.status, 400)
+  assert.equal(errorsOf(res).error, 'ambiguous')
+})
+
+/* ------------------------------------------------------------------ */
 /* POST /toggle — group mode (trae-cn link channel)                    */
 /* ------------------------------------------------------------------ */
 
@@ -779,6 +914,21 @@ test('add: two sources sharing one explicit name collide on the name (409)', asy
   const { error, data } = errorsOf(res)
   assert.equal(error, 'already-registered')
   assert.equal(data.name, 'shared-name')
+})
+
+test('add: a path conflict carries the actual occupant in data.occupant (409)', async () => {
+  // Same repo+subdir registered under a name override: the requested name
+  // has no entry, so the payload must expose who actually holds the path.
+  await seedClone('occupant-name', { path: 'some-repo' })
+  const res = await call('/skills-nexus/add', {
+    method: 'POST',
+    body: JSON.stringify({ url: 'github:owner/some-repo' }),
+  })
+  assert.equal(res.status, 409)
+  const { error, data } = errorsOf(res)
+  assert.equal(error, 'already-registered')
+  assert.equal(data.name, 'some-repo')
+  assert.equal(data.occupant, 'occupant-name')
 })
 
 test('add rejects a skills-root collision with 409', async () => {

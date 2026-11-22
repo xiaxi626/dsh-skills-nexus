@@ -49,6 +49,14 @@ export interface SkillEntry {
     externalDir?: string;
     /** 分层组路径，如 ['trae-cn','skills','brainstorming']。 */
     groupPath?: string[];
+    /**
+     * 用户显式排除的链接名集合（per-skill disable 记录的**意图**）。缺失 = 空集，
+     * 旧 manifest 零迁移。与「enabled 不落盘、由链接存在反推」的不变量正交：
+     * excluded 不参与 enabled 推导，enabled 也不反写 excluded；它只约束重建
+     * （enable / update / switch-version / HTTP toggle）不得复活被排除的技能。
+     * 以链接名为键：上游改名后留下的 stale 名无害（匹配不到任何候选链接）。
+     */
+    excluded?: string[];
 }
 /** Persistent state backend for the CLI. */
 export interface Manifest {

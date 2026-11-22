@@ -111,6 +111,12 @@ export interface ToggleOptions {
     projectRoot?: string;
     /** Move real project directories (not symlinks). Requires `project`. */
     files?: boolean;
+    /**
+     * Per-skill selector: toggle one skill of a multi-skill entry instead of
+     * the whole entry. Requires exactly one entry name; mutually exclusive
+     * with `--group` and `--project`.
+     */
+    skill?: string;
 }
 /**
  * Parse `enable`/`disable` args: one or more names plus `--json`.
