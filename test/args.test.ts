@@ -64,6 +64,17 @@ test('unknown flags are ignored', () => {
   assert.equal(opts.specs[0], 'owner/repo')
 })
 
+test('--dry-run is rejected explicitly, not silently ignored', () => {
+  // Safety-semantics exception to the unknown-flag tolerance contract: the
+  // whole point of --dry-run is "no side effects", so silently dropping it
+  // would install immediately -- exactly what the caller tried to avoid.
+  assert.throws(() => parseAddArgs(['owner/repo', '--dry-run']), /--dry-run is not supported by add/)
+  assert.throws(() => parseAddArgs(['--dry-run', 'owner/repo']), /--dry-run is not supported by add/)
+  // Inline-value form must be rejected too, not fall through to tolerance.
+  assert.throws(() => parseAddArgs(['owner/repo', '--dry-run=true']), /--dry-run is not supported by add/)
+  assert.throws(() => parseAddArgs(['owner/repo', '--dry-run=false']), /--dry-run is not supported by add/)
+})
+
 test('missing spec throws', () => {
   assert.throws(() => parseAddArgs([]), /missing repo spec/)
   assert.throws(() => parseAddArgs(['--yes']), /missing repo spec/)

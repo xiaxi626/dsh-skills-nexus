@@ -233,6 +233,27 @@ test('add refuses per-repo options combined with multiple specs (installs nothin
   assert.equal(m.skills.filter((s) => s.path.startsWith('src-guard')).length, 0)
 })
 
+test('add --dry-run refuses up front without cloning or registering', async () => {
+  // Safety-semantics exception to the unknown-flag tolerance: silently
+  // ignoring --dry-run would install immediately, the exact outcome the
+  // caller tried to avoid. Parse refusal is a usage error (exit 2).
+  const before = await manifest.readManifest()
+  const err: string[] = []
+  const io = {
+    interactive: false,
+    confirm: () => Promise.resolve(false),
+    progress: () => {},
+    emit: () => {},
+    error: (line: string) => {
+      err.push(line)
+    },
+  }
+  const rc = await add.add(['github:owner/repo', '--dry-run'], io)
+  assert.equal(rc, 2)
+  assert.match(err.join(''), /--dry-run is not supported by add/)
+  assert.deepEqual(await manifest.readManifest(), before)
+})
+
 test('add continues past a per-repo failure and reports it in the exit code', async () => {
   const a = join(home, 'src-part-a')
   const b = join(home, 'src-part-b')

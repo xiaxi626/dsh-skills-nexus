@@ -231,6 +231,18 @@ test('add --json=false is a usage error reported in the machine dialect', async 
   assert.match(payload.error.message, /takes no value/)
 })
 
+test('add --json --dry-run is a usage error reported in the machine dialect', async () => {
+  // --dry-run means "no side effects"; silently ignoring it would install.
+  // The refusal must reach the JSON caller as exit 2 + machine-dialect error.
+  await reset()
+  const cap = await run((io) => addMod.add(['github:o/r', '--dry-run', '--json'], io))
+  assert.equal(cap.code, 2)
+  assert.equal(cap.out, '')
+  const payload = JSON.parse(cap.err) as { version: number; error: { message: string } }
+  assert.equal(payload.version, 1)
+  assert.match(payload.error.message, /--dry-run is not supported by add/)
+})
+
 /* ------------------------------------------------------------------ */
 /* getHeadCommit — update's before/after source                        */
 /* ------------------------------------------------------------------ */
