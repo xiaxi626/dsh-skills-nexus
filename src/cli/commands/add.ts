@@ -81,6 +81,7 @@ export async function add(argv: string[], io: OpsIO = cliIO): Promise<number> {
 
   const multi = specs.length > 1
   let failures = 0
+  let refused = false
   let addedCount = 0
   const results: AddJsonResult[] = []
   for (let i = 0; i < specs.length; i++) {
@@ -91,11 +92,18 @@ export async function add(argv: string[], io: OpsIO = cliIO): Promise<number> {
     try {
       const res = await addOne(spec, { name, ref, subdir, yes }, out)
       if (res.status === 'added') addedCount++
-      // `skipped` is a declined confirmation, not an error: the clone was
-      // removed and nothing was registered, which is the outcome the user
-      // chose. Only `failed` counts toward the exit code (v0.4.0 behaviour,
-      // kept deliberately).
+      // `skipped` is a declined confirmation, not an install error: the clone
+      // was removed and nothing was registered. An interactive "no" keeps
+      // exit 0 — the outcome the user chose. A NON-interactive decline is a
+      // usage-level refusal instead (#24): the guard could not prompt, so the
+      // run ends in exit 2 with a --yes hint, the same dialect `remove` uses
+      // for its unconfirmable destructive guard. The JSON report keeps its
+      // version-1 shape (skipped/aborted); only the exit code escalates.
       else if (res.status === 'failed') failures++
+      else if (res.code === 'aborted' && !io.interactive) {
+        refused = true
+        io.error('Confirmation declined (non-interactive default). Re-run with --yes to proceed.')
+      }
       results.push(toJsonResult(spec, res))
     } catch (err) {
       // A thrown error (e.g. clone / network failure) is a per-item failure —
@@ -114,7 +122,7 @@ export async function add(argv: string[], io: OpsIO = cliIO): Promise<number> {
       failed: results.filter((r) => r.status === 'failed').length,
     }
     emitJson(io, { version: 1, results, summary })
-    return failures === 0 ? 0 : 1
+    return refused ? 2 : failures === 0 ? 0 : 1
   }
 
   if (multi) {
@@ -124,7 +132,7 @@ export async function add(argv: string[], io: OpsIO = cliIO): Promise<number> {
         `.\n`,
     )
   }
-  return failures === 0 ? 0 : 1
+  return refused ? 2 : failures === 0 ? 0 : 1
 }
 
 /**
