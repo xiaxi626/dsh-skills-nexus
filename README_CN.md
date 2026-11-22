@@ -47,6 +47,7 @@ dsh-skills-nexus add github:owner/repo
 | 链接 Trae / Qoder / CodeBuddy 里已装的技能 | `dsh-skills-nexus link trae-cn`（或 `trae`、`qoder`、`codebuddy`、`workbuddy`、`kimi-code`、`cursor`、`claude-code`、…） |
 | 列出所有条目及状态 | `dsh-skills-nexus list` |
 | 按组批量启停 | `dsh-skills-nexus enable --group trae-cn` |
+| 单独启停多技能条目中的一个技能 | `dsh-skills-nexus disable my-entry --skill some-skill`（恢复：`dsh-skills-nexus enable my-entry --skill some-skill`） |
 | 把整机 skill 搬到另一台机器 | `dsh-skills-nexus export --all -o migrate.zip` → `dsh-skills-nexus import migrate.zip` |
 | 健康检查（带退出码） | `dsh-skills-nexus doctor` |
 | 面板里可视化管理 | 注册为 DSH 插件 → 设置 → Skills Nexus |

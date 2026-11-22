@@ -164,6 +164,7 @@ dsh-skills-nexus enable  <name>...                  # create symlink (default); 
 dsh-skills-nexus disable <name>...                  # remove symlink without deleting clone
 dsh-skills-nexus enable  --group trae-cn/skills     # batch-enable every entry whose groupPath starts with the prefix
 dsh-skills-nexus disable --group trae-cn            # batch-disable every entry under the L1 group
+dsh-skills-nexus disable my-entry --skill some-skill  # toggle one skill of a multi-skill entry (enable --skill restores it)
 dsh-skills-nexus remove <name>...                   # delete clone + symlink + unregister (one or more)
 dsh-skills-nexus remove 'theme-*'                   # ...or a * / ? glob matched against skill names
 dsh-skills-nexus remove --group trae-cn             # batch-delete every entry whose groupPath starts with the prefix

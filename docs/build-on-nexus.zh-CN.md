@@ -75,13 +75,17 @@ nexus 暴露五条机器可读路径。五条都是稳定契约；CLI 的其余�
 ```
 
 - **检查项 id**，按顺序：`manifest`、`roots`、`symlinks`、`orphan-repo`、
-  `orphan-link`、`git-sanity`，以及 `updates`（仅在带 `--updates` 时出现）。
+  `orphan-link`、`git-sanity`、`updates`（仅在带 `--updates` 时出现），以及
+  `external-disabled`（恒为最后一项）。
 - **`status`** 取值为 `ok`、`warn`、`error`、`update-available` 之一。
 - 每条 issue 为 `{ severity, code, name, fix?, detail?, locked? }`，其中 `severity` 是
   `error` / `warn` / `info`。`code` 是稳定标识符：`corrupt-manifest`、
-  `orphan-check-skipped`、`root-unreadable`、`missing-target`、`orphan-repo`、
-  `orphan-link`、`dangling-link`、`unreadable-link`、`corrupt-backup`、
-  `missing-git`，以及 `behind-remote` 和 `locked`（后两者仅在 `--updates` 下出现）。
+  `orphan-check-skipped`、`root-unreadable`、`missing-target`、`missing-links`、
+  `orphan-repo`、`orphan-link`、`dangling-link`、`unreadable-link`、
+  `corrupt-backup`、`missing-git`、`external-disabled`，以及 `behind-remote` 和
+  `locked`（后两者仅在 `--updates` 下出现）。`missing-links` 是对链接集不完整、
+  但其余方面健康的条目的 warn——至少一个链接存活、但部分期望链接缺失；其
+  `fix` 为 `dsh-skills-nexus enable <name>`。
 - 退出码：`0` 无 error、`1` 至少一个 error、`2` 用法错误。
 - `--updates` 追加一项联网检查，把分支 pin 与其远程比对。`locked` issue 仅在显式 package lock 时携带可选的 `locked: true`；普通 detached tag/commit pin 不带该字段。`--quiet` 在无 error 时不打印任何内容。
 - `doctor` 是**只读**的——绝不写 manifest、克隆或 symlink。
@@ -103,6 +107,7 @@ nexus 暴露五条机器可读路径。五条都是稳定契约；CLI 的其余�
 - **格式**：`JSON.stringify(report, null, 2)` 加一个末尾换行。
 - **退出码**：`0` 成功 · `1` 有错误或部分失败 · `2` 用法错误。单项失败（三个仓库里
   有一个克隆失败）是退出 `1` **外加一份完整报告**，因此你不必重新查询就知道是哪一项。
+  `add` 另有一种退出 `2`：非交互下确认被拒绝（见下方「从不提示」）。
 - **stdout 纯净**：带 `--json` 时 stdout 只有报告文档本身。命令原本会打印的每一行
   人类文本都被抑制，所以 `JSON.parse(stdout)` 前面永远不需要过滤器。
 - **诊断仍走 stderr**，且明确**不属**契约。运行过程可能在那里输出警告；那是给人看
@@ -122,6 +127,12 @@ nexus 暴露五条机器可读路径。五条都是稳定契约；CLI 的其余�
 而不是被确认。人类运行下会被问到的操作，请显式传 `--yes`；拒绝会体现在报告里
 （`status: "skipped"`，或多匹配通配符的 `status: "not-found"` / 退出 `2`），而不是
 无声无息。
+
+对 `add`，确认被拒绝（报告项 `status: "skipped"` 且 `code: "aborted"`）会让本次运行
+以退出 `2` 结束——与 `remove` 对无法确认的破坏性护栏所用的用法级拒绝方言一致——
+stderr 附带「Re-run with --yes」引导。报告形状不变，只有退出码升级，脚本因此能区分
+「装上了」与「被静默拒绝」。交互式下用户主动答「否」仍保持退出 `0`：那是用户选择的
+结果。
 
 ### 报告
 
@@ -174,6 +185,10 @@ nexus 暴露五条机器可读路径。五条都是稳定契约；CLI 的其余�
   给出的停止原因，若有：`no-skill-md`、`no-installable-skills`、`subdir-not-found`、
   `dsh-plugin-repo`、`aborted`）或 `error`（前置检查自己的说明：`already-registered`、
   `collision`、`locked`）。
+- `aborted` 表示确认被拒绝；非交互下它把本次运行升级为退出 `2`（见「从不提示」）。
+  `dsh-plugin-repo` 是建议而非被拒绝的确认，保持退出 `0`。
+- 克隆路径冲突导致的 `already-registered` 拒绝会报出**实际占用该路径的条目名**
+  （并给出针对它的 `update` / `remove` 指引），而不是请求名——消息文本本身不属契约。
 - 只有给了 `--subdir` 时才出现 `subdir` 字段。
 
 `update --json`：
@@ -223,6 +238,15 @@ nexus 暴露五条机器可读路径。五条都是稳定契约；CLI 的其余�
 - `enabled` 是条目的**结果**状态：`not-found` 项报告的是它保持的状态，而不是被请求的
   状态。
 - `linksChanged` 统计创建（enable）或删除（disable）的 symlink 数。
+- `enable <name> --skill <skill>` / `disable <name> --skill <skill>` 单独启停多技能
+  条目中的一个技能（恰一个条目名；与 `--group`、`--project` 互斥；单技能条目会被
+  拒绝）。disable 记录一条**排除意图**，全部重建路径都会尊重它——之后的整组
+  `enable`、`update`、`switch-version` 都不会复活被排除的技能；`enable --skill`
+  清除该意图。仅记意图的运行（条目本身处于停用态）报 `toggled` 且
+  `linksChanged: 0`；`enabled` 始终反映条目级链接实态。`list --json` 不暴露排除清单。
+- 对已启用条目再 enable 会**对账补齐**而非短路：只创建缺失的链接（既有链接原样
+  不动），被真实目录/文件占用的链接位跳过并告警，报告为 `toggled` 且
+  `linksChanged` = 补齐数。只有缺失为零时才报 `already`。
 - `enable --group <path>` / `disable --group <path>` 按 `groupPath` 前缀批量切换
   每个条目。报告形状相同；每个匹配条目作为自己的项出现在 `results[]` 中。
 
@@ -379,7 +403,9 @@ nexus 暴露五条机器可读路径。五条都是稳定契约；CLI 的其余�
   本契约内。
 - **`add` 会静默忽略未知 flag。** 这是对它众多选项的刻意宽容——打错的 flag 不会
   报错，只会按默认值运行。shell out 之前请自行校验 argv。（`--json=false` **会**被
-  拒绝，因为把它静默读成 `true` 等于给你一份你没要的报告。）
+  拒绝，因为把它静默读成 `true` 等于给你一份你没要的报告。）**`--dry-run` 是唯一
+  的显式例外：**`add` 以退出 `2` 拒绝它——该 flag 的全部含义就是「不要产生副作用」，
+  静默忽略会立即安装。（`link` 与 `import` 支持 `--dry-run`；`add` 没有预览模式。）
 - **没有 Cordis service / provider / hook。** 插件 `apply()` 是刻意的空操作——
   你**无法**在运行时通过 `ctx` 消费 nexus。skill 发现完全靠 symlink + 官方
   filesystem provider。

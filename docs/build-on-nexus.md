@@ -86,14 +86,18 @@ This is the **authoritative** way to enumerate installed skills. Do not parse
 ```
 
 - **Check ids**, in order: `manifest`, `roots`, `symlinks`, `orphan-repo`,
-  `orphan-link`, `git-sanity`, and `updates` (present only with `--updates`).
+  `orphan-link`, `git-sanity`, `updates` (present only with `--updates`), and
+  `external-disabled` (always last).
 - **`status`** is one of `ok`, `warn`, `error`, `update-available`.
 - Each issue is `{ severity, code, name, fix?, detail?, locked? }` where `severity` is
   `error` / `warn` / `info`. The `code` values are stable identifiers:
   `corrupt-manifest`, `orphan-check-skipped`, `root-unreadable`,
-  `missing-target`, `orphan-repo`, `orphan-link`, `dangling-link`,
-  `unreadable-link`, `corrupt-backup`, `missing-git`, plus `behind-remote` and
-  `locked` (the latter two only under `--updates`).
+  `missing-target`, `missing-links`, `orphan-repo`, `orphan-link`,
+  `dangling-link`, `unreadable-link`, `corrupt-backup`, `missing-git`,
+  `external-disabled`, plus `behind-remote` and `locked` (the latter two only
+  under `--updates`). `missing-links` is a warn on an otherwise healthy entry
+  whose link set is incomplete — some expected skill links are missing while
+  at least one survives; its `fix` is `dsh-skills-nexus enable <name>`.
 - Exit codes: `0` no error, `1` at least one error, `2` usage error.
 - `--updates` adds a network check comparing branch pins to their remote.
   A `locked` issue carries optional `locked: true` only for an explicit package
@@ -121,7 +125,8 @@ it is deliberately narrow:
 - **Exit codes:** `0` success · `1` an error or a partial failure · `2` usage
   error. A per-item failure (one repo of three failed to clone) is exit `1`
   **with a complete report**, so you can read which item failed without
-  re-querying.
+  re-querying. `add` additionally exits `2` when a confirmation was declined
+  non-interactively (see "Never prompts" below).
 - **stdout purity:** with `--json`, stdout carries the report document and
   nothing else. Every human line the command would have printed is suppressed,
   so `JSON.parse(stdout)` never needs a filter in front of it.
@@ -146,6 +151,13 @@ question, the large-collection guard, a glob that matched several skills — is
 therefore **refused** rather than confirmed. Pass `--yes` where the human run
 would have been asked; a refusal is visible in the report (`status: "skipped"`,
 or `status: "not-found"` / exit `2` for a multi-match glob) rather than silent.
+
+For `add`, a declined confirmation (report item `status: "skipped"` with
+`code: "aborted"`) ends the run with exit `2` — the same usage-level refusal
+dialect `remove` uses for its unconfirmable guard — and stderr carries a
+"Re-run with --yes" hint. The report shape is unchanged; only the exit code
+escalates, so a script can tell "installed" from "silently refused". An
+interactive "no" keeps exit `0`: that is the outcome the user chose.
 
 ### The reports
 
@@ -203,6 +215,12 @@ or `status: "not-found"` / exit `2` for a multi-match glob) rather than silent.
   `no-installable-skills`, `subdir-not-found`, `dsh-plugin-repo`, `aborted`) or
   `error` (the preflight's own explanation: `already-registered`, `collision`,
   `locked`).
+- `aborted` means a confirmation was declined; non-interactively it escalates
+  the run to exit `2` (see "Never prompts"). `dsh-plugin-repo` is advice, not
+  a declined confirmation, and keeps exit `0`.
+- An `already-registered` refusal caused by a clone-path conflict names the
+  entry that actually occupies the path (with `update` / `remove` guidance for
+  it), not the requested name — the message text itself is not contract.
 - `subdir` is present only when one was given.
 
 `update --json`:
@@ -253,6 +271,20 @@ or `status: "not-found"` / exit `2` for a multi-match glob) rather than silent.
 - `enabled` is the entry's **resulting** state: a `not-found` item reports the
   state it keeps, not the one it was asked for.
 - `linksChanged` counts symlinks created (enable) or removed (disable).
+- `enable <name> --skill <skill>` / `disable <name> --skill <skill>` toggle one
+  skill of a multi-skill entry (exactly one entry name; mutually exclusive
+  with `--group` and `--project`; a single-skill entry is refused). Disabling
+  records an **exclusion intent** that every rebuild path respects — a later
+  whole-entry `enable`, `update`, or `switch-version` will not revive the
+  excluded skill; `enable --skill` clears it. An intent-only run (the entry
+  itself is disabled) reports `toggled` with `linksChanged: 0`; `enabled`
+  always reflects the entry-level link state. `list --json` does not expose
+  the exclusion list.
+- Enabling an already-enabled entry **reconciles** instead of short-circuiting:
+  only missing links are created (existing ones are left untouched), a slot
+  occupied by a real directory/file is skipped with a warning, and the report
+  says `toggled` with `linksChanged` = the repaired count. `already` is
+  reported only when nothing is missing.
 - `enable --group <path>` / `disable --group <path>` batch-toggles every entry
   whose `groupPath` starts with the given prefix. The report shape is the same;
   each matched entry appears as its own item in `results[]`.
@@ -425,7 +457,10 @@ Being explicit so you never depend on a surface nexus has not promised:
   its many options — a mistyped flag will not error, it will just run with
   defaults. Validate your argv before shelling out. (`--json=false` *is*
   rejected, because silently reading it as `true` would hand you a report you
-  did not ask for.)
+  did not ask for.) **`--dry-run` is the one explicit exception:** `add`
+  rejects it with exit `2` — the flag's entire meaning is "no side effects",
+  and silently ignoring it would install immediately. (`link` and `import` do
+  support `--dry-run`; `add` has no preview mode.)
 - **No Cordis service / provider / hook.** The plugin `apply()` is an
   intentional no-op — you **cannot** consume nexus through `ctx` at runtime.
   Skill discovery is entirely symlink + the official filesystem provider.

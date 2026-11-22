@@ -48,6 +48,7 @@ That's it. For the three installation paths (npm registry, GitHub direct, or DSH
 | Manage project links and toggle vendored skill directories | `dsh-skills-nexus list --project` · `dsh-skills-nexus disable --project --files my-skill` |
 | List everything with status | `dsh-skills-nexus list` |
 | Batch enable/disable by group | `dsh-skills-nexus enable --group trae-cn` |
+| Toggle one skill of a multi-skill entry | `dsh-skills-nexus disable my-entry --skill some-skill` (restore: `dsh-skills-nexus enable my-entry --skill some-skill`) |
 | Move all skills to another machine | `dsh-skills-nexus export --all -o migrate.zip` → `dsh-skills-nexus import migrate.zip` |
 | Health check with exit codes | `dsh-skills-nexus doctor` |
 | Watch it all in the web panel | Register as DSH plugin → Settings → Skills Nexus |

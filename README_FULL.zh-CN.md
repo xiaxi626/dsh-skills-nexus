@@ -124,6 +124,7 @@ dsh-skills-nexus enable  <name>...                  # 创建 symlink（默认开
 dsh-skills-nexus disable <name>...                  # 删除 symlink 但不删克隆
 dsh-skills-nexus enable  --group trae-cn/skills     # 批量开启 groupPath 以指定前缀开头的所有条目
 dsh-skills-nexus disable --group trae-cn            # 批量禁用 L1 组下的所有条目
+dsh-skills-nexus disable my-entry --skill some-skill  # 单独停用多技能条目中的一个技能（enable --skill 恢复）
 dsh-skills-nexus remove <name>...                   # 删除克隆 + symlink + 注销（可一次给多个名字）
 dsh-skills-nexus remove 'theme-*'                   # …或用 * / ? 通配符匹配 skill 名
 dsh-skills-nexus remove --group trae-cn             # 批量删除 groupPath 以指定前缀开头的所有条目

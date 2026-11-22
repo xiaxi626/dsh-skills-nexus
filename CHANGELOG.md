@@ -4,6 +4,58 @@
 
 ## [Unreleased]
 
+**2026-11-22 · Fixed · `add` 显式拒绝 `--dry-run`，不再静默安装（issue #23）**
+
+- **背景**：`add` 对未知 flag 整体容忍是刻意契约，但 `--dry-run` 的全部语义就是「不要产生副作用」——静默忽略会立即克隆并建链，恰好造成调用者最想避免的结果。
+- **变更**：`parseAddArgs` 新增 `--dry-run` 分支，显式报错退出 `2`（按 flag 匹配，`--dry-run=x` 内联值形式同样拒绝）；human 与 `--json` 两侧均走既有解析失败路径（JSON 走 fatalJsonError 机器方言），无需改 `add()` 聚合层。其余未知 flag 的容忍契约不动。
+- **验证方式**：`test/args.test.ts` 拒绝用例 ×4（含内联值）、`test/add.test.ts` 端到端例（exit 2 + manifest 零写入）、`test/add-update-json.test.ts` 机器方言例；全量 973 tests（基线 970 + 新增 3），0 fail；typecheck / lint / build 均 exit 0。
+- **不做**：不给 `add` 实现 dry-run 预览——预览需要 install 核心另行立项；本轮只把「假装支持」改成「明确拒绝」。
+
+**2026-11-22 · Fixed · `add` 路径冲突报错指向真实占用者（issue #26）**
+
+- **背景**：用 `--name` 覆盖注册后再不带覆盖重新 `add` 同一仓库，推导名不同但克隆路径相同；旧报错指向请求名，而请求名没有条目可 update/remove，指引不可操作。实施中发现比 issue 描述更深一层：`hasEntry` 本身按 name OR path 匹配，原合并判断经它命中 path 冲突时也一律报请求名。
+- **变更**：`addOne` 与 HTTP add 路由的注册前冲突检查拆为三支：名字冲突（保留原文案，请求名即占用名）、path 冲突（报真实占用者名 + 其 update/remove 指引）、交叉冲突（请求名=既有克隆 path，保留拒绝并指出 path 持有者）。三支并集与旧拒绝集合完全一致，仅报错文案/载荷变化（error 文本非契约）。HTTP path/交叉冲突 payload 新增 `occupant` 字段（加法，面板既有错误展示不受影响）；code `already-registered` 与 409 状态不变。两侧不再使用 `hasEntry`。
+- **验证方式**：`test/add.test.ts` 占用者例 + 交叉冲突保留例、`test/api.test.ts` occupant 载荷例；全量 976 tests，0 fail；typecheck / lint / build 均 exit 0。
+- **不做**：不改拒绝集合本身（交叉冲突仍拒绝，标识符保持无歧义）；不改 code 与 HTTP 状态码。
+
+**2026-11-22 · Added · per-skill 启停与排除意图（issue #25）**
+
+- **背景**：多技能条目此前只能整组开关，无法单独停用其中一个技能；且任何重建路径（整组 enable、update、switch-version）都会把全部技能链接建回。
+- **变更**：
+  - `types.ts`：`SkillEntry` 新增可选 `excluded: string[]`，记录「排除意图」，与链接反推的 enabled 状态正交；缺失即空集，旧 manifest 零迁移。
+  - `link.ts`：抽出 `entryLinkCandidates` / `expectedLinks` / `expectedLinkNames` 三个共享 helper，把四路径命名不变量收敛到一处，并在期望集上应用排除。
+  - `manifest.ts`：`setEntryExcluded`（锁内读改写，空数组删除字段，去重）。
+  - 新增 `src/toggle-skill.ts`：`toggleEntrySkill` 共享核心（CLI 与 HTTP 同源），单技能条目拒绝（single-skill）、未知名拒绝（not-found）、真实目录占用拒绝（collision）；enable 仅在条目本身启用时补链，否则只记录意图。
+  - CLI：`enable/disable <name> --skill <skill>`，解析器护栏（缺值/内联空值/下一 token 是 flag 一律报错）+ 三条约束（恰一个条目名、拒 `--group`、拒 `--project`）；`--json` 复用 version-1 ToggleJsonResult，意图-only 运行报 toggled + linksChanged 0。
+  - HTTP：`POST /toggle` 接受 `skill` 字段，与 `group` 互斥（400 ambiguous）；错误映射 404 not-found / 409 collision / 400 single-skill；hotReload 按 linksChanged 判定（意图-only 不 reload）。
+  - 排除在全部重建路径生效：整组 enable（CLI toggleLinks 与 HTTP toggleEntryCore）、update 与 switch-version 共用的 rebuildVersionLinks 均改用 expectedLinks，被排除技能不会复活。
+  - `client/api.ts`：`toggle(name, enabled, skill?)` 透传；usage 帮助与四个 shell 补全模板同步 `--skill`（取值型，值在位置计数中显式跳过），并修正模板注释中「唯一取值 flag」的过时表述。
+- **验证方式**：新增 `test/toggle-skill.test.ts` 20 例（单技能排除/整组往返不复活/update 重建不复活/switch-version 尊重排除/恢复/JSON toggled-already/意图-only/单技能拒绝/未知名/JSON 错误映射），登记 package.json 清单；args +3、api +7、completions +1 守卫并给 bash/zsh/fish/PowerShell 四个真跑 runner 各补 `--skill` 用例（bash 与 PowerShell 本机真跑通过；zsh/fish 期望行按模板逻辑推导，交 CI 真跑）；全量 997 tests，0 fail；typecheck / lint / build / build:client 均 exit 0。
+- **不做**：不做面板 per-skill UI（方案既定边界）；`list --json` 不暴露 excluded；整组 disable 仍按目标归属清空全部链接，排除意图不受影响。
+
+**2026-11-22 · Fixed · doctor 告警部分链接缺失，enable 对账补齐（issue #22）**
+
+- **背景**：`diagnoseEntry` 只要至少一个链接存活就判 'ok'，多技能条目丢失部分链接时 doctor 静默通过；`enable` 又在「已启用」上短路，不修复任何东西——用户只能 remove 重装。
+- **变更**：
+  - doctor `checkSymlinks`：对每个 'ok' 条目用 `previewSkills + expectedLinkNames`（与全部重建路径同一命名不变量 + per-skill 排除）对账实际链接集；非空差集每条目一条 warn，code `missing-links`，detail「N of M links present, missing: a, b」（>5 个名字截断 +N more），fix `dsh-skills-nexus enable <name>`；空发现集（克隆丢失/无技能）跳过比较，missing-target 与 git-sanity 各自负责那片领地。不新增 check id、不改顺序：version-1 报告契约锚点不动，`missing-links` 是加法 issue code。
+  - CLI toggle：toggleOne/toggleJson 的「已启用再 enable」短路改为对账——缺失为零才报 already，否则拿锁补齐；toggleLinks enable 支收敛到 HTTP toggleEntryCore 语义：只补缺失链接、既有链接不动、真实目录/文件占位跳过并告警（CLI 方言，绝不覆盖用户内容）。JSON 报 toggled + linksChanged=补齐数，无新增 status 枚举。
+  - HTTP 无需改动：toggleEntryCore 本就只补缺失且路由不按 enabled 短路。
+- **验证方式**：冻结 `test/toggle.test.ts` 改前改后均 6/6；新增 `test/doctor-missing-links.test.ts` 7 例（部分缺失 warn+计数+缺失名+enable fix、排除项不告警、0 链接维持 disabled/ok、enable 补齐后复诊 ok、>5 截断、单技能健康不误报、空发现集跳过）并钉住 check id 顺序；`test/toggle-skill.test.ts` 追加 4 例（人读对账、JSON 对账、真实目录占位无损、对账不复活排除项）；全量 1008 tests，0 fail；typecheck / lint / build 均 exit 0。
+- **不做**：0 链接不升级为 warn（与主动 disable 在文件系统上不可区分，维持 disabled/ok；重开条件为引入整组 disable 意图记录）；手工改名链接不加计数护栏（纯名字差集，改名别名会被告警并由 enable 补出规范名链接）；doctor --project 不做期望集对账（项目链接无 manifest 期望集来源）。
+
+**2026-11-22 · Fixed · `add` 非交互拒绝确认升级为退出 2（issue #24）**
+
+- **背景**：wrapped-skill 与大集合护栏在非 TTY 下无法发问，confirm 默认「否」，旧行为退出 0——脚本无法区分「装上了」与「被静默拒绝」。`remove` 早已把无法确认的破坏性护栏当用法级拒绝（exit 2 + --yes 引导），`add` 现在说同一种方言。
+- **变更**：`src/cli/commands/add.ts` 在 spec 返回 skipped + code 'aborted' 且非交互时，stderr 输出「Confirmation declined (non-interactive default). Re-run with --yes to proceed.」并以退出 2 结束（拒绝优先于单项安装失败）；交互式答「否」保持退出 0。`--json` 报告保持 version-1 形状（skipped/aborted、summary 计数不变），仅退出码升级，引导走 stderr 保持 stdout 纯 JSON。共享 install 核心不动：面板 jobIO 抛 NeedsConfirm（409 confirm-required 流完整），import/adopt 保持既有拒绝语义。`dsh-plugin-repo` 跳过是建议而非被拒确认，非交互下仍退出 0。
+- **验证方式**：`test/add.test.ts` 两处既有非交互拒绝断言按批准的行为升级同步 0→2，其余断言原样保留；新增 4 例（非交互拒绝 exit 2 + 引导 + 克隆清理、交互拒绝 exit 0 且无引导、--json 契约 + exit 2、纯 DSH plugin 非交互 exit 0 边界）；定向 add/add-update-json/cli-plugin-parity/import/adopt 96/96（面板 needs-confirm 流不受影响）；全量 1012 tests，0 fail；typecheck / lint / build 均 exit 0。
+- **不做**：交互式拒绝不改退出码（exit 0 是用户主动选择的刻意设计）；`--json` 不自动跳过确认（会绕过安全护栏）；import/adopt 不做同款升级（#24 仅针对 add，待独立反馈再议）。
+
+**2026-11-22 · Docs · 契约文档与 README 同步本轮五项修复**
+
+- **变更**：`docs/build-on-nexus.md` / `.zh-CN.md` 双语同步：doctor code 清单补 `missing-links`（含语义与 fix）；check id 清单补上代码中早已存在但文档漏列的 `external-disabled`（既有漂移修正，恒为最后一项）；enable/disable 段补 `--skill` 表面、排除意图与 enable 对账语义；「从不提示」与退出码段补 add 非交互拒绝 exit 2（报告形状不变）；add --json 段补 aborted 升级与占用者报错说明；不做清单的未知 flag 条补 `--dry-run` 显式例外。`README.md` / `README_CN.md` 能力表各补一行 per-skill 启停（成对给出恢复方法）；`README_FULL.md` / `.zh-CN.md` 命令速查表各补一行 `--skill` 用法。check id 顺序与 version 字段未动。
+- **验证方式**：文档声明逐条对照代码核实（doctor.ts 的 checks.push 顺序与 code 集、args.ts 的 --dry-run 拒绝文案、toggle.ts 的对账与 --skill 护栏、add.ts 的 refused 聚合）；四步门禁（typecheck / lint / test / build）均 exit 0。
+- **不做**：不改任何代码与 JSON 契约字段；不新增 verify-* 文档（本轮行为已由既有测试文件钉住）。
+
 ## [0.11.0] - 2026-11-15
 
 **Added · 项目真实技能目录可逆启停（`--files`）与工作区授权 HTTP 路由**
