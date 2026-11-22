@@ -21,11 +21,12 @@
  *
  * The first positional argument is counted as "words before the cursor that do
  * not start with `-`", not as a fixed slot: `remove --yes <TAB>` must still
- * offer names, because `--yes` is accepted before the names. The one
- * value-taking flag those commands accept, `--project-root`, has its value
- * skipped explicitly so a path can never be miscounted as a name. `export` and
- * `adopt` also take a positional (a name), but each has value-taking flags
- * (`--out`, `--url`), so both are deliberately outside it.
+ * offer names, because `--yes` is accepted before the names. The value-taking
+ * flags those commands accept (`--project-root`, `--skill`) have their values
+ * skipped explicitly so a path or skill name can never be miscounted as an
+ * entry name. `export` and `adopt` also take a positional (a name), but each
+ * has value-taking flags (`--out`, `--url`), so both are deliberately outside
+ * it.
  *
  * Layer 3 shells out to `list --names` instead of reading `manifest.json`, so
  * an internal schema change cannot silently break completion.

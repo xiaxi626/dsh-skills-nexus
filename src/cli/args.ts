@@ -349,6 +349,12 @@ export interface ToggleOptions {
   projectRoot?: string
   /** Move real project directories (not symlinks). Requires `project`. */
   files?: boolean
+  /**
+   * Per-skill selector: toggle one skill of a multi-skill entry instead of
+   * the whole entry. Requires exactly one entry name; mutually exclusive
+   * with `--group` and `--project`.
+   */
+  skill?: string
 }
 
 /**
@@ -366,6 +372,7 @@ export function parseToggleArgs(argv: string[], command: 'enable' | 'disable'): 
   let project = false
   let projectRoot: string | undefined
   let files = false
+  let skill: string | undefined
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!
@@ -396,6 +403,11 @@ export function parseToggleArgs(argv: string[], command: 'enable' | 'disable'): 
     } else if (flag === '--group') {
       group = inlineVal ?? argv[++i]
       if (!group) throw new Error('--group requires a path, e.g. --group trae-cn/skills')
+    } else if (flag === '--skill') {
+      skill = inlineVal ?? argv[++i]
+      if (!skill || (inlineVal === undefined && skill.startsWith('--'))) {
+        throw new Error('--skill requires a skill name, e.g. --skill brainstorming')
+      }
     } else if (!a.startsWith('-')) {
       // 名字不以 `-` 开头（skill 名为 kebab-case），整段收集，含 `=` 也不拆。
       names.push(a)
@@ -416,6 +428,15 @@ export function parseToggleArgs(argv: string[], command: 'enable' | 'disable'): 
   if (project && group !== undefined) {
     throw new Error('--group is not available with --project; project scope toggles exact link names only')
   }
+  if (skill !== undefined && project) {
+    throw new Error('--skill is not available with --project; project scope toggles exact link names only')
+  }
+  if (skill !== undefined && group !== undefined) {
+    throw new Error('--skill cannot combine with --group; it targets one skill of one entry')
+  }
+  if (skill !== undefined && names.length !== 1) {
+    throw new Error(`--skill requires exactly one entry name (got ${names.length})`)
+  }
   if (names.length === 0 && !group) {
     throw new Error(
       project
@@ -431,6 +452,7 @@ export function parseToggleArgs(argv: string[], command: 'enable' | 'disable'): 
     ...(project ? { project: true } : {}),
     ...(projectRoot === undefined ? {} : { projectRoot }),
     ...(files ? { files: true } : {}),
+    ...(skill === undefined ? {} : { skill }),
   }
 }
 

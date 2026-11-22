@@ -2,7 +2,9 @@ import { symlink, lstat, unlink, mkdir, readdir, rmdir, readlink, realpath } fro
 import { dirname, join, resolve, sep } from 'node:path'
 import { OFFICIAL_SKILLS_DIR, resolveLinkTarget, skillLinkPath } from './paths.js'
 import { entrySkillDir } from './external.js'
+import { sanitizeName } from './git.js'
 import type { SkillEntry } from './types.js'
+import type { ParsedSkill } from './resolve.js'
 
 /**
  * Manage links that expose cloned skills to the official DSH skills root.
@@ -362,6 +364,43 @@ export async function entryLinks(entry: SkillEntry): Promise<EntryLink[]> {
  */
 export async function isEntryEnabled(entry: SkillEntry): Promise<boolean> {
   return (await entryLinks(entry)).length > 0
+}
+
+/**
+ * Candidate links for a discovered skill set, *before* per-skill exclusions:
+ * the naming invariant in one place — a single-skill repo links under the
+ * entry name; a multi-skill repo links under each skill's frontmatter name
+ * (sanitized when invalid), falling back to the entry name. Duplicate names
+ * collapse to the first skill providing them. `target` is the skill's
+ * resourceBase (absolute, not yet realpath-resolved).
+ */
+export function entryLinkCandidates(entry: SkillEntry, skills: ParsedSkill[]): EntryLink[] {
+  const byName = new Map<string, string>()
+  for (const s of skills) {
+    const fmName = s.invalidName ? sanitizeName(s.invalidName) : s.name
+    const name = skills.length === 1 ? entry.name : (fmName || entry.name)
+    if (!byName.has(name)) byName.set(name, s.resourceBase)
+  }
+  return [...byName].map(([name, target]) => ({ name, target }))
+}
+
+/**
+ * The links an entry *should* have after applying the user's explicit
+ * per-skill exclusions (`entry.excluded`, a set of link names). `excluded`
+ * records intent, not state: enabled is still derived from actual links and
+ * the two never infer each other. Absent/empty means no exclusions, so old
+ * manifests need no migration. Shared by CLI toggle, HTTP toggle, the version
+ * rebuild (update/switch-version) and doctor, so no rebuild path can
+ * resurrect an excluded skill.
+ */
+export function expectedLinks(entry: SkillEntry, skills: ParsedSkill[]): EntryLink[] {
+  const excluded = new Set(entry.excluded ?? [])
+  return entryLinkCandidates(entry, skills).filter((l) => !excluded.has(l.name))
+}
+
+/** Names-only projection of `expectedLinks` (doctor's expected-set check). */
+export function expectedLinkNames(entry: SkillEntry, skills: ParsedSkill[]): string[] {
+  return expectedLinks(entry, skills).map((l) => l.name)
 }
 
 /**

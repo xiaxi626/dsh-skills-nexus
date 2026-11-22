@@ -57,6 +57,14 @@ export declare function removeEntry(name: string): Promise<SkillEntry | undefine
  * from another process, losing whichever writer goes second.
  */
 export declare function markUpdated(name: string, commit?: string, ref?: string, locked?: boolean): Promise<void>;
+/**
+ * Record the user's explicit per-skill exclusion intent (link names) for an
+ * entry — same locked read → find → modify → write cycle as `markUpdated`.
+ * An empty list deletes the field (absent = empty set, keeping the manifest
+ * clean); names are de-duplicated. Intent only: this never creates or removes
+ * links, and enabled stays derived from the filesystem.
+ */
+export declare function setEntryExcluded(name: string, excluded: string[]): Promise<void>;
 /** Best-effort recursive delete of a skill's cloned directory. */
 export declare function removeSkillDir(path: string): Promise<void>;
 /**

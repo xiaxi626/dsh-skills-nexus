@@ -18,11 +18,12 @@
  *
  * "First positional" counts the words before the cursor that do not start with
  * `-`, instead of comparing the word index: `remove --yes <TAB>` must still
- * offer names, because `--yes` is accepted before the names. The one
- * value-taking flag those commands accept, `--project-root`, has its value
- * skipped explicitly so a path can never be miscounted as a name. `export` and
- * `adopt` also take a positional (a name), but each has value-taking flags
- * (`--out`, `--url`), so they are deliberately outside that branch.
+ * offer names, because `--yes` is accepted before the names. The value-taking
+ * flags those commands accept (`--project-root`, `--skill`) have their values
+ * skipped explicitly so a path or skill name can never be miscounted as an
+ * entry name. `export` and `adopt` also take a positional (a name), but each
+ * has value-taking flags (`--out`, `--url`), so they are deliberately outside
+ * that branch.
  *
  * Layer 3 goes through the CLI rather than reading `manifest.json`, so an
  * internal schema change cannot silently break completion — the isolation git

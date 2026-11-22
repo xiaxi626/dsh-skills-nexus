@@ -1,4 +1,5 @@
 import type { SkillEntry } from './types.js';
+import type { ParsedSkill } from './resolve.js';
 /**
  * Manage links that expose cloned skills to the official DSH skills root.
  *
@@ -148,6 +149,27 @@ export declare function entryLinks(entry: SkillEntry): Promise<EntryLink[]>;
  * Thin wrapper over `entryLinks`, the single target-ownership scanner.
  */
 export declare function isEntryEnabled(entry: SkillEntry): Promise<boolean>;
+/**
+ * Candidate links for a discovered skill set, *before* per-skill exclusions:
+ * the naming invariant in one place — a single-skill repo links under the
+ * entry name; a multi-skill repo links under each skill's frontmatter name
+ * (sanitized when invalid), falling back to the entry name. Duplicate names
+ * collapse to the first skill providing them. `target` is the skill's
+ * resourceBase (absolute, not yet realpath-resolved).
+ */
+export declare function entryLinkCandidates(entry: SkillEntry, skills: ParsedSkill[]): EntryLink[];
+/**
+ * The links an entry *should* have after applying the user's explicit
+ * per-skill exclusions (`entry.excluded`, a set of link names). `excluded`
+ * records intent, not state: enabled is still derived from actual links and
+ * the two never infer each other. Absent/empty means no exclusions, so old
+ * manifests need no migration. Shared by CLI toggle, HTTP toggle, the version
+ * rebuild (update/switch-version) and doctor, so no rebuild path can
+ * resurrect an excluded skill.
+ */
+export declare function expectedLinks(entry: SkillEntry, skills: ParsedSkill[]): EntryLink[];
+/** Names-only projection of `expectedLinks` (doctor's expected-set check). */
+export declare function expectedLinkNames(entry: SkillEntry, skills: ParsedSkill[]): string[];
 /**
  * Create a link in the official skills root pointing to `targetDir`.
  *

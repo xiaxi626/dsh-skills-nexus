@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { discardLocalChanges, getCurrentBranch, getHeadCommit, restoreCheckout, sanitizeName } from './git.js'
 import { ensureDescription, normalizeSkillName } from './frontmatter.js'
-import { entryLinks, isLinked, linkSkill, unlinkSkill } from './link.js'
+import { entryLinks, expectedLinks, isLinked, linkSkill, unlinkSkill } from './link.js'
 import { readManifest, writeManifest } from './manifest.js'
 import { repoDir } from './paths.js'
 import { previewSkills } from './resolve.js'
@@ -72,10 +72,9 @@ export async function rebuildVersionLinks(
   io?: OpsIO,
 ): Promise<string[]> {
   const oldNames = new Set(state.links.map((l) => l.name))
-  const links = state.links.length === 0 ? [] : skills.map((ps) => ({
-    name: skills.length === 1 ? state.entry.name : (ps.invalidName ? sanitizeName(ps.invalidName) : ps.name) || state.entry.name,
-    target: ps.resourceBase,
-  }))
+  // 期望集经共享 helper 计算：命名不变量 + 用户 per-skill 排除意图，
+  // 故 update / switch-version 的重建都不会复活被排除的技能。
+  const links = state.links.length === 0 ? [] : expectedLinks(state.entry, skills)
   // 不覆盖其他 entry 或用户文件；否则仅恢复本 entry 无法闭环。
   for (const l of links) {
     if (!oldNames.has(l.name) && await isLinked(l.name)) {

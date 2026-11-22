@@ -338,6 +338,33 @@ test('parseToggleArgs accepts --files only together with --project', () => {
   )
 })
 
+test('parseToggleArgs --skill takes a value in both spellings', () => {
+  assert.deepEqual(parseToggleArgs(['entry', '--skill', 'brainstorming'], 'disable'), {
+    names: ['entry'],
+    json: false,
+    skill: 'brainstorming',
+  })
+  assert.deepEqual(parseToggleArgs(['--skill=brainstorming', 'entry', '--json'], 'enable'), {
+    names: ['entry'],
+    json: true,
+    skill: 'brainstorming',
+  })
+})
+
+test('parseToggleArgs --skill rejects a missing value and a flag as the value', () => {
+  assert.throws(() => parseToggleArgs(['entry', '--skill'], 'disable'), /--skill requires a skill name/)
+  assert.throws(() => parseToggleArgs(['entry', '--skill='], 'disable'), /--skill requires a skill name/)
+  // A following flag must not be swallowed as the skill name.
+  assert.throws(() => parseToggleArgs(['entry', '--skill', '--json'], 'disable'), /--skill requires a skill name/)
+})
+
+test('parseToggleArgs --skill targets exactly one entry and no other scope', () => {
+  assert.throws(() => parseToggleArgs(['--skill', 's'], 'enable'), /exactly one entry name \(got 0\)/)
+  assert.throws(() => parseToggleArgs(['a', 'b', '--skill', 's'], 'enable'), /exactly one entry name \(got 2\)/)
+  assert.throws(() => parseToggleArgs(['a', '--skill', 's', '--group', 'g'], 'disable'), /cannot combine with --group/)
+  assert.throws(() => parseToggleArgs(['a', '--skill', 's', '--project'], 'disable'), /not available with --project/)
+})
+
 /* ------------------------------------------------------------------ */
 /* parseToggleArgs — --group extension                                 */
 /* ------------------------------------------------------------------ */

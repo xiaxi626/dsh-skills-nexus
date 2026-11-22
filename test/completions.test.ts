@@ -312,6 +312,17 @@ test('the link branch offers source-dir and its legacy alias in all four templat
   }
 })
 
+test('the enable/disable branches offer --skill in all four templates', () => {
+  // Per-skill toggling (issue #25): the flag takes a value, so fish must mark
+  // it -r like --group, and every template's positional counter must skip its
+  // value (pinned in the counting test below).
+  assert.match(bashTemplate, /enable\|disable\)\s+flags="[^"]*--skill/)
+  assert.match(zshTemplate, /enable\|disable\)\s+compadd -- [^\n]*--skill/)
+  assert.match(fishTemplate, /__fish_seen_subcommand_from enable disable' -l skill -r/)
+  assert.match(powershellTemplate, /'enable'\s*\{[^}]*--skill/)
+  assert.match(powershellTemplate, /'disable'\s*\{[^}]*--skill/)
+})
+
 test('every template counts positionals, so flags do not consume the slot', () => {
   // `remove --yes <TAB>` must still offer names, because --yes is accepted
   // before the names. Every template counts the words that do not start with
@@ -323,12 +334,16 @@ test('every template counts positionals, so flags do not consume the slot', () =
   assert.match(bashTemplate, /nargs=\$\(\(nargs \+ 1\)\)/)
   assert.match(zshTemplate, /nargs=\$\(\( nargs \+ 1 \)\)/)
   assert.match(fishTemplate, /string match -qr -- \^- "\$t\[\$i\]"/)
-  // The one value-taking flag these commands accept is skipped explicitly, so
-  // a --project-root path can never be counted as a positional name.
+  // The value-taking flags these commands accept (--project-root, --skill)
+  // are skipped explicitly, so their values can never be counted as names.
   for (const template of [bashTemplate, zshTemplate, fishTemplate, powershellTemplate]) {
     assert.match(template, /--project-root/)
+    assert.match(template, /--skill/)
   }
-  assert.match(powershellTemplate, /if \(\$token -eq '--project-root'\)/)
+  assert.match(bashTemplate, /--project-root\|--skill\) skip=1/)
+  assert.match(zshTemplate, /--project-root\|--skill\) skip=1/)
+  assert.match(fishTemplate, /or string match -q -- --skill /)
+  assert.match(powershellTemplate, /if \(\$token -eq '--project-root' -or \$token -eq '--skill'\)/)
   assert.match(powershellTemplate, /if \(\$token -notlike '-\*'\) \{ \$nargs = \$nargs \+ 1 \}/)
   assert.doesNotMatch(powershellTemplate, /\$slot -eq /)
 })
@@ -517,7 +532,7 @@ test('PowerShell 实际补全 rollback/diff 的名字与 flags，且不补第二
     await writeFile(join(dir, 'dsh-skills-nexus.ps1'), "param([string]$action, [string]$option)\n'alpha'\n'beta'\n")
     const program = [
       'Invoke-Expression $env:DSH_TPL',
-      "$cases = @('dsh-skills-nexus roll', 'dsh-skills-nexus rollback --j', 'dsh-skills-nexus rollback --json ', 'dsh-skills-nexus rollback alpha ', 'dsh-skills-nexus diff --s', 'dsh-skills-nexus diff ', 'dsh-skills-nexus diff alpha ', 'dsh-skills-nexus link trae --s', 'dsh-skills-nexus link trae-cn --trae')",
+      "$cases = @('dsh-skills-nexus roll', 'dsh-skills-nexus rollback --j', 'dsh-skills-nexus rollback --json ', 'dsh-skills-nexus rollback alpha ', 'dsh-skills-nexus diff --s', 'dsh-skills-nexus diff ', 'dsh-skills-nexus diff alpha ', 'dsh-skills-nexus link trae --s', 'dsh-skills-nexus link trae-cn --trae', 'dsh-skills-nexus enable --sk', 'dsh-skills-nexus enable --skill brainstorming ', 'dsh-skills-nexus enable alpha --skill brainstorming ')",
       '$result = @($cases | ForEach-Object {',
       '  $line = $_',
       '  $matches = [System.Management.Automation.CommandCompletion]::CompleteInput($line, $line.Length, $null).CompletionMatches',
@@ -535,7 +550,12 @@ test('PowerShell 实际补全 rollback/diff 的名字与 flags，且不补第二
     assert.ok(!values[3]?.split('|').some((s) => s === 'alpha' || s === 'beta'))
     assert.deepEqual(values.slice(4, 6), ['--stat', 'alpha|beta'])
     assert.ok(!values[6]?.split('|').some((s) => s === 'alpha' || s === 'beta'))
-    assert.deepEqual(values.slice(7), ['--source-dir', '--trae-cn-dir'])
+    assert.deepEqual(values.slice(7, 9), ['--source-dir', '--trae-cn-dir'])
+    // --skill takes a value: its value must not consume the entry-name slot,
+    // and a second positional after the entry name gets no names.
+    assert.equal(values[9], '--skill')
+    assert.equal(values[10], 'alpha|beta')
+    assert.ok(!values[11]?.split('|').some((s) => s === 'alpha' || s === 'beta'))
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -596,6 +616,9 @@ test('the emitted bash template completes correctly in a real bash', { skip: !HA
         ['diff-second', 'dsh-skills-nexus', 'diff', 'alpha', ''],
         ['remove-yes', 'dsh-skills-nexus', 'remove', '--yes', ''],
         ['remove-second', 'dsh-skills-nexus', 'remove', 'alpha', ''],
+        ['enable-skill-flag', 'dsh-skills-nexus', 'enable', '--s'],
+        ['enable-skill-value', 'dsh-skills-nexus', 'enable', '--skill', 'brainstorming', ''],
+        ['enable-second', 'dsh-skills-nexus', 'enable', 'alpha', ''],
         ['update-flag', 'dsh-skills-nexus', 'update', '--x'],
         ['unknown-cmd', 'dsh-skills-nexus', 'nope', ''],
       ],
@@ -629,6 +652,11 @@ test('the emitted bash template completes correctly in a real bash', { skip: !HA
       // `--yes` is accepted before the names, so it must not consume the slot.
       'remove-yes|alpha beta',
       'remove-second|',
+      // --skill is offered, and its value is skipped by the positional count:
+      // the entry name slot is still open after `--skill brainstorming`.
+      'enable-skill-flag|--skill',
+      'enable-skill-value|alpha beta',
+      'enable-second|',
       'update-flag|',
       'unknown-cmd|',
     ])
@@ -705,6 +733,9 @@ test('the emitted zsh template completes correctly in a real zsh', { skip: !HAS_
         ['diff-second', 'dsh-skills-nexus', 'diff', 'alpha', ''],
         ['remove-yes', 'dsh-skills-nexus', 'remove', '--yes', ''],
         ['remove-second', 'dsh-skills-nexus', 'remove', 'alpha', ''],
+        ['enable-flags', 'dsh-skills-nexus', 'enable', '--'],
+        ['enable-skill-value', 'dsh-skills-nexus', 'enable', '--skill', 'brainstorming', ''],
+        ['enable-second', 'dsh-skills-nexus', 'enable', 'alpha', ''],
         ['update-flag', 'dsh-skills-nexus', 'update', '--x'],
         ['unknown-cmd', 'dsh-skills-nexus', 'nope', ''],
       ],
@@ -735,6 +766,11 @@ test('the emitted zsh template completes correctly in a real zsh', { skip: !HAS_
       // `--yes` is accepted before the names, so it must not consume the slot.
       'remove-yes|alpha beta',
       'remove-second|',
+      // The enable/disable flag set carries --skill, and the positional count
+      // skips its value exactly like --project-root's.
+      'enable-flags|-- --group --json --project --files --project-root --skill',
+      'enable-skill-value|alpha beta',
+      'enable-second|',
       'update-flag|-- --json',
       'unknown-cmd|',
     ])
@@ -798,6 +834,11 @@ test('the emitted fish template completes correctly in a real fish', { skip: !HA
       ['rollback-flag', 'dsh-skills-nexus rollback --', ['--json']],
       ['diff-skill', 'dsh-skills-nexus diff ', ['alpha', 'beta']],
       ['diff-flag', 'dsh-skills-nexus diff --', ['--stat']],
+      [
+        'enable-bare-dashes',
+        'dsh-skills-nexus enable --',
+        ['--files', '--group', '--json', '--project', '--project-root', '--skill'],
+      ],
       ['update-flag', 'dsh-skills-nexus update --x', []],
       ['unknown-cmd', 'dsh-skills-nexus nope ', []],
     ]
@@ -834,6 +875,9 @@ test('the emitted fish template completes correctly in a real fish', { skip: !HA
       ['remove-yes', 'dsh-skills-nexus remove --yes ', ['alpha', 'beta']],
       ['rollback-json', 'dsh-skills-nexus rollback --json ', ['alpha', 'beta']],
       ['diff-stat', 'dsh-skills-nexus diff --stat ', ['alpha', 'beta']],
+      // The --skill value is skipped by the names count, so the entry-name
+      // slot is still open after it.
+      ['enable-skill-value', 'dsh-skills-nexus enable --skill brainstorming ', ['alpha', 'beta']],
     ] as [string, string, string[]][]) {
       const got = runInFish(cmdline, stubDir, emptyDir, templatePath)
       for (const want of expected)
@@ -846,6 +890,7 @@ test('the emitted fish template completes correctly in a real fish', { skip: !HA
       ['rollback-second', 'dsh-skills-nexus rollback alpha '],
       ['diff-second', 'dsh-skills-nexus diff alpha '],
       ['remove-yes-second', 'dsh-skills-nexus remove --yes alpha '],
+      ['enable-skill-second', 'dsh-skills-nexus enable alpha --skill brainstorming '],
     ] as [string, string][]) {
       const got = runInFish(cmdline, stubDir, emptyDir, templatePath)
       for (const name of ['alpha', 'beta'])
