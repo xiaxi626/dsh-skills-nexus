@@ -781,6 +781,21 @@ test('add: two sources sharing one explicit name collide on the name (409)', asy
   assert.equal(data.name, 'shared-name')
 })
 
+test('add: a path conflict carries the actual occupant in data.occupant (409)', async () => {
+  // Same repo+subdir registered under a name override: the requested name
+  // has no entry, so the payload must expose who actually holds the path.
+  await seedClone('occupant-name', { path: 'some-repo' })
+  const res = await call('/skills-nexus/add', {
+    method: 'POST',
+    body: JSON.stringify({ url: 'github:owner/some-repo' }),
+  })
+  assert.equal(res.status, 409)
+  const { error, data } = errorsOf(res)
+  assert.equal(error, 'already-registered')
+  assert.equal(data.name, 'some-repo')
+  assert.equal(data.occupant, 'occupant-name')
+})
+
 test('add rejects a skills-root collision with 409', async () => {
   const colliding = paths.skillLinkPath('col-skill')
   await mkdir(colliding, { recursive: true })

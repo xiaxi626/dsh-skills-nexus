@@ -1,4 +1,4 @@
-import { hasEntry, readManifest } from '../../manifest.js'
+import { readManifest } from '../../manifest.js'
 import {
   getDefaultBranch,
   normalizeSubdir,
@@ -245,12 +245,37 @@ async function addOne(
   const path = normalizedSubdir ? `${repoBase}-${subdirLeaf}` : repoBase
   const skillName = sanitizeName(name ?? subdirLeaf ?? repoBase)
 
-  // Reject re-registration *before* touching the filesystem.
+  // Reject re-registration *before* touching the filesystem. `hasEntry`
+  // matches name OR path, so the occupant is resolved per conflict kind to
+  // keep the guidance actionable: a path conflict means the same repo+subdir
+  // is already registered under a *different* name (e.g. a prior --name
+  // override), and pointing update/remove at the requested name would send
+  // the caller after an entry that does not exist. The union of the three
+  // checks is exactly the old `hasEntry(name) || path match` rejection set.
   const manifest = await readManifest()
-  if (hasEntry(manifest, skillName) || manifest.skills.some((s) => s.path === path)) {
+  const nameOccupant = manifest.skills.find((s) => s.name === skillName)
+  if (nameOccupant !== undefined) {
     const message =
       `A skill named "${skillName}" is already registered (path "${path}").\n` +
       `Use "dsh-skills-nexus update ${skillName}" to refresh it, or "dsh-skills-nexus remove ${skillName}" first.`
+    io.error(message)
+    return { status: 'failed', code: 'already-registered', error: message }
+  }
+  const pathOccupant = manifest.skills.find((s) => s.path === path)
+  if (pathOccupant !== undefined) {
+    const message =
+      `Repo+subdir already registered as "${pathOccupant.name}" (path "${path}").\n` +
+      `Use "dsh-skills-nexus update ${pathOccupant.name}" to refresh it, or "dsh-skills-nexus remove ${pathOccupant.name}" first.`
+    io.error(message)
+    return { status: 'failed', code: 'already-registered', error: message }
+  }
+  // A requested name equal to an existing clone path stays rejected: entry
+  // identifiers must remain unambiguous for update/remove resolution.
+  const crossOccupant = manifest.skills.find((s) => s.path === skillName)
+  if (crossOccupant !== undefined) {
+    const message =
+      `The name "${skillName}" is already the clone path of entry "${crossOccupant.name}".\n` +
+      `Use --name to choose a different name.`
     io.error(message)
     return { status: 'failed', code: 'already-registered', error: message }
   }

@@ -85,6 +85,69 @@ test('re-adding a registered repo refuses without touching the existing clone', 
   await stat(dest) // clone still exists
 })
 
+test('a path conflict under a different name reports the actual occupant', async () => {
+  const src = join(home, 'src-occupant')
+  await makeSkillRepo(src)
+  const url = `${fileUrl(src)}#main`
+  const err: string[] = []
+  const io = {
+    interactive: false,
+    confirm: () => Promise.resolve(false),
+    progress: () => {},
+    emit: () => {},
+    error: (line: string) => {
+      err.push(line)
+    },
+  }
+
+  // Register under an explicit override; the clone path stays repo-based.
+  assert.equal(await add.add([url, '--name', 'custom-occupant']), 0)
+
+  // Re-adding without the override derives a different name but the same
+  // path: the refusal must point at the occupant, not the requested name
+  // (which has no entry to update/remove).
+  err.length = 0
+  assert.equal(await add.add([url], io), 1)
+  const text = err.join('')
+  assert.match(text, /already registered as "custom-occupant"/)
+  assert.match(text, /update custom-occupant/)
+  assert.match(text, /remove custom-occupant/)
+  const m = await manifest.readManifest()
+  assert.equal(m.skills.filter((s) => s.path === 'src-occupant').length, 1)
+
+  // A pure name conflict keeps the original wording: the requested name IS
+  // the occupant, so update/remove guidance stays actionable as-is.
+  err.length = 0
+  assert.equal(await add.add([url, '--name', 'custom-occupant'], io), 1)
+  assert.match(err.join(''), /A skill named "custom-occupant" is already registered/)
+})
+
+test('a requested name equal to an existing clone path stays rejected', async () => {
+  // hasEntry's name-or-path semantics rejected this cross collision before
+  // the occupant split; the rejection must survive (identifiers stay
+  // unambiguous for update/remove) and now names the holder of the path.
+  const src = join(home, 'src-cross')
+  await makeSkillRepo(src)
+  assert.equal(await add.add([`${fileUrl(src)}#main`, '--name', 'cross-holders']), 0)
+
+  const other = join(home, 'src-cross-other')
+  await makeSkillRepo(other)
+  const err: string[] = []
+  const io = {
+    interactive: false,
+    confirm: () => Promise.resolve(false),
+    progress: () => {},
+    emit: () => {},
+    error: (line: string) => {
+      err.push(line)
+    },
+  }
+  // The first entry's clone path is 'src-cross'; requesting it as a name
+  // for a different repo must refuse.
+  assert.equal(await add.add([`${fileUrl(other)}#main`, '--name', 'src-cross'], io), 1)
+  assert.match(err.join(''), /already the clone path of entry "cross-holders"/)
+})
+
 /* ------------------------------------------------------------------ */
 /* Collection repos (`skills/<name>/SKILL.md` layout + root docs)      */
 /* ------------------------------------------------------------------ */
