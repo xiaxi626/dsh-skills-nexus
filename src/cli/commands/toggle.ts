@@ -1,7 +1,8 @@
 import { readdir } from 'node:fs/promises'
 import { readManifest, findEntry } from '../../manifest.js'
 import { repoDir, OFFICIAL_SKILLS_DIR, skillLinkPath } from '../../paths.js'
-import { linkSkill, unlinkIfPointsInto, isEntryEnabled, expectedLinks } from '../../link.js'
+import { linkSkill, unlinkIfPointsInto, isEntryEnabled, entryLinks, expectedLinks, hasCollision } from '../../link.js'
+import type { EntryLink } from '../../link.js'
 import { entrySkillDir } from '../../external.js'
 import { previewSkills } from '../../resolve.js'
 import { toggleEntrySkill, SkillToggleError } from '../../toggle-skill.js'
@@ -207,7 +208,9 @@ async function toggleByGroup(
 /**
  * The per-name path of the human (non-`--json`) run: short-circuits on the
  * already-in-that-state cases so no lock is taken, and shares `toggleLinks`
- * with the JSON path.
+ * with the JSON path. "Already enabled" is a reconciliation, not a bare state
+ * probe (#22): an entry that lost some of its links is still enabled, and
+ * enable must fill the gap instead of reporting a no-op.
  *
  * Returns 0 on success (including a no-op) and 1 on failure, exactly the
  * per-item verdict the old single-name command returned.
@@ -219,7 +222,7 @@ async function toggleOne(
   io: OpsIO,
 ): Promise<number> {
   const alreadyEnabled = await isEntryEnabled(entry)
-  if (enabled && alreadyEnabled) {
+  if (enabled && alreadyEnabled && (await missingExpectedLinks(entry)).length === 0) {
     io.emit(`Skill "${name}" is already enabled.\n`)
     return 0
   }
@@ -257,7 +260,10 @@ async function toggleJson(names: string[], enabled: boolean, io: OpsIO): Promise
       continue
     }
     const wasEnabled = await isEntryEnabled(entry)
-    if (wasEnabled === enabled) {
+    // Same reconciliation as toggleOne: enable on an enabled entry is only a
+    // no-op when no expected link is missing; otherwise it fills the gap and
+    // reports `toggled` with linksChanged = the number of links repaired.
+    if (wasEnabled === enabled && (!enabled || (await missingExpectedLinks(entry)).length === 0)) {
       results.push({ name, action: action(enabled), status: 'already', enabled, linksChanged: 0, already: true })
       continue
     }
@@ -284,6 +290,20 @@ async function toggleJson(names: string[], enabled: boolean, io: OpsIO): Promise
 
 function action(enabled: boolean): 'enable' | 'disable' {
   return enabled ? 'enable' : 'disable'
+}
+
+/**
+ * The expected links an entry does not have yet (#22 reconcile input). Empty
+ * when the clone yields no skills — there is nothing to rebuild, so the
+ * caller keeps its already-in-that-state verdict. Shares the naming invariant
+ * and exclusion helper with every other rebuild path, and the same
+ * "fill only what is missing" semantics as the HTTP toggleEntryCore.
+ */
+async function missingExpectedLinks(entry: SkillEntry): Promise<EntryLink[]> {
+  const skills = await previewSkills(entrySkillDir(entry))
+  if (skills.length === 0) return []
+  const present = new Set((await entryLinks(entry)).map((l) => l.name))
+  return expectedLinks(entry, skills).filter((l) => !present.has(l.name))
 }
 
 /**
@@ -382,11 +402,20 @@ async function toggleLinks(
   let count = 0
 
   if (enabled) {
-    // Re-discover skills and create the expected links — the shared helper
-    // applies the naming invariant AND the user's per-skill exclusions, so a
-    // whole-entry enable never resurrects an excluded skill.
+    // Re-discover skills and fill only the MISSING expected links — the
+    // shared helper applies the naming invariant AND the user's per-skill
+    // exclusions, so a whole-entry enable never resurrects an excluded skill.
+    // Existing links are left untouched and a real directory/file in a link
+    // slot is skipped with a warning (the CLI dialect of the HTTP route's
+    // 409 collision guard — never overwrite user content).
     const skills = await previewSkills(skillRoot)
+    const existing = new Set((await entryLinks(entry)).map((l) => l.name))
     for (const l of expectedLinks(entry, skills)) {
+      if (existing.has(l.name)) continue
+      if (await hasCollision(l.name)) {
+        io.error(`  ⚠ "${l.name}" is occupied by a real directory or file — skipped`)
+        continue
+      }
       try {
         await linkSkill(l.name, l.target)
         count++

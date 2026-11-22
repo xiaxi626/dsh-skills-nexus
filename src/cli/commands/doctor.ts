@@ -14,6 +14,9 @@ import {
   findOrphanLinks,
 } from '../../health.js'
 import type { OrphanLink, UpdateCheck } from '../../health.js'
+import { entryLinks, expectedLinkNames } from '../../link.js'
+import { entrySkillDir } from '../../external.js'
+import { previewSkills } from '../../resolve.js'
 import { cliIO } from '../../ops-io.js'
 import type { OpsIO } from '../../ops-io.js'
 import type { Manifest, SkillEntry } from '../../types.js'
@@ -326,15 +329,38 @@ async function checkRoots(): Promise<DoctorCheck> {
   return finalize('roots', detail, issues)
 }
 
-/** `symlinks` — per-entry diagnosis via health.diagnoseEntry(). */
+/**
+ * `symlinks` — per-entry diagnosis via health.diagnoseEntry(), plus an
+ * expected-set reconciliation for the entries it calls 'ok' (#22): 'ok' only
+ * proves that *at least one* link survives, so a multi-skill entry that lost
+ * some of its links used to pass silently. The expected set comes from the
+ * same naming invariant + exclusion helper the rebuild paths use, and a
+ * non-empty difference is a warn with `enable` as the fix (enable reconciles
+ * partial loss instead of short-circuiting on "already enabled").
+ */
 async function checkSymlinks(entries: SkillEntry[]): Promise<DoctorCheck> {
   const issues: DoctorIssue[] = []
   let ok = 0
   let disabled = 0
   for (const e of entries) {
     const d = await diagnoseEntry(e)
-    if (d === 'ok') ok++
-    else if (d === 'disabled') disabled++
+    if (d === 'ok') {
+      ok++
+      const missing = await missingLinks(e)
+      if (missing.names.length > 0) {
+        const expected = missing.expected
+        const shown = missing.names.slice(0, 5).join(', ')
+        issues.push({
+          severity: 'warn',
+          code: 'missing-links',
+          name: e.name,
+          detail:
+            `${expected - missing.names.length} of ${expected} links present, missing: ${shown}` +
+            (missing.names.length > 5 ? `, +${missing.names.length - 5} more` : ''),
+          fix: `dsh-skills-nexus enable ${e.name}`,
+        })
+      }
+    } else if (d === 'disabled') disabled++
     else {
       issues.push({
         severity: 'error',
@@ -355,6 +381,22 @@ async function checkSymlinks(entries: SkillEntry[]): Promise<DoctorCheck> {
       ? 'no entries'
       : `${ok}/${entries.length} links ok${disabled > 0 ? `, ${disabled} disabled` : ''}`
   return finalize('symlinks', detail, issues)
+}
+
+/**
+ * The expected links an 'ok' entry is missing, by name. An empty discovery
+ * (clone gone or yielding no skills) skips the comparison — that territory
+ * belongs to missing-target / git-sanity, and guessing an expected set from
+ * nothing would only produce noise. Zero links at all never reaches here:
+ * diagnoseEntry calls that 'disabled', a normal state indistinguishable from
+ * an explicit disable (Case B, deliberately not warned).
+ */
+async function missingLinks(e: SkillEntry): Promise<{ names: string[]; expected: number }> {
+  const skills = await previewSkills(entrySkillDir(e))
+  if (skills.length === 0) return { names: [], expected: 0 }
+  const expected = expectedLinkNames(e, skills)
+  const present = new Set((await entryLinks(e)).map((l) => l.name))
+  return { names: expected.filter((n) => !present.has(n)), expected: expected.length }
 }
 
 /** `orphan-repo` — leftover clones under repos/ (warn). */
@@ -600,6 +642,7 @@ const STATUS_LABEL: Record<CheckStatus, string> = {
 
 const DEFAULT_DESC: Record<string, string> = {
   'missing-target': 'symlink points to missing directory',
+  'missing-links': 'some expected skill links are missing',
   'orphan-repo': 'not referenced by any manifest entry',
   'dangling-link': 'symlink points to a missing directory (no manifest entry)',
   'orphan-link': 'symlink has no matching manifest entry',

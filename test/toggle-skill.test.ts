@@ -266,3 +266,75 @@ test('--json maps an unknown skill to not-found and a single-skill entry to fail
   assert.equal(failed.results[0].status, 'failed')
   assert.match(failed.results[0].error, /single skill/)
 })
+
+/* ------------------------------------------------------------------ */
+/* Whole-entry enable reconciliation (#22)                             */
+/* ------------------------------------------------------------------ */
+
+test('enable fills a partially lost link set instead of reporting already', async () => {
+  const src = join(home, 'src-recon')
+  await makeMultiSkillRepo(src, ['r-one', 'r-two', 'r-three'])
+  assert.equal(await add.add([`${fileUrl(src)}#main`, '--yes']), 0)
+  await link.unlinkSkill('skill-r-two')
+
+  const { io, out } = captureIO()
+  assert.equal(await toggle.toggle(['src-recon'], true, io), 0)
+  assert.match(out.join(''), /Enabled "src-recon" — 1 symlink\(s\) created/)
+  for (const n of ['r-one', 'r-two', 'r-three']) {
+    assert.equal(await exists(paths.skillLinkPath(`skill-${n}`)), true)
+  }
+
+  // With the set complete again, enable is a true no-op.
+  const second = captureIO()
+  assert.equal(await toggle.toggle(['src-recon'], true, second.io), 0)
+  assert.match(second.out.join(''), /already enabled/)
+})
+
+test('enable --json reports the reconcile as toggled with linksChanged = repaired count', async () => {
+  await link.unlinkSkill('skill-r-three')
+  const first = captureIO()
+  assert.equal(await toggle.toggle(['src-recon', '--json'], true, first.io), 0)
+  const report = JSON.parse(first.out.join(''))
+  assert.deepEqual(report.results, [
+    { name: 'src-recon', action: 'enable', status: 'toggled', enabled: true, linksChanged: 1, already: false },
+  ])
+  assert.deepEqual(report.summary, { toggled: 1, already: 0, failed: 0 })
+
+  const second = captureIO()
+  assert.equal(await toggle.toggle(['src-recon', '--json'], true, second.io), 0)
+  const again = JSON.parse(second.out.join(''))
+  assert.equal(again.results[0].status, 'already')
+  assert.equal(again.results[0].linksChanged, 0)
+  assert.equal(again.results[0].enabled, true)
+})
+
+test('enable never overwrites a real directory occupying a missing link slot', async () => {
+  const src = join(home, 'src-coll')
+  await makeMultiSkillRepo(src, ['c-one', 'c-two'])
+  assert.equal(await add.add([`${fileUrl(src)}#main`, '--yes']), 0)
+  await link.unlinkSkill('skill-c-two')
+  const slot = paths.skillLinkPath('skill-c-two')
+  await mkdir(slot, { recursive: true })
+  await writeFile(join(slot, 'precious.txt'), 'user content', 'utf8')
+
+  const { io, err } = captureIO()
+  assert.equal(await toggle.toggle(['src-coll'], true, io), 0)
+  assert.match(err.join(''), /"skill-c-two" is occupied by a real directory or file/)
+  // User content untouched; the healthy link is left as it was.
+  assert.equal(await exists(join(slot, 'precious.txt')), true)
+  assert.equal(await exists(paths.skillLinkPath('skill-c-one')), true)
+})
+
+test('the reconcile fills missing links without resurrecting an excluded skill', async () => {
+  const src = join(home, 'src-recon-ex')
+  await makeMultiSkillRepo(src, ['e-one', 'e-two', 'e-three'])
+  assert.equal(await add.add([`${fileUrl(src)}#main`, '--yes']), 0)
+  assert.equal(await toggle.toggle(['src-recon-ex', '--skill', 'skill-e-three'], false), 0)
+  await link.unlinkSkill('skill-e-two')
+
+  assert.equal(await toggle.toggle(['src-recon-ex'], true), 0)
+  assert.equal(await exists(paths.skillLinkPath('skill-e-one')), true)
+  assert.equal(await exists(paths.skillLinkPath('skill-e-two')), true)
+  assert.equal(await exists(paths.skillLinkPath('skill-e-three')), false)
+  assert.deepEqual((await entryOf('src-recon-ex')).excluded, ['skill-e-three'])
+})
